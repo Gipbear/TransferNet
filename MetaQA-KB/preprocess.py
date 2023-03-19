@@ -69,7 +69,7 @@ def encode_qa(args, vocab):
         for hop in hops:
             with open(os.path.join(args.input_dir, (hop + '/vanilla/qa_%s.txt'%(dataset)))) as f:
                 qas = f.readlines()
-                for qa in tqdm(qas):
+                for qa in tqdm(qas, desc=f"preprocess {dataset:<6} | {hop} | qa"):
                     question, answers = qa.strip().split('\t')
                     topic_entity = re.search(pattern, question).group(1)
                     if args.replace_es:
@@ -91,11 +91,14 @@ def encode_qa(args, vocab):
     print('size of test data: {}'.format(len(test_set)))
     print('size of valid data: {}'.format(len(val_set)))
     print('Build question vocabulary')
+    # 使用 counter 统计单词在问句中出现的次数
     word_counter = Counter()
     for qa in tqdm(train_set):
+        # 将问题语句分词，中文可以考虑换 jieba
         tokens = word_tokenize(qa['question'].lower())
         word_counter.update(tokens)
     stopwords = set()
+    # 合适的词加入 word2id 中，超过一定数量的词则删除
     for w, c in word_counter.items():
         if w and c >= args.min_cnt:
             add_item_to_x2id(w, vocab['word2id'])
@@ -106,7 +109,7 @@ def encode_qa(args, vocab):
     with open(os.path.join(args.output_dir, 'vocab.json'), 'w') as f:
         json.dump(vocab, f, indent=2)
 
-    for name, dataset in zip(('train', 'val', 'test'), (train_set, val_set, test_set)):
+    for name, dataset in tqdm(zip(('train', 'val', 'test'), (train_set, val_set, test_set)), desc="save encode result as pkl"):
         print('Encode {} set'.format(name))
         outputs = encode_dataset(vocab, dataset)
         print('shape of questions, topic_entities, answers, hops:')
@@ -120,8 +123,9 @@ def encode_dataset(vocab, dataset):
     topic_entities = []
     answers = []
     hops = []
-    for qa in tqdm(dataset):
+    for qa in tqdm(dataset, desc="    vectorize input data"):
         assert len(qa['topic_entity']) > 0
+        # 根据 word2id 字典，将问题转化为数字，其余entity、answer、hops 类似
         questions.append([vocab['word2id'].get(w, vocab['word2id']['<UNK>']) for w in word_tokenize(qa['question'].lower())])
         topic_entities.append([vocab['entity2id'][qa['topic_entity']]])
         answers.append([vocab['entity2id'][answer] for answer in qa['answers']])
@@ -130,14 +134,14 @@ def encode_dataset(vocab, dataset):
     # question padding
     max_len = max(len(q) for q in questions)
     print('max question length:{}'.format(max_len))
-    for q in questions:
+    for q in tqdm(questions, desc="    padding question"):
         while len(q) < max_len:
             q.append(vocab['word2id']['<PAD>'])
     questions = np.asarray(questions, dtype=np.int32)
     topic_entities = np.asarray(topic_entities, dtype=np.int32)
     max_len = max(len(a) for a in answers)
     print('max answer length:{}'.format(max_len))
-    for a in answers:
+    for a in tqdm(answers, desc="    padding answer"):
         while len(a) < max_len:
             a.append(DUMMY_ENTITY_ID)
     answers = np.asarray(answers, dtype=np.int32)
