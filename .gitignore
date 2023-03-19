@@ -1,4 +1,4 @@
 *.cache
 *.sublime-workspace
 *.sublime-project
-
+data/
