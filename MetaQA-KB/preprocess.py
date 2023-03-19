@@ -111,7 +111,7 @@ def encode_qa(args, vocab):
     print('number of word in dict: {}'.format(len(vocab['word2id'])))
     with open(os.path.join(args.output_dir, 'vocab.json'), 'w') as f:
         json.dump(vocab, f, indent=2)
-    
+
     for name, dataset in zip(('train', 'val', 'test'), (train_set, val_set, test_set)):
         print('Encode {} set'.format(name))
         outputs = encode_dataset(vocab, dataset)
@@ -120,7 +120,7 @@ def encode_qa(args, vocab):
             for o in outputs:
                 print(o.shape)
                 pickle.dump(o, f)
-    
+
 def encode_dataset(vocab, dataset):
     questions = []
     topic_entities = []
