@@ -1,3 +1,4 @@
+import tqdm
 import pickle
 import argparse
 import numpy as np
@@ -9,7 +10,8 @@ def main():
     args = parser.parse_args()
     
     glove = {}
-    for line in open(args.txt, encoding='latin-1'):
+    file = open(args.txt, encoding='latin-1')
+    for line in tqdm(file, desc="parse glove"):
         w, *vector = line.strip().split(' ')
         vector = list(map(float, vector))
         vector = np.asarray(vector)
