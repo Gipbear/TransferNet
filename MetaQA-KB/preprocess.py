@@ -24,11 +24,13 @@ def encode_kb(args, vocab):
     for line in tqdm(kb):
         s, r, o = line.strip().split('|')
         r_inv = r + '_inv'
+        # 将 x 编码为数字 id，数字是按照读取顺序编码
         add_item_to_x2id(s, vocab['entity2id'])
         add_item_to_x2id(o, vocab['entity2id'])
         add_item_to_x2id(r, vocab['relation2id'])
         add_item_to_x2id(r_inv, vocab['relation2id'])
         s_id, r_id, o_id, r_inv_id = vocab['entity2id'][s], vocab['relation2id'][r], vocab['entity2id'][o], vocab['relation2id'][r_inv]
+        # 按 id 存储 对应关系 s-o, o-s, r-r_inv
         Msubj.append([idx, s_id])
         Mobj.append([idx, o_id])
         Mrel.append([idx, r_id])
@@ -38,17 +40,6 @@ def encode_kb(args, vocab):
         Mrel.append([idx, r_inv_id])
         idx += 1
         
-    # self relation
-    # r = '<SELF_REL>'
-    # add_item_to_x2id(r, vocab['relation2id'])
-    # r_id = vocab['relation2id'][r]
-    # for i in vocab['entity2id'].values():
-    #     Msubj.append([idx, i])
-    #     Mobj.append([idx, i])
-    #     Mrel.append([idx, r_id])
-    #     idx += 1
-
-
     Tsize = len(Msubj)
     Esize = len(vocab['entity2id'])
     Rsize = len(vocab['relation2id'])
@@ -73,17 +64,20 @@ def encode_qa(args, vocab):
     hops = ['%d-hop'%((int)(num)) for num in args.num_hop.split(',')]
     datasets = []
     for dataset in ['train', 'test', 'dev']:
+        # 预处理 qa 文件，表示为 json 格式
         data = []
         for hop in hops:
             with open(os.path.join(args.input_dir, (hop + '/vanilla/qa_%s.txt'%(dataset)))) as f:
                 qas = f.readlines()
-                for qa in qas:
+                for qa in tqdm(qas):
                     question, answers = qa.strip().split('\t')
                     topic_entity = re.search(pattern, question).group(1)
                     if args.replace_es:
+                        # topic entity 使用 E_S 代替
                         question = re.sub(r'\[.*\]', 'E_S', question)
                     else:
                         question = question.replace('[', '').replace(']', '')
+                    # answer 组织成列表
                     answers = answers.split('|')
                     assert topic_entity in vocab['entity2id']
                     for answer in answers:
