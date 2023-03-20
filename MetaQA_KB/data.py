@@ -13,11 +13,11 @@ def load_vocab(path):
     return vocab
 
 def collate(batch):
+    # ? 自定义对 patch 的组装函数，取每个 batch 的前三个
     batch = list(zip(*batch))
     question, topic_entity, answer = list(map(torch.stack, batch[:3]))
     hop = torch.LongTensor(batch[3])
     return question, topic_entity, answer, hop
-
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, inputs):

@@ -59,22 +59,22 @@ python pickle_glove.py --txt </path/to/840B.300d.txt> --pt </output/file/name>
 
 1. Preprocess
 ```shell
-python -m MetaQA-KB.preprocess --input_dir <PATH/TO/METAQA> --output_dir <PATH/TO/PROCESSED/FILES>
+python -m MetaQA_KB.preprocess --input_dir <PATH/TO/METAQA> --output_dir <PATH/TO/PROCESSED/FILES>
 ```
 
 2. Train
 ```shell
-python -m MetaQA-KB.train --glove_pt <PATH/TO/GLOVE/PICKLE> --input_dir <PATH/TO/PROCESSED/FILES> --save_dir <PATH/TO/CHECKPOINT>
+python -m MetaQA_KB.train --glove_pt <PATH/TO/GLOVE/PICKLE> --input_dir <PATH/TO/PROCESSED/FILES> --save_dir <PATH/TO/CHECKPOINT>
 ```
 
 3. Predict on the test set
 ```shell
-python -m MetaQA-KB.predict --input_dir <PATH/TO/PROCESSED/FILES> --ckpt <PATH/TO/CHECKPOINT> --mode test
+python -m MetaQA_KB.predict --input_dir <PATH/TO/PROCESSED/FILES> --ckpt <PATH/TO/CHECKPOINT> --mode test
 ```
 
 4. Visualize the reasoning process. It will enter an IPython environment after showing the information of each sample. You can print more variables that you are insterested in. To stop the process, you need to quit the IPython by `Ctrl+D` and then kill the loop by `Ctrl+C` immediately.
 ```shell
-python -m MetaQA-KB.predict --input_dir <PATH/TO/PROCESSED/FILES> --ckpt <PATH/TO/CHECKPOINT> --mode vis
+python -m MetaQA_KB.predict --input_dir <PATH/TO/PROCESSED/FILES> --ckpt <PATH/TO/CHECKPOINT> --mode vis
 ```
 
 ### MetaQA-Text
