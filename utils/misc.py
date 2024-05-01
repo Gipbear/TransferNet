@@ -67,13 +67,14 @@ def invert_dict(d):
     return {v: k for k, v in d.items()}
 
 def load_glove(glove_pt, idx_to_token):
+    """使用 glove 对 idx_to_token 进行编码获得基于预训练模型的编码矩阵"""
     glove = pickle.load(open(glove_pt, 'rb'))
     dim = len(glove['the'])
     matrix = []
     for i in range(len(idx_to_token)):
         token = idx_to_token[i]
         tokens = token.split()
-        if len(tokens) > 1:
+        if len(tokens) > 1:  # 词语就对词向量取均值获得 token
             v = np.zeros((dim,))
             for token in tokens:
                 v = v + glove.get(token, glove['the'])

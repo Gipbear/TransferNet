@@ -14,6 +14,7 @@ import re
 
 
 def encode_kb(args, vocab):
+    """对 movie kb 进行编码"""
     with open(os.path.join(args.input_dir, 'kb/kb.txt')) as f:
         kb = f.readlines()
     
@@ -119,6 +120,7 @@ def encode_qa(args, vocab):
                 pickle.dump(o, f)
 
 def encode_dataset(vocab, dataset):
+    """将数据集根据 vocab map 映射为数字并 padding 编码输出 tensor"""
     questions = []
     topic_entities = []
     answers = []

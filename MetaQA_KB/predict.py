@@ -88,7 +88,7 @@ def main():
     vocab = val_loader.vocab
 
     model = TransferNet(args, args.dim_word, args.dim_hidden, vocab)
-    missing, unexpected = model.load_state_dict(torch.load(args.ckpt), strict=False)
+    missing, unexpected = model.load_state_dict(torch.load(args.ckpt, map_location=torch.device(device)), strict=False)
     if missing:
         print("Missing keys: {}".format("; ".join(missing)))
     if unexpected:

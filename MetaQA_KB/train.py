@@ -71,6 +71,7 @@ def train(args):
 
             question, topic_entity, answer, hop = batch
             question = question.to(device)
+            # 对应文中实体编码仅将 topic_entity 初始化为 1
             topic_entity = idx_to_one_hot(topic_entity, len(vocab['entity2id'])).to(device)
             answer = idx_to_one_hot(answer, len(vocab['entity2id'])).to(device)
             answer[:, 0] = 0
