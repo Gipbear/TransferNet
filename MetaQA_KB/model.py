@@ -42,7 +42,7 @@ class TransferNet(nn.Module):
 
     def forward(self, questions, e_s, answers=None, hop=None):
         question_lens = questions.size(1) - questions.eq(0).long().sum(dim=1) # 0 means <PAD>
-        q_word_emb = self.word_dropout(self.word_embeddings(questions)) # [bsz, max_q, dim_hidden]
+        q_word_emb = self.word_dropout(self.word_embeddings(questions)) # [bsz, max_q, dim_word]
         q_word_h, q_embeddings, q_hn = self.question_encoder(q_word_emb, question_lens) # [bsz, max_q, dim_h], [bsz, dim_h], [num_layers, bsz, dim_h]
 
         device = q_word_h.device
@@ -54,14 +54,14 @@ class TransferNet(nn.Module):
         ent_probs = []
         for t in range(self.num_steps):
             cq_t = self.step_encoders[t](q_embeddings) # [bsz, dim_h]
-            q_logits = torch.sum(cq_t.unsqueeze(1) * q_word_h, dim=2) # [bsz, max_q]
+            q_logits = torch.sum(cq_t.unsqueeze(1) * q_word_h, dim=2) # [bsz, max_q] 计算主题词的概率
             q_dist = torch.softmax(q_logits, 1).unsqueeze(1) # [bsz, 1, max_q]
             word_attns.append(q_dist.squeeze(1))
-            ctx_h = (q_dist @ q_word_h).squeeze(1) # [bsz, dim_h]
-            rel_dist = torch.softmax(self.rel_classifier(ctx_h), 1) # [bsz, num_relations]
+            ctx_h = (q_dist @ q_word_h).squeeze(1) # [bsz, dim_h] 根据主题词的概率重新计算问句的表示
+            rel_dist = torch.softmax(self.rel_classifier(ctx_h), 1) # [bsz, num_relations] 分类器计算关系概率
             rel_probs.append(rel_dist)
 
-            last_e = self.follow(last_e, rel_dist)
+            last_e = self.follow(last_e, rel_dist)  # 根据主题词和关系转移 -> 新的主题词
 
             # reshape >1 scores to 1 in a differentiable way
             m = last_e.gt(1).float()
@@ -75,16 +75,16 @@ class TransferNet(nn.Module):
                 prev_prev_ent_prob = ent_probs[-2] if len(ent_probs)>=2 else e_s
                 # in our vocabulary, indices of inverse relations are adjacent. e.g., director:0, director_inv:1
                 m = torch.zeros((bsz,1)).to(device)
-                m[(torch.abs(prev_rel-curr_rel)==1) & (torch.remainder(torch.min(prev_rel,curr_rel),2)==0)] = 1
+                m[(torch.abs(prev_rel-curr_rel)==1) & (torch.remainder(torch.min(prev_rel,curr_rel),2)==0)] = 1  # 根据 rel 与 inv_rel 相邻的关系筛选
                 ent_m = m.float() * prev_prev_ent_prob.gt(0.9).float()
-                last_e = (1-ent_m) * last_e
+                last_e = (1-ent_m) * last_e  # 关系相反，概率都很大的实体概率置为 0
 
             ent_probs.append(last_e)
 
         hop_res = torch.stack(ent_probs, dim=1) # [bsz, num_hop, num_ent]
-        hop_logit = self.hop_selector(q_embeddings)
+        hop_logit = self.hop_selector(q_embeddings)  # 根据问题编码预测跳数
         hop_attn = torch.softmax(hop_logit, dim=1) # [bsz, num_hop]
-        last_e = torch.sum(hop_res * hop_attn.unsqueeze(2), dim=1) # [bsz, num_ent]
+        last_e = torch.sum(hop_res * hop_attn.unsqueeze(2), dim=1) # [bsz, num_ent] 根据条数的注意力得到最后的实体编码
 
         # Specifically for MetaQA: for 2-hop questions, topic entity is excluded from answer
         m = hop_attn.argmax(dim=1).eq(1).float().unsqueeze(1) * e_s
@@ -103,7 +103,7 @@ class TransferNet(nn.Module):
             }
         else:
             # Distance loss
-            weight = answers * 9 + 1
+            weight = answers * 9 + 1  # ? 这个 9 哪里来的，跟经验值调试的吗
             loss_score = torch.mean(weight * torch.pow(last_e - answers, 2))
             loss = {'loss_score': loss_score}
 

@@ -127,13 +127,13 @@ def encode_dataset(vocab, dataset):
     hops = []
     for qa in tqdm(dataset, desc="    vectorize input data"):
         assert len(qa['topic_entity']) > 0
-        # 根据 word2id 字典，将问题转化为数字，其余entity、answer、hops 类似
+        # 根据 word2id 字典，将问题分词后转化为数字，其余entity、answer、hops 类似
         questions.append([vocab['word2id'].get(w, vocab['word2id']['<UNK>']) for w in word_tokenize(qa['question'].lower())])
         topic_entities.append([vocab['entity2id'][qa['topic_entity']]])
         answers.append([vocab['entity2id'][answer] for answer in qa['answers']])
         hops.append(qa['hop'])
         
-    # question padding
+    # question 和 answer 进行 padding
     max_len = max(len(q) for q in questions)
     print('max question length:{}'.format(max_len))
     for q in tqdm(questions, desc="    padding question"):

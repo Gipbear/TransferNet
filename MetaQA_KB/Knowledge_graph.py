@@ -19,8 +19,9 @@ class KnowledgeGraph(nn.Module):
         Tsize = Msubj.size()[0]
         Esize = len(self.entity2id)
         Rsize = len(self.relation2id)
-        self.Msubj = torch.sparse.FloatTensor(Msubj.t(), torch.FloatTensor([1] * Tsize), torch.Size([Tsize, Esize]))
-        self.Mobj = torch.sparse.FloatTensor(Mobj.t(), torch.FloatTensor([1] * Tsize), torch.Size([Tsize, Esize]))
-        self.Mrel = torch.sparse.FloatTensor(Mrel.t(), torch.FloatTensor([1] * Tsize), torch.Size([Tsize, Rsize]))
+        # 生成混合张量，在对应 t_id, e/r_id 上使用 1 进行标记
+        self.Msubj = torch.sparse_coo_tensor(Msubj.t(), torch.FloatTensor([1] * Tsize), torch.Size([Tsize, Esize]))
+        self.Mobj = torch.sparse_coo_tensor(Mobj.t(), torch.FloatTensor([1] * Tsize), torch.Size([Tsize, Esize]))
+        self.Mrel = torch.sparse_coo_tensor(Mrel.t(), torch.FloatTensor([1] * Tsize), torch.Size([Tsize, Rsize]))
         self.num_entities = len(self.entity2id)
  
