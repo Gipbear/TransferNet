@@ -73,10 +73,11 @@ def main():
     parser.add_argument('--input_dir', default = './input')
     parser.add_argument('--ckpt', required = True)
     parser.add_argument('--mode', default='val', choices=['val', 'vis', 'test'])
+    parser.add_argument('--bert_name', default='bert-base-uncased', choices=['roberta-base', 'bert-base-uncased'])
     args = parser.parse_args()
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    ent2id, rel2id, triples, train_loader, val_loader = load_data(args.input_dir, 16)
+    ent2id, rel2id, triples, train_loader, val_loader = load_data(args.input_dir, args.bert_name, 16)
 
     model = TransferNet(args, ent2id, rel2id, triples)
     missing, unexpected = model.load_state_dict(torch.load(args.ckpt), strict=False)

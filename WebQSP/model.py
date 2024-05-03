@@ -15,11 +15,11 @@ class TransferNet(nn.Module):
         Tsize = len(triples)
         Esize = len(ent2id)
         idx = torch.LongTensor([i for i in range(Tsize)])
-        self.Msubj = torch.sparse.FloatTensor(
+        self.Msubj = torch.sparse_coo_tensor(
             torch.stack((idx, triples[:,0])), torch.FloatTensor([1] * Tsize), torch.Size([Tsize, Esize]))
-        self.Mobj = torch.sparse.FloatTensor(
+        self.Mobj = torch.sparse_coo_tensor(
             torch.stack((idx, triples[:,2])), torch.FloatTensor([1] * Tsize), torch.Size([Tsize, Esize]))
-        self.Mrel = torch.sparse.FloatTensor(
+        self.Mrel = torch.sparse_coo_tensor(
             torch.stack((idx, triples[:,1])), torch.FloatTensor([1] * Tsize), torch.Size([Tsize, num_relations]))
         print('triple size: {}'.format(Tsize))
 
