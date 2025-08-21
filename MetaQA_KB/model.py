@@ -43,7 +43,7 @@ class TransferNet(nn.Module):
     def forward(self, questions, e_s, answers=None, hop=None):
         question_lens = questions.size(1) - questions.eq(0).long().sum(dim=1) # 0 means <PAD>
         q_word_emb = self.word_dropout(self.word_embeddings(questions)) # [bsz, max_q, dim_word]
-        q_word_h, q_embeddings, q_hn = self.question_encoder(q_word_emb, question_lens) # [bsz, max_q, dim_h], [bsz, dim_h], [num_layers, bsz, dim_h]
+        q_word_h, q_embeddings, q_hn = self.question_encoder(q_word_emb, question_lens.cpu()) # [bsz, max_q, dim_h], [bsz, dim_h], [num_layers, bsz, dim_h]
 
         device = q_word_h.device
         bsz = q_word_h.size(0)
