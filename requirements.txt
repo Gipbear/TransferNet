@@ -1,0 +1,6 @@
+ipython
+nltk
+numpy
+torch
+tqdm
+transformers
