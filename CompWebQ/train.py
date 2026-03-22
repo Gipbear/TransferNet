@@ -9,8 +9,7 @@ from utils.misc import MetricLogger, batch_device
 from .data import load_data
 from .model import TransferNet
 from .predict import validate
-from transformers import get_linear_schedule_with_warmup
-from torch.optim import AdamW
+from transformers import AdamW, get_linear_schedule_with_warmup
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)-8s %(message)s')
 logFormatter = logging.Formatter('%(asctime)s %(levelname)-8s %(message)s')
