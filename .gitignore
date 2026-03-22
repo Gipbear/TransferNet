@@ -4,3 +4,5 @@
 *.pyc
 data/
 .vscode/
+unsloth_compiled_cache
+models
