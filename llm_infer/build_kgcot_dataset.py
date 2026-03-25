@@ -35,22 +35,14 @@ import logging
 import os
 import random
 import sys
+from collections import Counter
 from typing import Optional
 
-
-# ─── Prompt ───────────────────────────────────────────────────────────────────
-
-SYSTEM_PROMPT = (
-    "You are a KGQA assistant. "
-    "Given reasoning paths from a knowledge graph and a question, "
-    "identify which paths support the answer, then extract the answer "
-    "from the tail entities of those supporting paths.\n"
-    "Rules:\n"
-    "- Only output entity IDs that appear in the provided paths.\n"
-    "- Do not generate or fabricate new entity IDs.\n"
-    "Output format:\n"
-    "Supporting Paths: <path numbers>\n"
-    "Answer: <entity_id> | <entity_id>"
+# kg_format 与本脚本同目录（llm_infer/），直接导入
+from kg_format import (
+    FORMAT_PROMPTS,
+    build_user_content,
+    format_path_str,  # noqa: F401（部分调用方可能直接用）
 )
 
 
@@ -71,25 +63,6 @@ def setup_logger(log_path: str) -> logging.Logger:
     fh.setFormatter(fmt)
     logger.addHandler(fh)
     return logger
-
-
-# ─── 路径格式化 ────────────────────────────────────────────────────────────────
-
-def format_path_str(path_edges: list, log_score: float, idx: int) -> str:
-    """将路径序列化为 'Path N [score=S]: (e0) -[r]-> (e1) ...' 字符串。"""
-    chain = " ".join(f"({e[0]}) -[{e[1]}]-> ({e[2]})" for e in path_edges)
-    return f"Path {idx} [score={log_score:.4f}]: {chain}"
-
-
-def build_user_content(paths_with_meta: list, question: str) -> str:
-    """
-    构建 User 消息。问题前置，让模型带着目标扫描路径。
-    paths_with_meta: [(path_edges, log_score, display_idx), ...]
-    """
-    lines = [f"Question: {question}", "", "Reasoning Paths:"]
-    for path_edges, log_score, display_idx in paths_with_meta:
-        lines.append(format_path_str(path_edges, log_score, display_idx))
-    return "\n".join(lines)
 
 
 # ─── Golden Path 标注 ──────────────────────────────────────────────────────────
@@ -117,52 +90,54 @@ def augment(labeled: list, shuffle: bool, distractor_ratio: Optional[float],
             rng: random.Random) -> list:
     """
     数据增强：
-      shuffle:          随机打乱路径顺序，防止 positional bias
+      shuffle:          完全随机打乱路径顺序，防止 positional bias
       distractor_ratio: 干扰路径占比上限（0~1），None 表示不调整
+
+    路径顺序完全随机，不区分 golden/distractor 的位置，
+    让模型学会通过路径内容判断支持路径，而非依赖位置先验。
+    截断时保留 golden paths 的逻辑由 train_sft.py 在 tokenization 阶段处理。
     """
-    result = list(labeled)
+    golden_paths     = [p for p in labeled if p[2]]
+    distractor_paths = [p for p in labeled if not p[2]]
 
     # 干扰路径比例控制
     if distractor_ratio is not None and 0 < distractor_ratio < 1:
-        golden_paths     = [p for p in result if p[2]]
-        distractor_paths = [p for p in result if not p[2]]
         n_g = len(golden_paths)
         if n_g > 0 and distractor_paths:
             # 目标干扰数 = n_g * ratio / (1 - ratio)
             n_d_target = max(1, round(n_g * distractor_ratio / (1 - distractor_ratio)))
             if len(distractor_paths) > n_d_target:
                 distractor_paths = rng.sample(distractor_paths, n_d_target)
-            result = golden_paths + distractor_paths
 
+    result = golden_paths + distractor_paths
     if shuffle:
-        rng.shuffle(result)
-
+        rng.shuffle(result)  # 完全随机打乱，golden 和 distractor 混合
     return result
 
 
 # ─── 输出格式 ──────────────────────────────────────────────────────────────────
 
-def output_v1(golden_answers: list) -> str:
-    """V1 SFT-Answer：仅输出答案（与 V0 零样本格式相同，但经微调）。"""
-    return "Answer: " + " | ".join(golden_answers)
+def output_v1(answers: list) -> str:
+    """V1 SFT-Answer：仅输出答案。"""
+    return "Answer: " + " | ".join(answers)
 
 
-def output_v2(golden_indices: list, golden_answers: list) -> str:
+def output_v2(golden_indices: list, answers: list) -> str:
     """V2 SFT-Cite（主方法）：纯文本路径引用 + 答案。"""
     cited = ", ".join(str(i) for i in sorted(golden_indices))
-    return f"Supporting Paths: {cited}\nAnswer: {' | '.join(golden_answers)}"
+    return f"Supporting Paths: {cited}\nAnswer: {' | '.join(answers)}"
 
 
-def output_v3(golden_indices: list, golden_answers: list) -> str:
+def output_v3(golden_indices: list, answers: list) -> str:
     """V3 SFT-JSON：JSON 格式，消融对比项。"""
     return json.dumps(
         {"reasoning": [f"Path {i}" for i in sorted(golden_indices)],
-         "answer":    golden_answers},
+         "answer":    answers},
         ensure_ascii=False,
     )
 
 
-def output_v4(paths_with_meta: list, golden_indices: list, golden_answers: list) -> str:
+def output_v4(paths_with_meta: list, golden_indices: list, answers: list) -> str:
     """V4 SFT-CoT：自然语言推理链 + 答案，消融对比项。"""
     golden_set = set(golden_indices)
     reasoning_lines = []
@@ -179,17 +154,20 @@ def output_v4(paths_with_meta: list, golden_indices: list, golden_answers: list)
         f"[Reasoning]\n{reasoning}\n\n"
         f"[Answer]\n"
         f"Supporting Paths: {cited}\n"
-        f"Answer: {' | '.join(golden_answers)}"
+        f"Answer: {' | '.join(answers)}"
     )
 
 
 # ─── 单样本构造 ────────────────────────────────────────────────────────────────
 
 def make_sample(record: dict, fmt: str, shuffle: bool,
-                distractor_ratio: Optional[float], rng: random.Random) -> Optional[dict]:
+                distractor_ratio: Optional[float], show_score: bool,
+                rng: random.Random) -> Optional[dict]:
     """
     从一条 predict JSONL 记录构造训练样本。
     返回 None 表示 Hit@K 未命中，丢弃。
+
+    show_score: 路径字符串中是否包含 [score=S]（False 用于消融实验）
     """
     question = record.get("question", "")
     mmr_paths = record.get("mmr_reason_paths", [])
@@ -214,33 +192,44 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
     is_golden_flags = [is_g for _, _, is_g in labeled]
     golden_indices  = [i + 1 for i, is_g in enumerate(is_golden_flags) if is_g]
 
-    user_content = build_user_content(paths_with_meta, question)
+    # 答案使用路径中 tail entity 的原文（保证与路径内容忠实一致）
+    # 若与 golden 列表存在大小写差异，以路径为准；保序去重
+    path_answers = list(dict.fromkeys(
+        edges[-1][2] for edges, _, is_g in labeled if is_g and edges
+    ))
+    # 极端情况兜底（理论上不应发生）
+    answer_entities = path_answers if path_answers else golden
+
+    user_content = build_user_content(paths_with_meta, question, show_score=show_score)
+    system_prompt = FORMAT_PROMPTS.get(fmt, FORMAT_PROMPTS["v2"])
 
     if fmt == "v1":
-        asst = output_v1(golden)
+        asst = output_v1(answer_entities)
     elif fmt == "v2":
-        asst = output_v2(golden_indices, golden)
+        asst = output_v2(golden_indices, answer_entities)
     elif fmt == "v3":
-        asst = output_v3(golden_indices, golden)
+        asst = output_v3(golden_indices, answer_entities)
     elif fmt == "v4":
-        asst = output_v4(paths_with_meta, golden_indices, golden)
+        asst = output_v4(paths_with_meta, golden_indices, answer_entities)
     else:
         raise ValueError(f"未知格式: {fmt}")
 
     return {
         "messages": [
-            {"role": "system",    "content": SYSTEM_PROMPT},
+            {"role": "system",    "content": system_prompt},
             {"role": "user",      "content": user_content},
             {"role": "assistant", "content": asst},
         ],
         "_meta": {
-            "question":              question,
-            "golden":                golden,
-            "golden_path_indices":   golden_indices,
-            "n_golden":              len(golden_indices),
-            "n_distractor":          len(labeled) - len(golden_indices),
-            "format":                fmt,
-            "hop":                   record.get("hop"),
+            "question":            question,
+            "golden":              golden,
+            "path_answers":        answer_entities,
+            "golden_path_indices": golden_indices,
+            "n_golden":            len(golden_indices),
+            "n_distractor":        len(labeled) - len(golden_indices),
+            "format":              fmt,
+            "show_score":          show_score,
+            "hop":                 record.get("hop"),
         },
     }
 
@@ -248,11 +237,11 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
 # ─── 核心流程 ──────────────────────────────────────────────────────────────────
 
 def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
-          distractor_ratio: Optional[float], sample_n: int,
+          distractor_ratio: Optional[float], sample_n: int, show_score: bool,
           rng: random.Random, log: logging.Logger) -> dict:
     with open(input_path, encoding="utf-8") as f:
         records = [json.loads(l) for l in f if l.strip()]
-    log.info("读入 %d 条记录  格式=%s", len(records), fmt)
+    log.info("读入 %d 条记录  格式=%s  show_score=%s", len(records), fmt, show_score)
 
     if sample_n > 0 and len(records) > sample_n:
         records = rng.sample(records, sample_n)
@@ -260,7 +249,7 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
 
     samples, skipped = [], 0
     for rec in records:
-        s = make_sample(rec, fmt, shuffle, distractor_ratio, rng)
+        s = make_sample(rec, fmt, shuffle, distractor_ratio, show_score, rng)
         if s is None:
             skipped += 1
         else:
@@ -275,12 +264,43 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
     log.info("输出: %s", output_path)
 
     n = len(samples)
+    if n == 0:
+        return {"format": fmt, "total": 0, "skipped": skipped,
+                "avg_golden": 0, "avg_distractor": 0}
+
+    # ── 数据质量统计 ──────────────────────────────────────────────────────────
+    avg_golden     = round(sum(s["_meta"]["n_golden"]     for s in samples) / n, 2)
+    avg_distractor = round(sum(s["_meta"]["n_distractor"] for s in samples) / n, 2)
+
+    # 序列长度估算（字符数 / 4 ≈ token 数）
+    seq_lens = [
+        (len(s["messages"][1]["content"]) + len(s["messages"][2]["content"])) // 4
+        for s in samples
+    ]
+    seq_lens_sorted = sorted(seq_lens)
+    p90_idx = int(len(seq_lens_sorted) * 0.9)
+    log.info("序列长度估算(token): min=%d  avg=%d  p90=%d  max=%d",
+             seq_lens_sorted[0],
+             sum(seq_lens) // n,
+             seq_lens_sorted[p90_idx],
+             seq_lens_sorted[-1])
+
+    # Per-hop 分布
+    hop_dist = Counter(str(s["_meta"].get("hop", "?")) for s in samples)
+    if len(hop_dist) > 1:
+        hop_str = "  ".join(f"hop={k}:{v}" for k, v in sorted(hop_dist.items()))
+        log.info("跳数分布: %s", hop_str)
+
     return {
-        "format":      fmt,
-        "total":       n,
-        "skipped":     skipped,
-        "avg_golden":  round(sum(s["_meta"]["n_golden"]    for s in samples) / n, 2) if n else 0,
-        "avg_distractor": round(sum(s["_meta"]["n_distractor"] for s in samples) / n, 2) if n else 0,
+        "format":         fmt,
+        "total":          n,
+        "skipped":        skipped,
+        "avg_golden":     avg_golden,
+        "avg_distractor": avg_distractor,
+        "seq_len_avg":    sum(seq_lens) // n,
+        "seq_len_p90":    seq_lens_sorted[p90_idx],
+        "seq_len_max":    seq_lens_sorted[-1],
+        "hop_dist":       dict(hop_dist),
     }
 
 
@@ -293,8 +313,10 @@ def parse_args():
     p.add_argument("--format", default="v2",
                    choices=["v1", "v2", "v3", "v4", "all"],
                    help="v1=仅答案 v2=路径引用(主方法) v3=JSON v4=CoT all=全部四种")
-    p.add_argument("--shuffle", action="store_true",
-                   help="随机打乱路径顺序（推荐开启，防止 positional bias）")
+    p.add_argument("--no_shuffle", action="store_true",
+                   help="关闭路径顺序随机打乱（默认开启，用于防止 positional bias）")
+    p.add_argument("--no_score", action="store_true",
+                   help="路径字符串中不包含 score（消融实验用）")
     p.add_argument("--distractor_ratio", type=float, default=None,
                    help="干扰路径占比上限 0~1，None=不调整")
     p.add_argument("--sample", type=int, default=0,
@@ -307,9 +329,13 @@ def main():
     args = parse_args()
     rng  = random.Random(args.seed)
 
+    shuffle    = not args.no_shuffle
+    show_score = not args.no_score
+
     log_path = os.path.splitext(args.output)[0] + "_build.log"
     log = setup_logger(log_path)
     log.info("命令: %s", " ".join(sys.argv))
+    log.info("shuffle=%s  show_score=%s", shuffle, show_score)
 
     if args.format == "all":
         base, ext = os.path.splitext(args.output)
@@ -317,18 +343,25 @@ def main():
         stats_list = []
         for fmt in ["v1", "v2", "v3", "v4"]:
             stat = build(args.input, f"{base}_{fmt}{ext}", fmt,
-                         args.shuffle, args.distractor_ratio, args.sample, rng, log)
+                         shuffle, args.distractor_ratio, args.sample,
+                         show_score, rng, log)
             stats_list.append(stat)
         log.info("=" * 50)
         for st in stats_list:
-            log.info("[%s] total=%d skip=%d avg_golden=%.2f avg_distractor=%.2f",
+            log.info("[%s] total=%d skip=%d avg_golden=%.2f avg_distractor=%.2f"
+                     " seq_len_avg=%d seq_len_p90=%d",
                      st["format"], st["total"], st["skipped"],
-                     st["avg_golden"], st["avg_distractor"])
+                     st["avg_golden"], st["avg_distractor"],
+                     st.get("seq_len_avg", 0), st.get("seq_len_p90", 0))
     else:
         st = build(args.input, args.output, args.format,
-                   args.shuffle, args.distractor_ratio, args.sample, rng, log)
-        log.info("total=%d skip=%d avg_golden=%.2f avg_distractor=%.2f",
-                 st["total"], st["skipped"], st["avg_golden"], st["avg_distractor"])
+                   shuffle, args.distractor_ratio, args.sample,
+                   show_score, rng, log)
+        log.info("total=%d skip=%d avg_golden=%.2f avg_distractor=%.2f"
+                 " seq_len_avg=%d seq_len_p90=%d",
+                 st["total"], st["skipped"],
+                 st["avg_golden"], st["avg_distractor"],
+                 st.get("seq_len_avg", 0), st.get("seq_len_p90", 0))
 
     log.info("日志: %s", log_path)
 

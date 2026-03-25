@@ -88,7 +88,15 @@ def load_dataset_from_jsonl(path: str, tokenizer, max_seq_len: int, log: logging
     加载 JSONL 并转换为 HuggingFace Dataset。
     使用 apply_chat_template 序列化 messages，再做 Prompt Masking：
     只在 assistant 回复部分计算 loss（输入部分 label=-100）。
+
+    截断策略（优先保留 golden paths）：
+      1. 若完整 prompt 在预算内，直接使用。
+      2. 若超长，通过 _meta.golden_path_indices 识别 distractor 路径行并逐条丢弃，
+         直到 prompt 满足预算，确保 golden paths 被保留。
+      3. 若移除所有 distractor 后仍超长，做 token 级截断兜底。
     """
+    import re as _re
+    import random
     from datasets import Dataset
 
     records = []
@@ -98,17 +106,54 @@ def load_dataset_from_jsonl(path: str, tokenizer, max_seq_len: int, log: logging
                 records.append(json.loads(line))
     log.info("加载 %d 条训练样本", len(records))
 
+    _PATH_LINE_RE = _re.compile(r"^Path (\d+)[\s\[]")
+    truncated_count = [0]
+
+    def _drop_distractors_until_fits(messages: list, golden_indices: set,
+                                     budget: int):
+        """从 user 消息末尾逐条移除 distractor 路径行，直到 prompt_ids 满足 budget。"""
+        user_text = messages[1]["content"]
+        lines     = user_text.split("\n")
+
+        path_line_positions = []
+        for pos, line in enumerate(lines):
+            m = _PATH_LINE_RE.match(line)
+            if m:
+                path_line_positions.append((pos, int(m.group(1))))
+
+        distractor_positions = [
+            pos for pos, num in path_line_positions
+            if num not in golden_indices
+        ]
+
+        removed = set()
+        for pos in reversed(distractor_positions):
+            removed.add(pos)
+            new_user = "\n".join(l for i, l in enumerate(lines) if i not in removed)
+            new_msgs = [messages[0], {"role": "user", "content": new_user}]
+            pt = tokenizer.apply_chat_template(
+                new_msgs, tokenize=False, add_generation_prompt=True
+            )
+            pids = tokenizer(pt, add_special_tokens=False)["input_ids"]
+            if len(pids) <= budget:
+                return pids
+
+        # 全部 distractor 移除后仍超长，返回当前最短版本（外层做 token 截断）
+        new_user = "\n".join(l for i, l in enumerate(lines) if i not in removed)
+        new_msgs = [messages[0], {"role": "user", "content": new_user}]
+        pt = tokenizer.apply_chat_template(
+            new_msgs, tokenize=False, add_generation_prompt=True
+        )
+        return tokenizer(pt, add_special_tokens=False)["input_ids"]
+
     def tokenize(rec):
-        messages = rec["messages"]
+        messages       = rec["messages"]
+        meta           = rec.get("_meta", {})
+        golden_indices = set(meta.get("golden_path_indices", []))
 
-        # assistant 回复部分（单独 tokenize，用于计算需要保留的长度）
-        asst_text = messages[-1]["content"]
-        asst_ids  = tokenizer(asst_text, add_special_tokens=False)["input_ids"]
-        # 预留 assistant tokens + 少量 special tokens（如 <|eot_id|>）的空间
+        asst_text    = messages[-1]["content"]
+        asst_ids     = tokenizer(asst_text, add_special_tokens=False)["input_ids"]
         asst_reserve = len(asst_ids) + 8
-
-        # 如果 prompt 过长，截掉 user 消息中间部分（路径列表），保留 assistant
-        # 先尝试完整序列，若超长则缩短 user 内容后重试
         prompt_budget = max_seq_len - asst_reserve
 
         prompt_text = tokenizer.apply_chat_template(
@@ -117,32 +162,32 @@ def load_dataset_from_jsonl(path: str, tokenizer, max_seq_len: int, log: logging
         prompt_ids = tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
 
         if len(prompt_ids) > prompt_budget:
-            # 截断 prompt（从右侧截，保留 system + 问题，损失部分路径描述）
-            prompt_ids = prompt_ids[:prompt_budget]
+            truncated_count[0] += 1
+            # 路径级截断：逐条丢弃 distractor，优先保留 golden paths
+            prompt_ids = _drop_distractors_until_fits(
+                messages[:-1], golden_indices, prompt_budget
+            )
+            if len(prompt_ids) > prompt_budget:
+                # 兜底 token 截断
+                prompt_ids = prompt_ids[:prompt_budget]
 
-        # 完整序列 = 截断后的 prompt + assistant + <|eot_id|>
-        # Llama 3.1 chat format 用 <|eot_id|> 结束每个 turn，而非 eos_token
         eot_id   = tokenizer.convert_tokens_to_ids("<|eot_id|>")
         end_id   = eot_id if eot_id != tokenizer.unk_token_id else tokenizer.eos_token_id
         full_ids = prompt_ids + asst_ids + [end_id]
-        # 超出 max_seq_len 时保底截断
         full_ids = full_ids[:max_seq_len]
 
         prompt_len = min(len(prompt_ids), len(full_ids))
         labels = [-100] * prompt_len + full_ids[prompt_len:]
 
-        # 确保至少有一个有效 label（防止全 -100 导致 loss 异常）
         if all(l == -100 for l in labels):
-            # fallback：强制保留最后 asst_reserve 个 token 作为 label
-            keep = min(asst_reserve, len(full_ids))
+            keep   = min(asst_reserve, len(full_ids))
             labels = [-100] * (len(full_ids) - keep) + full_ids[-keep:]
 
-        import random
         if random.random() < 0.005:
             valid = sum(1 for l in labels if l != -100)
             total = len(full_ids)
             print(f"[DEBUG] seq_len={total}, valid_labels={valid}, "
-                f"ratio={valid/total:.2%}, prompt_len={prompt_len}")
+                  f"ratio={valid/total:.2%}, prompt_len={prompt_len}")
 
         return {
             "input_ids":      full_ids,
@@ -150,8 +195,14 @@ def load_dataset_from_jsonl(path: str, tokenizer, max_seq_len: int, log: logging
             "labels":         labels,
         }
 
-    raw = Dataset.from_list([{"messages": r["messages"]} for r in records])
-    tokenized = raw.map(tokenize, remove_columns=["messages"])
+    raw = Dataset.from_list([
+        {"messages": r["messages"], "_meta": r.get("_meta", {})}
+        for r in records
+    ])
+    tokenized = raw.map(tokenize, remove_columns=["messages", "_meta"])
+    log.info("截断样本数: %d / %d (%.1f%%)",
+             truncated_count[0], len(records),
+             100 * truncated_count[0] / len(records) if records else 0)
     return tokenized
 
 

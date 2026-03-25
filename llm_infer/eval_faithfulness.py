@@ -56,69 +56,8 @@ from tqdm import tqdm
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
 logging.getLogger("transformers").setLevel(logging.ERROR)
 
-
-# ─── Prompt ───────────────────────────────────────────────────────────────────
-
-SYSTEM_PROMPT = (
-    "You are a KGQA assistant. "
-    "Given reasoning paths from a knowledge graph and a question, "
-    "identify the supporting paths and output the answer."
-)
-
-# V0/V1 格式提示词（只输出答案）
-SYSTEM_PROMPT_ANSWER_ONLY = (
-    "You are a KGQA assistant. "
-    "Given reasoning paths from a knowledge graph and a question, "
-    "answer the question using entity IDs from the paths.\n"
-    "Rules:\n"
-    "- Only output entity IDs that appear in the provided paths.\n"
-    "- Do not generate or fabricate new entity IDs.\n"
-    "Output format:\nAnswer: <entity_id> | <entity_id>"
-)
-
-# V2 格式提示词（路径引用 + 答案）
-SYSTEM_PROMPT_V2 = (
-    "You are a KGQA assistant. "
-    "Given reasoning paths from a knowledge graph and a question, "
-    "identify which paths support the answer, then extract the answer "
-    "from the tail entities of those supporting paths.\n"
-    "Rules:\n"
-    "- Only output entity IDs that appear in the provided paths.\n"
-    "- Do not generate or fabricate new entity IDs.\n"
-    "Output format:\n"
-    "Supporting Paths: <path numbers>\n"
-    "Answer: <entity_id> | <entity_id>"
-)
-
-# V3 格式提示词（JSON）
-SYSTEM_PROMPT_V3 = (
-    "You are a KGQA assistant. "
-    "Given reasoning paths from a knowledge graph and a question, "
-    "output a JSON object with the supporting path indices and the answer entity IDs.\n"
-    "Rules:\n"
-    "- Only output entity IDs that appear in the provided paths.\n"
-    "- Do not generate or fabricate new entity IDs.\n"
-    'Output format: {"reasoning": ["Path 1", "Path 3"], "answer": ["<entity_id>", "<entity_id>"]}'
-)
-
-# V4 格式提示词（CoT）
-SYSTEM_PROMPT_V4 = (
-    "You are a KGQA assistant. "
-    "Given reasoning paths from a knowledge graph and a question, "
-    "reason step by step about which paths support the answer, then output the answer entity IDs.\n"
-    "Rules:\n"
-    "- Only output entity IDs that appear in the provided paths.\n"
-    "- Do not generate or fabricate new entity IDs.\n"
-    "Output format:\n[Reasoning]\n...\n[Answer]\nSupporting Paths: 1, 3\nAnswer: <entity_id>"
-)
-
-FORMAT_PROMPTS = {
-    "v0": SYSTEM_PROMPT_ANSWER_ONLY,
-    "v1": SYSTEM_PROMPT_ANSWER_ONLY,
-    "v2": SYSTEM_PROMPT_V2,
-    "v3": SYSTEM_PROMPT_V3,
-    "v4": SYSTEM_PROMPT_V4,
-}
+# kg_format 与本脚本同目录（llm_infer/）
+from kg_format import FORMAT_PROMPTS, build_user_content
 
 
 # ─── 日志 ─────────────────────────────────────────────────────────────────────
@@ -138,20 +77,6 @@ def setup_logger(log_path: str) -> logging.Logger:
     fh.setFormatter(fmt)
     logger.addHandler(fh)
     return logger
-
-
-# ─── 路径格式化（与 build_kgcot_dataset.py 保持一致）────────────────────────
-
-def format_path_str(path_edges: list, log_score: float, idx: int) -> str:
-    chain = " ".join(f"({e[0]}) -[{e[1]}]-> ({e[2]})" for e in path_edges)
-    return f"Path {idx} [score={log_score:.4f}]: {chain}"
-
-
-def build_user_content(paths_with_meta: list, question: str) -> str:
-    lines = [f"Question: {question}", "", "Reasoning Paths:"]
-    for path_edges, log_score, display_idx in paths_with_meta:
-        lines.append(format_path_str(path_edges, log_score, display_idx))
-    return "\n".join(lines)
 
 
 # ─── Golden Path 标注（推理时使用，用于计算忠实度指标）───────────────────────
@@ -421,6 +346,8 @@ def parse_args():
     p.add_argument("--limit",          type=int, default=0, help="只评估前 N 条（0=全部）")
     p.add_argument("--noise_paths",    type=int, default=0,
                    help="推理时在输入末尾追加 N 条伪干扰路径（抗噪鲁棒性实验）")
+    p.add_argument("--no_score",       action="store_true",
+                   help="路径字符串中不包含 score（需与训练时 --no_score 对齐）")
     return p.parse_args()
 
 
@@ -453,6 +380,7 @@ def main():
     log.info("  limit         : %s", args.limit if args.limit > 0 else "全部")
     log.info("  batch_size    : %d", args.batch_size)
     log.info("  noise_paths   : %d", args.noise_paths)
+    log.info("  no_score      : %s", args.no_score)
     log.info("=" * 60)
 
     # ── 加载模型 ─────────────────────────────────────────────────────────────
@@ -488,11 +416,14 @@ def main():
 
     # 选择 system prompt
     system_prompt = FORMAT_PROMPTS[args.output_format]
+    show_score    = not args.no_score
 
     # 批量推理需要左填充（decoder-only 模型）
     tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+
+    import random as _random
 
     # ── 预处理：构建每条样本的 prompt 和 meta 信息 ────────────────────────────
     def prepare_sample(sample):
@@ -501,7 +432,6 @@ def main():
         golden    = sample.get("golden", [])
 
         if args.noise_paths > 0 and mmr_paths:
-            import random
             existing = list(mmr_paths)
             for i in range(args.noise_paths):
                 base = existing[i % len(existing)]
@@ -509,18 +439,17 @@ def main():
                         for j, e in enumerate(base.get("path", []))]
                 mmr_paths.append({"path": fake, "log_score": -99.0})
 
-        # 推理时 shuffle 路径顺序（与训练时 --shuffle 一致，减少位置偏差）
-        import random as _random
-        _rng = _random.Random(42)
-        _combined = list(enumerate(mmr_paths))
-        _rng.shuffle(_combined)
-        mmr_paths = [p for _, p in _combined]
+        # 推理时 shuffle 路径顺序（与训练时一致，减少位置偏差）
+        # 使用 question 内容的哈希作为种子，确保每个样本的 shuffle 唯一且确定
+        _seed = hash(question) % (2 ** 31)
+        _rng  = _random.Random(_seed)
+        _rng.shuffle(mmr_paths)
 
         paths_with_meta = [
             (p.get("path", []), p.get("log_score", 0.0), i + 1)
             for i, p in enumerate(mmr_paths)
         ]
-        user_content = build_user_content(paths_with_meta, question)
+        user_content = build_user_content(paths_with_meta, question, show_score=show_score)
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_content},
