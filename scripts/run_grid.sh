@@ -64,7 +64,7 @@ IFS=',' read -ra BEAM_ARR  <<< "$BEAM_SIZES"
 IFS=',' read -ra LAMBDA_ARR <<< "$LAMBDA_VALS"
 
 echo "dataset=${DATASET}  ckpt=${CKPT}"
-echo "beam_size,lambda_val,qa_acc,mmr_answer_path_hit,mmr_precision,mmr_answer_recall,mmr_f1,mmr_top1_hit,jaccard_diversity,tail_diversity,edge_coverage,elapsed_s" > "$SUMMARY_FILE"
+echo "beam_size,lambda_val,qa_acc,mmr_answer_path_hit,mmr_precision,mmr_answer_recall,mmr_f1,mmr_top1_hit,jaccard_diversity,relation_jaccard_diversity,tail_diversity,relation_coverage,elapsed_s" > "$SUMMARY_FILE"
 
 SCRIPT_START=$SECONDS
 total=$(( ${#BEAM_ARR[@]} * ${#LAMBDA_ARR[@]} ))
@@ -107,13 +107,15 @@ for beam in "${BEAM_ARR[@]}"; do
                    | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "N/A")
         jaccard_div=$(grep "jaccard_diversity" "$log_file" \
                       | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "N/A")
+        relation_jaccard_div=$(grep "relation_jaccard_diversity" "$log_file" \
+                               | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "N/A")
         tail_div=$(grep "tail_diversity" "$log_file" \
                    | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "N/A")
-        edge_cov=$(grep "edge_coverage" "$log_file" \
-                   | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "N/A")
+        relation_cov=$(grep "relation_coverage" "$log_file" \
+                       | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "N/A")
 
-        echo "${beam},${lam},${qa_acc},${answer_hit},${precision},${answer_recall},${f1},${top1_hit},${jaccard_div},${tail_div},${edge_cov},${ITER_ELAPSED}" >> "$SUMMARY_FILE"
-        echo "  -> qa_acc=${qa_acc}  hit@${beam}=${answer_hit}  P=${precision}  R=${answer_recall}  F1=${f1}  top1=${top1_hit}  jaccard=${jaccard_div}  tail=${tail_div}  edge_cov=${edge_cov}  耗时=${ITER_ELAPSED}s"
+        echo "${beam},${lam},${qa_acc},${answer_hit},${precision},${answer_recall},${f1},${top1_hit},${jaccard_div},${relation_jaccard_div},${tail_div},${relation_cov},${ITER_ELAPSED}" >> "$SUMMARY_FILE"
+        echo "  -> qa_acc=${qa_acc}  hit@${beam}=${answer_hit}  P=${precision}  R=${answer_recall}  F1=${f1}  top1=${top1_hit}  edge_jaccard=${jaccard_div}  rel_jaccard=${relation_jaccard_div}  tail=${tail_div}  relation_cov=${relation_cov}  耗时=${ITER_ELAPSED}s"
         echo "  -> paths saved: ${out_jsonl}"
     done
 done

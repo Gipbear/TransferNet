@@ -18,7 +18,8 @@ from utils.path_utils import compute_path_metrics, compute_path_diversity
 def create_mmr_stats():
     return {"count": 0, "answer_path_hit": 0, "top1_hit": 0,
             "recall_sum": 0.0, "precision_sum": 0.0, "f1_sum": 0.0,
-            "jaccard_div_sum": 0.0, "tail_div_sum": 0.0, "edge_cov_sum": 0.0}
+            "jaccard_div_sum": 0.0, "relation_jaccard_div_sum": 0.0,
+            "tail_div_sum": 0.0, "relation_cov_sum": 0.0}
 
 
 def create_thresh_stats(thresholds):
@@ -45,8 +46,9 @@ def update_mmr_stats(mmr_stats, mmr_paths, gold_ids):
     mmr_stats["precision_sum"]   += m["precision"]
     mmr_stats["f1_sum"]          += m["f1"]
     mmr_stats["jaccard_div_sum"] += d["jaccard_diversity"]
+    mmr_stats["relation_jaccard_div_sum"] += d["relation_jaccard_diversity"]
     mmr_stats["tail_div_sum"]    += d["tail_diversity"]
-    mmr_stats["edge_cov_sum"]    += d["edge_coverage"]
+    mmr_stats["relation_cov_sum"] += d["relation_coverage"]
     return m, d
 
 
@@ -101,12 +103,14 @@ def print_validate_results(acc, hop_count, mmr_stats, thresh_stats, std_stats,
         print('mmr_top1_hit:           {:.4f}  ({}/{})'.format(
             mmr_stats["top1_hit"] / c_mmr, mmr_stats["top1_hit"], c_mmr))
         print('--- Path Diversity (avg over {} samples) ---'.format(c_mmr))
-        print('jaccard_diversity:      {:.4f}  (0=完全重叠, 1=完全不同)'.format(
+        print('jaccard_diversity:      {:.4f}  (边级, 0=完全重叠, 1=完全不同)'.format(
             mmr_stats["jaccard_div_sum"] / c_mmr))
+        print('relation_jaccard_diversity: {:.4f}  (关系级, 0=完全重叠, 1=完全不同)'.format(
+            mmr_stats["relation_jaccard_div_sum"] / c_mmr))
         print('tail_diversity:         {:.4f}  (尾节点唯一率)'.format(
             mmr_stats["tail_div_sum"] / c_mmr))
-        print('edge_coverage:          {:.4f}  (去重边数/总边数)'.format(
-            mmr_stats["edge_cov_sum"] / c_mmr))
+        print('relation_coverage:      {:.4f}  (去重关系数/总关系数)'.format(
+            mmr_stats["relation_cov_sum"] / c_mmr))
 
     # ── e_score 多阈值对比 ─────────────────────────────────────────
     print('\n--- e_score 阈值对比 (TransferNet 直接输出) ---')

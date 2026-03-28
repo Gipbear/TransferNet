@@ -15,10 +15,12 @@
 #   - 每步打印耗时
 #
 # 用法：
-#   bash scripts/run_ablation.sh                       # 全量运行
-#   bash scripts/run_ablation.sh --group A             # 只跑 Group A
-#   bash scripts/run_ablation.sh --group B             # 只跑 Group B
-#   bash scripts/run_ablation.sh --group C             # 只跑 Group C
+#   bash scripts/run_ablation.sh                            # 全量运行
+#   bash scripts/run_ablation.sh --group A                  # 只跑 Group A
+#   bash scripts/run_ablation.sh --group B                  # 只跑 Group B
+#   bash scripts/run_ablation.sh --group C                  # 只跑 Group C（仅 eval）
+#   bash scripts/run_ablation.sh --group A --phase train    # 只做数据构建 + 训练
+#   bash scripts/run_ablation.sh --group A --phase eval     # 只做推理评估
 #   BEST_ADAPTER=models/my_adapter bash scripts/run_ablation.sh --group C
 #
 # ─────────────────────────────────────────────────────────────────────────────
@@ -36,6 +38,8 @@ ABLATION_MODELS="${PROJECT_DIR}/models/ablation"
 BASELINE_ADAPTER="${PROJECT_DIR}/models/webqsp_v2_best"
 # Group C 使用的 adapter，可通过环境变量覆盖
 BEST_ADAPTER="${BEST_ADAPTER:-${BASELINE_ADAPTER}}"
+# 多轮 shuffle 推理次数（每轮用不同种子，report mean±std）；设为 1 关闭多轮
+NUM_RUNS="${NUM_RUNS:-3}"
 
 BUILD_SCRIPT="${PROJECT_DIR}/llm_infer/build_kgcot_dataset.py"
 TRAIN_SCRIPT="${PROJECT_DIR}/llm_infer/train_sft.py"
@@ -44,22 +48,22 @@ EVAL_SCRIPT="${PROJECT_DIR}/llm_infer/eval_faithfulness.py"
 # 固定测试集（Group A/B）
 TEST_BEAM20_LAM02="${PATHS_DIR}/beam20_lam0.2.jsonl"
 
-# 解析 --group 参数
+# 解析 --group / --phase 参数
 RUN_GROUP="ALL"
-for arg in "$@"; do
-    case "$arg" in
-        --group) ;;
-        A|B|C) RUN_GROUP="$arg" ;;
-    esac
-done
-# 兼容 --group A 写法
+RUN_PHASE="all"   # all | train | eval
 PREV=""
 for arg in "$@"; do
     if [[ "$PREV" == "--group" ]]; then
         RUN_GROUP="$arg"
+    elif [[ "$PREV" == "--phase" ]]; then
+        RUN_PHASE="$arg"
     fi
     PREV="$arg"
 done
+if [[ "$RUN_PHASE" != "all" && "$RUN_PHASE" != "train" && "$RUN_PHASE" != "eval" ]]; then
+    echo "[ERROR] --phase 仅支持: all | train | eval"
+    exit 1
+fi
 
 # ── 辅助函数 ──────────────────────────────────────────────────────────────────
 
@@ -101,7 +105,9 @@ run_experiment() {
     log_section "实验: ${config_name} (format=${fmt})"
 
     # ── Step 1: 构建训练数据 ─────────────────────────────────────────────────
-    if [[ -f "${dataset}" ]]; then
+    if [[ "${RUN_PHASE}" == "eval" ]]; then
+        echo "[SKIP] phase=eval，跳过数据构建"
+    elif [[ -f "${dataset}" ]]; then
         echo "[SKIP] 数据集已存在: ${dataset}"
     else
         log_step "Step 1/3: 构建训练数据"
@@ -116,7 +122,9 @@ run_experiment() {
     fi
 
     # ── Step 2: QLoRA 训练 ───────────────────────────────────────────────────
-    if [[ -f "${adapter_flag}" ]]; then
+    if [[ "${RUN_PHASE}" == "eval" ]]; then
+        echo "[SKIP] phase=eval，跳过训练"
+    elif [[ -f "${adapter_flag}" ]]; then
         echo "[SKIP] 模型已存在: ${model_dir}"
     else
         log_step "Step 2/3: QLoRA 训练"
@@ -129,7 +137,9 @@ run_experiment() {
     fi
 
     # ── Step 3: 评估 ─────────────────────────────────────────────────────────
-    if [[ -f "${eval_log}" ]]; then
+    if [[ "${RUN_PHASE}" == "train" ]]; then
+        echo "[SKIP] phase=train，跳过评估"
+    elif [[ -f "${eval_log}" ]]; then
         echo "[SKIP] 评估结果已存在: ${eval_log}"
     else
         log_step "Step 3/3: 忠实度评估"
@@ -140,6 +150,7 @@ run_experiment() {
             --output        "${data_dir}" \
             --adapter       "${model_dir}" \
             --output_format "${fmt}" \
+            --num_runs      "${NUM_RUNS}" \
             ${eval_extra}
         echo "[INFO] 评估完成，耗时 $(($(date +%s) - T0))s"
     fi
@@ -153,6 +164,11 @@ run_eval_only() {
     local test_input="$3"
     local fmt="$4"
     local eval_extra="${5:-}"
+
+    if [[ "${RUN_PHASE}" == "train" ]]; then
+        echo "[SKIP] phase=train，跳过评估: ${config_name}"
+        return
+    fi
 
     local out_dir="${ABLATION_DATA}/${config_name}"
     local stem
@@ -174,6 +190,7 @@ run_eval_only() {
         --output        "${out_dir}" \
         --adapter       "${adapter}" \
         --output_format "${fmt}" \
+        --num_runs      "${NUM_RUNS}" \
         ${eval_extra}
     echo "[INFO] 评估完成，耗时 $(($(date +%s) - T0))s"
 }
@@ -186,6 +203,8 @@ echo "  TRAIN_INPUT   : ${TRAIN_INPUT}"
 echo "  BASELINE_ADAPTER: ${BASELINE_ADAPTER}"
 echo "  BEST_ADAPTER  : ${BEST_ADAPTER}"
 echo "  RUN_GROUP     : ${RUN_GROUP}"
+echo "  RUN_PHASE     : ${RUN_PHASE}"
+echo "  NUM_RUNS      : ${NUM_RUNS}"
 echo "  $(date '+%Y-%m-%d %H:%M:%S')"
 echo "======================================================"
 
@@ -206,7 +225,7 @@ WALL_START=$(date +%s)
 
 # ── Group A: 输出格式消融 ─────────────────────────────────────────────────────
 if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "A" ]]; then
-    log_section "Group A: 输出格式消融 (v1 / v2 / v3 / v4)"
+    log_section "Group A: 输出格式消融 (v1 / v2 / v3 / v4 / v5)"
 
     # v1: answer-only，无 citation
     run_experiment "groupA_v1" "v1" "" ""
@@ -220,6 +239,9 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "A" ]]; then
 
     # v4: CoT 推理链
     run_experiment "groupA_v4" "v4" "" ""
+
+    # v5: Natural Language Path 输入（输出格式同 v2，路径用自然语言表示）
+    run_experiment "groupA_v5" "v5" "" ""
 fi
 
 # ── Group B: 训练数据消融 ─────────────────────────────────────────────────────

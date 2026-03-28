@@ -5,9 +5,10 @@
 包含：
   filter_tensor            - 张量阈值过滤
   path_to_edge_set         - 路径转有向边三元组集合
+  path_to_rel_set          - 路径转带 hop 位置的关系集合
   compute_path_metrics     - 路径命中率/精度/召回/F1
-  compute_path_diversity   - 路径多样性（Jaccard/尾节点/边覆盖）
-  mmr_diversity_beam_search - 边级 MMR 多样性束搜索（WebQSP/MetaQA_KB 共用）
+  compute_path_diversity   - 路径多样性（边级/关系级 Jaccard、尾节点、关系覆盖）
+  mmr_diversity_beam_search - 关系级 MMR 多样性束搜索（WebQSP/MetaQA_KB 共用）
   build_valid_edges_dict   - 三元组列表转边查找字典
 """
 import math
@@ -51,38 +52,59 @@ def compute_path_metrics(paths, gold_ids):
 def compute_path_diversity(paths):
     """
     计算 K 条路径的多样性指标。
-      jaccard_diversity : 平均成对 Jaccard 距离（1 - 相似度），范围 [0, 1]
-      tail_diversity    : 尾节点唯一率 = |unique tails| / K，范围 [1/K, 1]
-      edge_coverage     : 去重边数 / 总边数，越高说明路径探索了越多不同的 KG 子图
+      jaccard_diversity          : 边级平均成对 Jaccard 距离（1 - 相似度），范围 [0, 1]
+      relation_jaccard_diversity : 关系级平均成对 Jaccard 距离（1 - 相似度），范围 [0, 1]
+      tail_diversity             : 尾节点唯一率 = |unique tails| / K，范围 [1/K, 1]
+      relation_coverage          : 去重关系数 / 总关系数，越高说明路径覆盖了更多不同的关系模式
     paths: list of (nodes, rels, score)
     """
     if len(paths) < 2:
-        return {"jaccard_diversity": 0.0, "tail_diversity": 0.0, "edge_coverage": 0.0}
+        return {
+            "jaccard_diversity": 0.0,
+            "relation_jaccard_diversity": 0.0,
+            "tail_diversity": 0.0,
+            "relation_coverage": 0.0,
+            "edge_coverage": 0.0,
+        }
 
     edge_sets = [path_to_edge_set(nodes, rels) for nodes, rels, _ in paths]
+    rel_sets = [path_to_rel_set(rels) for _, rels, _ in paths]
     K = len(edge_sets)
 
-    # 1. 平均成对 Jaccard 距离
-    pair_sims = []
+    # 1. 平均成对边级 Jaccard 距离
+    edge_pair_sims = []
+    rel_pair_sims = []
     for i in range(K):
         for j in range(i + 1, K):
-            union = edge_sets[i] | edge_sets[j]
-            sim = len(edge_sets[i] & edge_sets[j]) / len(union) if union else 0.0
-            pair_sims.append(sim)
-    jaccard_diversity = 1.0 - (sum(pair_sims) / len(pair_sims))
+            edge_union = edge_sets[i] | edge_sets[j]
+            edge_sim = len(edge_sets[i] & edge_sets[j]) / len(edge_union) if edge_union else 0.0
+            edge_pair_sims.append(edge_sim)
+
+            rel_union = rel_sets[i] | rel_sets[j]
+            rel_sim = len(rel_sets[i] & rel_sets[j]) / len(rel_union) if rel_union else 0.0
+            rel_pair_sims.append(rel_sim)
+    jaccard_diversity = 1.0 - (sum(edge_pair_sims) / len(edge_pair_sims))
+    relation_jaccard_diversity = 1.0 - (sum(rel_pair_sims) / len(rel_pair_sims))
 
     # 2. 尾节点唯一率
     tails = [nodes[-1] for nodes, _, _ in paths if len(nodes) > 1]
     tail_diversity = len(set(tails)) / K if tails else 0.0
 
-    # 3. 边集覆盖率
+    # 3. 关系覆盖率
+    all_relations = set().union(*rel_sets)
+    total_relations = sum(len(r) for r in rel_sets)
+    relation_coverage = len(all_relations) / total_relations if total_relations > 0 else 0.0
+
+    # 4. 边集覆盖率
     all_edges = set().union(*edge_sets)
     total_edges = sum(len(e) for e in edge_sets)
     edge_coverage = len(all_edges) / total_edges if total_edges > 0 else 0.0
 
     return {
         "jaccard_diversity": round(jaccard_diversity, 4),
+        "relation_jaccard_diversity": round(relation_jaccard_diversity, 4),
         "tail_diversity":    round(tail_diversity, 4),
+        "relation_coverage": round(relation_coverage, 4),
         "edge_coverage":     round(edge_coverage, 4),
     }
 

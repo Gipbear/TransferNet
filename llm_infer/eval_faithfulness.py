@@ -105,9 +105,9 @@ def get_all_path_entities(mmr_paths: list) -> set:
 
 # ─── 输出解析 ──────────────────────────────────────────────────────────────────
 
-_ANSWER_RE     = re.compile(r"Answer\s*[:：]\s*(.+)", re.IGNORECASE)
-_CITE_RE       = re.compile(r"Supporting\s*Paths?\s*[:：]\s*([\d,\s]+)", re.IGNORECASE)
-_JSON_RE       = re.compile(r"\{.*\}", re.DOTALL)
+_ANSWER_RE      = re.compile(r"Answer\s*[:：]\s*(.+)", re.IGNORECASE)
+_CITE_RE        = re.compile(r"Supporting\s*Paths?\s*[:：]\s*([\d,\s]+)", re.IGNORECASE)
+_JSON_RE        = re.compile(r"\{.*\}", re.DOTALL)
 
 
 def parse_output(raw: str, fmt: str) -> dict:
@@ -178,7 +178,40 @@ def parse_output(raw: str, fmt: str) -> dict:
         return {"answers": answers, "cited_indices": set(), "format_ok": False}
 
     elif fmt == "v4":
-        # 期望: [Reasoning]...[Answer]\nSupporting Paths: ...\nAnswer: ...
+        # 期望: "Reasoning: ...\nSupporting Paths: ...\nAnswer: ..."
+        cite_m   = _CITE_RE.search(raw)
+        answer_m = _ANSWER_RE.search(raw)
+        has_reasoning = bool(re.search(r"Reasoning\s*[:：]", raw, re.IGNORECASE))
+        format_ok = bool(cite_m and answer_m and has_reasoning)
+
+        cited_indices = set()
+        if cite_m:
+            for tok in re.split(r"[,\s]+", cite_m.group(1)):
+                tok = tok.strip()
+                if tok.isdigit():
+                    cited_indices.add(int(tok))
+
+        answers = _parse_answers(answer_m.group(1).strip().splitlines()[0]) if answer_m else []
+        return {"answers": answers, "cited_indices": cited_indices, "format_ok": format_ok}
+
+    elif fmt == "v5":
+        # V5 输出格式与 V2 完全相同（仅输入路径为自然语言格式）
+        cite_m   = _CITE_RE.search(raw)
+        answer_m = _ANSWER_RE.search(raw)
+        format_ok = bool(cite_m and answer_m)
+
+        cited_indices = set()
+        if cite_m:
+            for tok in re.split(r"[,\s]+", cite_m.group(1)):
+                tok = tok.strip()
+                if tok.isdigit():
+                    cited_indices.add(int(tok))
+
+        answers = _parse_answers(answer_m.group(1).strip().splitlines()[0]) if answer_m else []
+        return {"answers": answers, "cited_indices": cited_indices, "format_ok": format_ok}
+
+    elif fmt == "v11":
+        # V11 Full CoT（备用）: [Reasoning]...[Answer]\nSupporting Paths: ...\nAnswer: ...
         cite_m   = _CITE_RE.search(raw)
         answer_m = _ANSWER_RE.search(raw)
         has_reasoning = "[Reasoning]" in raw or "[reasoning]" in raw.lower()
@@ -329,6 +362,53 @@ def log_metrics(log: logging.Logger, title: str, m: dict):
     log.info("    Format Compliance : %.4f", m["format_compliance"])
 
 
+def log_metrics_with_std(log: logging.Logger, runs_agg: list):
+    """跨多轮汇总：输出 mean ± std（num_runs > 1 时调用）。"""
+    import math
+
+    def mean_std(key):
+        vals = [m[key] for m in runs_agg if m.get(key) is not None]
+        if not vals:
+            return 0.0, 0.0
+        mu = sum(vals) / len(vals)
+        var = sum((v - mu) ** 2 for v in vals) / len(vals)
+        return mu, math.sqrt(var)
+
+    n_runs = len(runs_agg)
+    avg_n  = round(sum(m["n"] for m in runs_agg) / n_runs)
+    log.info("  [ 多轮汇总  num_runs=%d ]  (avg n=%d)", n_runs, avg_n)
+
+    h1_mu, h1_sd = mean_std("hit1")
+    ha_mu, ha_sd = mean_std("hit_any")
+    log.info("    Hit@1             : %.4f ± %.4f", h1_mu, h1_sd)
+    log.info("    Hit@Any           : %.4f ± %.4f", ha_mu, ha_sd)
+
+    mp_mu, mp_sd = mean_std("macro_p")
+    mr_mu, mr_sd = mean_std("macro_r")
+    mf_mu, mf_sd = mean_std("macro_f1")
+    log.info("    Macro  P/R/F1     : %.4f±%.4f / %.4f±%.4f / %.4f±%.4f",
+             mp_mu, mp_sd, mr_mu, mr_sd, mf_mu, mf_sd)
+
+    up_mu, up_sd = mean_std("micro_p")
+    ur_mu, ur_sd = mean_std("micro_r")
+    uf_mu, uf_sd = mean_std("micro_f1")
+    log.info("    Micro  P/R/F1     : %.4f±%.4f / %.4f±%.4f / %.4f±%.4f",
+             up_mu, up_sd, ur_mu, ur_sd, uf_mu, uf_sd)
+
+    em_mu, em_sd = mean_std("exact_match")
+    log.info("    Exact Match       : %.4f ± %.4f", em_mu, em_sd)
+
+    ca_mu, ca_sd = mean_std("citation_accuracy")
+    cr_mu, cr_sd = mean_std("citation_recall")
+    log.info("    Citation Accuracy : %.4f ± %.4f", ca_mu, ca_sd)
+    log.info("    Citation Recall   : %.4f ± %.4f", cr_mu, cr_sd)
+
+    hl_mu, hl_sd = mean_std("hallucination_rate")
+    fc_mu, fc_sd = mean_std("format_compliance")
+    log.info("    Hallucination Rate: %.4f ± %.4f", hl_mu, hl_sd)
+    log.info("    Format Compliance : %.4f ± %.4f", fc_mu, fc_sd)
+
+
 # ─── 主函数 ────────────────────────────────────────────────────────────────────
 
 def parse_args():
@@ -338,7 +418,7 @@ def parse_args():
     p.add_argument("--model",         default="unsloth/meta-llama-3.1-8b-instruct-bnb-4bit")
     p.add_argument("--adapter",       default=None,  help="LoRA adapter 目录（微调模型）")
     p.add_argument("--output_format", default="v2",
-                   choices=["v0", "v1", "v2", "v3", "v4"],
+                   choices=["v0", "v1", "v2", "v3", "v4", "v5", "v11"],
                    help="模型输出格式（决定 prompt 和解析方式）")
     p.add_argument("--max_new_tokens", type=int, default=256)
     p.add_argument("--batch_size",     type=int, default=8,
@@ -348,6 +428,11 @@ def parse_args():
                    help="推理时在输入末尾追加 N 条伪干扰路径（抗噪鲁棒性实验）")
     p.add_argument("--no_score",       action="store_true",
                    help="路径字符串中不包含 score（需与训练时 --no_score 对齐）")
+    p.add_argument("--path_format",    default="arrow", choices=["arrow", "nl"],
+                   help="路径表示方式: arrow=符号格式(默认) nl=自然语言格式(V9 使用)")
+    p.add_argument("--num_runs",       type=int, default=1,
+                   help="多轮 shuffle 推理次数（每轮使用不同路径排列顺序），"
+                        "num_runs>1 时日志输出 mean±std（默认 1，向后兼容）")
     return p.parse_args()
 
 
@@ -361,71 +446,22 @@ def resolve_output(input_path: str, output_arg, fmt: str, adapter: str) -> str:
     return os.path.join(outdir, stem + suffix)
 
 
-def main():
-    args = parse_args()
-
-    output_path = resolve_output(args.input, args.output, args.output_format, args.adapter)
-    log_path    = os.path.splitext(output_path)[0] + ".log"
-    log         = setup_logger(log_path)
-
-    log.info("=" * 60)
-    log.info("eval_faithfulness 启动")
-    log.info("  命令          : %s", " ".join(sys.argv))
-    log.info("  input         : %s", args.input)
-    log.info("  output        : %s", output_path)
-    log.info("  model         : %s", args.model)
-    log.info("  adapter       : %s", args.adapter or "None（零样本）")
-    log.info("  output_format : %s", args.output_format)
-    log.info("  max_new_tokens: %d", args.max_new_tokens)
-    log.info("  limit         : %s", args.limit if args.limit > 0 else "全部")
-    log.info("  batch_size    : %d", args.batch_size)
-    log.info("  noise_paths   : %d", args.noise_paths)
-    log.info("  no_score      : %s", args.no_score)
-    log.info("=" * 60)
-
-    # ── 加载模型 ─────────────────────────────────────────────────────────────
-    try:
-        from unsloth import FastLanguageModel
-    except ImportError:
-        sys.exit("[Error] unsloth 未安装。请运行: pip install unsloth")
-
-    model_path = args.model
-
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=model_path,
-        max_seq_length=2048,
-        dtype=None,
-        load_in_4bit=True,
-        local_files_only=True,
-    )
-
-    if args.adapter:
-        log.info("加载 LoRA adapter: %s", args.adapter)
-        from peft import PeftModel
-        model = PeftModel.from_pretrained(model, args.adapter)
-
-    FastLanguageModel.for_inference(model)
-    model.eval()
-
-    # ── 读取数据 ──────────────────────────────────────────────────────────────
-    with open(args.input, encoding="utf-8") as f:
-        samples = [json.loads(l) for l in f if l.strip()]
-    if args.limit > 0:
-        samples = samples[:args.limit]
-    log.info("样本数: %d", len(samples))
-
-    # 选择 system prompt
-    system_prompt = FORMAT_PROMPTS[args.output_format]
-    show_score    = not args.no_score
-
-    # 批量推理需要左填充（decoder-only 模型）
-    tokenizer.padding_side = "left"
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-
+def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
+               run_idx: int, output_path: str) -> list:
+    """
+    单轮推理：用 run_idx 作为 shuffle 偏移量，返回样本级指标列表。
+    run_idx=0 时种子为 hash(question) % 2**31（与原始行为一致）。
+    结果同时写入 {output_path_stem}_run{run_idx}.jsonl。
+    """
     import random as _random
 
-    # ── 预处理：构建每条样本的 prompt 和 meta 信息 ────────────────────────────
+    system_prompt = FORMAT_PROMPTS[args.output_format]
+    show_score    = not args.no_score
+    path_format   = getattr(args, "path_format", "arrow")
+    # V5 若未显式指定，自动切换为自然语言路径
+    if args.output_format == "v5" and path_format == "arrow":
+        path_format = "nl"
+
     def prepare_sample(sample):
         question  = sample.get("question", "")
         mmr_paths = list(sample.get("mmr_reason_paths", []))
@@ -439,9 +475,9 @@ def main():
                         for j, e in enumerate(base.get("path", []))]
                 mmr_paths.append({"path": fake, "log_score": -99.0})
 
-        # 推理时 shuffle 路径顺序（与训练时一致，减少位置偏差）
-        # 使用 question 内容的哈希作为种子，确保每个样本的 shuffle 唯一且确定
-        _seed = hash(question) % (2 ** 31)
+        # run_idx=0 时种子 = hash(question) % 2**31，与原始行为完全一致
+        # run_idx>0 时加偏移，产生不同的排列顺序
+        _seed = (hash(question) + run_idx) % (2 ** 31)
         _rng  = _random.Random(_seed)
         _rng.shuffle(mmr_paths)
 
@@ -449,7 +485,10 @@ def main():
             (p.get("path", []), p.get("log_score", 0.0), i + 1)
             for i, p in enumerate(mmr_paths)
         ]
-        user_content = build_user_content(paths_with_meta, question, show_score=show_score)
+        user_content = build_user_content(
+            paths_with_meta, question,
+            show_score=show_score, path_format=path_format,
+        )
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_content},
@@ -461,15 +500,13 @@ def main():
 
     prepared = [prepare_sample(s) for s in samples]
 
-    # ── 批量推理 ──────────────────────────────────────────────────────────────
-    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     results = []
     bs = args.batch_size
+    desc = f"Run {run_idx} / Inference (batch={bs})"
 
-    for batch_start in tqdm(range(0, len(prepared), bs),
-                            desc=f"Inference (batch={bs})",
+    for batch_start in tqdm(range(0, len(prepared), bs), desc=desc,
                             total=(len(prepared) + bs - 1) // bs):
-        batch = prepared[batch_start: batch_start + bs]
+        batch      = prepared[batch_start: batch_start + bs]
         prompts    = [b[0] for b in batch]
         mmr_batch  = [b[1] for b in batch]
         gold_batch = [b[2] for b in batch]
@@ -499,62 +536,53 @@ def main():
         for raw_text, mmr_paths, golden, orig_sample in zip(
                 raw_texts, mmr_batch, gold_batch, orig_batch):
 
-            # 解析输出
-            parsed = parse_output(raw_text, args.output_format)
-
-            # 计算 Golden Path 标注（评估忠实度用）
+            parsed         = parse_output(raw_text, args.output_format)
             golden_indices = label_golden_indices(mmr_paths, golden)
             path_entities  = get_all_path_entities(mmr_paths)
-
-            # 答案准确率
-            answer_m = compute_answer_metrics(parsed["answers"], golden)
-
-            # 忠实度
-            faith_m = compute_faithfulness(
+            answer_m       = compute_answer_metrics(parsed["answers"], golden)
+            faith_m        = compute_faithfulness(
                 parsed["cited_indices"], golden_indices,
                 parsed["answers"], path_entities,
             )
 
             rec = {
                 **orig_sample,
-                "mmr_reason_paths":   mmr_paths,
-                "llm_raw_output":     raw_text,
-                "llm_pred":           parsed["answers"],
-                "cited_indices":      sorted(parsed["cited_indices"]),
-                "golden_path_indices": sorted(golden_indices),
-                "format_ok":          parsed["format_ok"],
-                # 答案准确率
-                "hit1":               answer_m["hit1"],
-                "hit_any":            answer_m["hit_any"],
-                "precision":          round(answer_m["precision"], 4),
-                "recall":             round(answer_m["recall"],    4),
-                "f1":                 round(answer_m["f1"],        4),
-                "exact_match":        answer_m["exact_match"],
-                "tp":                 answer_m["tp"],
-                "pred_n":             answer_m["pred_n"],
-                "gold_n":             answer_m["gold_n"],
-                # 忠实度
-                "citation_accuracy":   faith_m["citation_accuracy"],
-                "citation_recall":     faith_m["citation_recall"],
-                "hallucination_rate":  faith_m["hallucination_rate"],
+                "mmr_reason_paths":      mmr_paths,
+                "llm_raw_output":        raw_text,
+                "llm_pred":              parsed["answers"],
+                "cited_indices":         sorted(parsed["cited_indices"]),
+                "golden_path_indices":   sorted(golden_indices),
+                "format_ok":             parsed["format_ok"],
+                "hit1":                  answer_m["hit1"],
+                "hit_any":               answer_m["hit_any"],
+                "precision":             round(answer_m["precision"], 4),
+                "recall":                round(answer_m["recall"],    4),
+                "f1":                    round(answer_m["f1"],        4),
+                "exact_match":           answer_m["exact_match"],
+                "tp":                    answer_m["tp"],
+                "pred_n":                answer_m["pred_n"],
+                "gold_n":                answer_m["gold_n"],
+                "citation_accuracy":     faith_m["citation_accuracy"],
+                "citation_recall":       faith_m["citation_recall"],
+                "hallucination_rate":    faith_m["hallucination_rate"],
                 "hallucinated_entities": faith_m["hallucinated_entities"],
             }
             results.append(rec)
 
-    # ── 写输出 ────────────────────────────────────────────────────────────────
-    with open(output_path, "w", encoding="utf-8") as f:
+    # 每轮结果写入独立文件（num_runs=1 时写 output_path 本身，保持原有行为）
+    stem, ext = os.path.splitext(output_path)
+    run_path = output_path if args.num_runs == 1 else f"{stem}_run{run_idx}{ext}"
+    with open(run_path, "w", encoding="utf-8") as f:
         for r in results:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    if args.num_runs > 1:
+        log.info("Run %d 结果: %s", run_idx, run_path)
 
-    # ── 汇总 ──────────────────────────────────────────────────────────────────
-    log.info("")
-    log.info("finish_time: %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-    log.info("=" * 60)
+    return results
 
-    m_all = aggregate(results)
-    log_metrics(log, f"ALL  format={args.output_format}", m_all)
 
-    # 按 mmr_answer_path_hit 分层（True=路径命中 / False=路径未命中）
+def _log_stratified(log: logging.Logger, results: list):
+    """输出分层汇总（路径命中 / gold_n≤10 / hop），复用于单轮和多轮。"""
     log.info("")
     log.info("  --- 按路径命中分层（排除路径检索失败的影响）---")
     hit_groups = {"path_hit=True": [], "path_hit=False": []}
@@ -566,30 +594,122 @@ def main():
         if items:
             log_metrics(log, key, aggregate(items))
 
-    # gold_n≤10 子集（排除长尾列表类问题对 Micro 指标的污染）
     short_gold = [r for r in results if r.get("gold_n", 0) <= 10]
     if short_gold and len(short_gold) < len(results):
         log.info("")
         log.info("  --- gold_n≤10 子集（n=%d, 排除长尾列表问题）---", len(short_gold))
         log_metrics(log, "gold_n≤10", aggregate(short_gold))
 
-    # 按 hop 分层
     hop_groups: dict = defaultdict(list)
     for r in results:
         hop_groups[str(r.get("hop", "unknown"))].append(r)
-
     if len(hop_groups) > 1:
         log.info("")
         log.info("  --- 按跳数分层 ---")
         for hop in sorted(hop_groups.keys()):
-            m_hop = aggregate(hop_groups[hop])
-            log_metrics(log, f"hop={hop}", m_hop)
+            log_metrics(log, f"hop={hop}", aggregate(hop_groups[hop]))
 
-    # Format Compliance 细节
-    log.info("")
     n_ok  = sum(1 for r in results if r["format_ok"])
     n_all = len(results)
-    log.info("  Format Compliance: %d/%d = %.4f", n_ok, n_all, n_ok / n_all if n_all else 0)
+    log.info("")
+    log.info("  Format Compliance: %d/%d = %.4f", n_ok, n_all,
+             n_ok / n_all if n_all else 0)
+
+
+def main():
+    args = parse_args()
+
+    output_path = resolve_output(args.input, args.output, args.output_format, args.adapter)
+    log_path    = os.path.splitext(output_path)[0] + ".log"
+    log         = setup_logger(log_path)
+
+    log.info("=" * 60)
+    log.info("eval_faithfulness 启动")
+    log.info("  命令          : %s", " ".join(sys.argv))
+    log.info("  input         : %s", args.input)
+    log.info("  output        : %s", output_path)
+    log.info("  model         : %s", args.model)
+    log.info("  adapter       : %s", args.adapter or "None（零样本）")
+    log.info("  output_format : %s", args.output_format)
+    log.info("  max_new_tokens: %d", args.max_new_tokens)
+    log.info("  limit         : %s", args.limit if args.limit > 0 else "全部")
+    log.info("  batch_size    : %d", args.batch_size)
+    log.info("  noise_paths   : %d", args.noise_paths)
+    log.info("  no_score      : %s", args.no_score)
+    log.info("  num_runs      : %d", args.num_runs)
+    log.info("=" * 60)
+
+    # ── 加载模型（只加载一次）────────────────────────────────────────────────
+    try:
+        from unsloth import FastLanguageModel
+    except ImportError:
+        sys.exit("[Error] unsloth 未安装。请运行: pip install unsloth")
+
+    model, tokenizer = FastLanguageModel.from_pretrained(
+        model_name=args.model,
+        max_seq_length=2048,
+        dtype=None,
+        load_in_4bit=True,
+        local_files_only=True,
+    )
+
+    if args.adapter:
+        log.info("加载 LoRA adapter: %s", args.adapter)
+        from peft import PeftModel
+        model = PeftModel.from_pretrained(model, args.adapter)
+
+    FastLanguageModel.for_inference(model)
+    model.eval()
+
+    tokenizer.padding_side = "left"
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    # ── 读取数据 ──────────────────────────────────────────────────────────────
+    with open(args.input, encoding="utf-8") as f:
+        samples = [json.loads(l) for l in f if l.strip()]
+    if args.limit > 0:
+        samples = samples[:args.limit]
+    log.info("样本数: %d", len(samples))
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+    # ── 多轮推理 ──────────────────────────────────────────────────────────────
+    results_per_run = []
+    for run_idx in range(args.num_runs):
+        if args.num_runs > 1:
+            log.info("")
+            log.info("--- Run %d / %d ---", run_idx, args.num_runs - 1)
+        results = run_single(samples, model, tokenizer, args, log, run_idx, output_path)
+        results_per_run.append(results)
+
+    log.info("")
+    log.info("finish_time: %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    log.info("=" * 60)
+
+    # ── 汇总 ──────────────────────────────────────────────────────────────────
+    if args.num_runs == 1:
+        # 单轮：保持原有输出格式，完全向后兼容
+        results = results_per_run[0]
+        m_all = aggregate(results)
+        log_metrics(log, f"ALL  format={args.output_format}", m_all)
+        _log_stratified(log, results)
+    else:
+        # 多轮：先输出每轮概要，再输出跨轮 mean±std
+        runs_agg = []
+        for run_idx, results in enumerate(results_per_run):
+            m = aggregate(results)
+            runs_agg.append(m)
+            log_metrics(log, f"ALL  format={args.output_format}  run={run_idx}", m)
+
+        log.info("")
+        log.info("  --- 多轮汇总 (num_runs=%d) ---", args.num_runs)
+        log_metrics_with_std(log, runs_agg)
+
+        # 分层统计基于最后一轮结果（代表性），不逐轮重复
+        log.info("")
+        log.info("  --- 分层统计（以 run=0 为代表）---")
+        _log_stratified(log, results_per_run[0])
 
     log.info("=" * 60)
     log.info("结果: %s", output_path)

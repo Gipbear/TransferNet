@@ -3,7 +3,7 @@ KG-CoT 数据构造脚本（第四章核心流水线）
 
 功能：
   1. Golden Path 标注：判断路径尾实体是否在 golden 答案中
-  2. 多版本输出格式生成（V1/V2/V3/V4）
+  2. 多版本输出格式生成（V1-V5，v11)
   3. 数据增强：路径顺序打乱、干扰路径比例控制、MetaQA 子集采样
 
 输入：predict.py 输出的 JSONL（含 mmr_reason_paths 和 golden 字段）
@@ -22,7 +22,7 @@ KG-CoT 数据构造脚本（第四章核心流水线）
       --output data/output/MetaQA/kgcot_v2_20k.jsonl \\
       --format v2 --shuffle --sample 20000
 
-  # 一次生成全部四种格式（每种单独文件，用于消融实验）
+  # 一次生成全部格式（每种单独文件，用于消融实验）
   python llm_infer/build_kgcot_dataset.py \\
       --input  data/output/WebQSP/predict_train.jsonl \\
       --output data/output/WebQSP/kgcot.jsonl \\
@@ -42,7 +42,6 @@ from typing import Optional
 from kg_format import (
     FORMAT_PROMPTS,
     build_user_content,
-    format_path_str,  # noqa: F401（部分调用方可能直接用）
 )
 
 
@@ -138,16 +137,37 @@ def output_v3(golden_indices: list, answers: list) -> str:
 
 
 def output_v4(paths_with_meta: list, golden_indices: list, answers: list) -> str:
-    """V4 SFT-CoT：自然语言推理链 + 答案，消融对比项。"""
+    """V4 Compact CoT：一句话推理 + citation + 答案。"""
+    golden_set = set(golden_indices)
+    relations = list(dict.fromkeys(
+        e[1] for edges, _, didx in paths_with_meta
+        if didx in golden_set
+        for e in edges
+    ))
+    cited = ", ".join(str(i) for i in sorted(golden_indices))
+    rel_str = ", ".join(f'"{r}"' for r in relations[:3])  # 最多展示 3 个关系
+    reasoning = f"Paths {cited} lead to the answer via {rel_str}."
+    return (
+        f"Reasoning: {reasoning}\n"
+        f"Supporting Paths: {cited}\n"
+        f"Answer: {' | '.join(answers)}"
+    )
+
+
+def output_v5(golden_indices: list, answers: list) -> str:
+    """V5 Natural Language Path Input：输出格式与 V2 相同，路径输入格式为自然语言。"""
+    return output_v2(golden_indices, answers)
+
+
+def output_v11(paths_with_meta: list, golden_indices: list, answers: list) -> str:
+    """V11 Full CoT（备用）：[Reasoning]/[Answer] 双段结构。"""
     golden_set = set(golden_indices)
     reasoning_lines = []
     for edges, log_score, display_idx in paths_with_meta:
         if display_idx in golden_set and edges:
-            desc = " -> ".join(f"({e[0]}) -[{e[1]}]-> ({e[2]})" for e in edges)
+            relations = " -> ".join(f"[{e[1]}]" for e in edges)
             tail = edges[-1][2]
-            reasoning_lines.append(
-                f"Path {display_idx} supports '{tail}': {desc}"
-            )
+            reasoning_lines.append(f"Path {display_idx} → {tail} via {relations}")
     reasoning = "\n".join(reasoning_lines) if reasoning_lines else "No supporting path found."
     cited = ", ".join(str(i) for i in sorted(golden_indices))
     return (
@@ -162,12 +182,14 @@ def output_v4(paths_with_meta: list, golden_indices: list, answers: list) -> str
 
 def make_sample(record: dict, fmt: str, shuffle: bool,
                 distractor_ratio: Optional[float], show_score: bool,
-                rng: random.Random) -> Optional[dict]:
+                rng: random.Random,
+                path_format: str = "arrow") -> Optional[dict]:
     """
     从一条 predict JSONL 记录构造训练样本。
     返回 None 表示 Hit@K 未命中，丢弃。
 
-    show_score: 路径字符串中是否包含 [score=S]（False 用于消融实验）
+    show_score:   路径字符串中是否包含 [score=S]（False 用于消融实验）
+    path_format:  路径表示方式 'arrow'（符号）或 'nl'（自然语言，V9 使用）
     """
     question = record.get("question", "")
     mmr_paths = record.get("mmr_reason_paths", [])
@@ -200,7 +222,10 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
     # 极端情况兜底（理论上不应发生）
     answer_entities = path_answers if path_answers else golden
 
-    user_content = build_user_content(paths_with_meta, question, show_score=show_score)
+    user_content = build_user_content(
+        paths_with_meta, question,
+        show_score=show_score, path_format=path_format,
+    )
     system_prompt = FORMAT_PROMPTS.get(fmt, FORMAT_PROMPTS["v2"])
 
     if fmt == "v1":
@@ -211,6 +236,10 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
         asst = output_v3(golden_indices, answer_entities)
     elif fmt == "v4":
         asst = output_v4(paths_with_meta, golden_indices, answer_entities)
+    elif fmt == "v5":
+        asst = output_v5(golden_indices, answer_entities)
+    elif fmt == "v11":
+        asst = output_v11(paths_with_meta, golden_indices, answer_entities)
     else:
         raise ValueError(f"未知格式: {fmt}")
 
@@ -229,6 +258,7 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
             "n_distractor":        len(labeled) - len(golden_indices),
             "format":              fmt,
             "show_score":          show_score,
+            "path_format":         path_format,
             "hop":                 record.get("hop"),
         },
     }
@@ -238,10 +268,12 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
 
 def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
           distractor_ratio: Optional[float], sample_n: int, show_score: bool,
-          rng: random.Random, log: logging.Logger) -> dict:
+          rng: random.Random, log: logging.Logger,
+          path_format: str = "arrow") -> dict:
     with open(input_path, encoding="utf-8") as f:
         records = [json.loads(l) for l in f if l.strip()]
-    log.info("读入 %d 条记录  格式=%s  show_score=%s", len(records), fmt, show_score)
+    log.info("读入 %d 条记录  格式=%s  show_score=%s  path_format=%s",
+             len(records), fmt, show_score, path_format)
 
     if sample_n > 0 and len(records) > sample_n:
         records = rng.sample(records, sample_n)
@@ -249,7 +281,8 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
 
     samples, skipped = [], 0
     for rec in records:
-        s = make_sample(rec, fmt, shuffle, distractor_ratio, show_score, rng)
+        s = make_sample(rec, fmt, shuffle, distractor_ratio, show_score, rng,
+                        path_format=path_format)
         if s is None:
             skipped += 1
         else:
@@ -311,14 +344,17 @@ def parse_args():
     p.add_argument("--input",  required=True)
     p.add_argument("--output", required=True)
     p.add_argument("--format", default="v2",
-                   choices=["v1", "v2", "v3", "v4", "all"],
-                   help="v1=仅答案 v2=路径引用(主方法) v3=JSON v4=CoT all=全部四种")
+                   choices=["v1", "v2", "v3", "v4", "v5", "v11", "all"],
+                   help=("v1=仅答案 v2=路径引用(主方法) v3=JSON v4=精简CoT "
+                         "v5=自然语言路径 v11=完整CoT(备用) all=全部"))
     p.add_argument("--no_shuffle", action="store_true",
                    help="关闭路径顺序随机打乱（默认开启，用于防止 positional bias）")
     p.add_argument("--no_score", action="store_true",
                    help="路径字符串中不包含 score（消融实验用）")
     p.add_argument("--distractor_ratio", type=float, default=None,
                    help="干扰路径占比上限 0~1，None=不调整")
+    p.add_argument("--path_format", default="arrow", choices=["arrow", "nl"],
+                   help="路径表示方式: arrow=符号格式(默认) nl=自然语言格式(V9 使用)")
     p.add_argument("--sample", type=int, default=0,
                    help="采样 N 条（0=全量），MetaQA 329K 时使用")
     p.add_argument("--seed", type=int, default=42)
@@ -329,22 +365,28 @@ def main():
     args = parse_args()
     rng  = random.Random(args.seed)
 
-    shuffle    = not args.no_shuffle
-    show_score = not args.no_score
+    shuffle     = not args.no_shuffle
+    show_score  = not args.no_score
+    path_format = args.path_format
 
     log_path = os.path.splitext(args.output)[0] + "_build.log"
     log = setup_logger(log_path)
     log.info("命令: %s", " ".join(sys.argv))
-    log.info("shuffle=%s  show_score=%s", shuffle, show_score)
+    log.info("shuffle=%s  show_score=%s  path_format=%s", shuffle, show_score, path_format)
+
+    # all 模式：生成 v1-v5 全部格式（不含 v0/v11）
+    ALL_FORMATS = ["v1", "v2", "v3", "v4", "v5"]
 
     if args.format == "all":
         base, ext = os.path.splitext(args.output)
         ext = ext or ".jsonl"
         stats_list = []
-        for fmt in ["v1", "v2", "v3", "v4"]:
+        for fmt in ALL_FORMATS:
+            # V5 强制使用 nl 路径格式
+            pf = "nl" if fmt == "v5" else path_format
             stat = build(args.input, f"{base}_{fmt}{ext}", fmt,
                          shuffle, args.distractor_ratio, args.sample,
-                         show_score, rng, log)
+                         show_score, rng, log, path_format=pf)
             stats_list.append(stat)
         log.info("=" * 50)
         for st in stats_list:
@@ -354,9 +396,13 @@ def main():
                      st["avg_golden"], st["avg_distractor"],
                      st.get("seq_len_avg", 0), st.get("seq_len_p90", 0))
     else:
+        # V5 若未显式指定 --path_format nl，自动切换
+        if args.format == "v5" and path_format == "arrow":
+            log.info("V5 格式自动切换路径表示为 nl")
+            path_format = "nl"
         st = build(args.input, args.output, args.format,
                    shuffle, args.distractor_ratio, args.sample,
-                   show_score, rng, log)
+                   show_score, rng, log, path_format=path_format)
         log.info("total=%d skip=%d avg_golden=%.2f avg_distractor=%.2f"
                  " seq_len_avg=%d seq_len_p90=%d",
                  st["total"], st["skipped"],
