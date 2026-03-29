@@ -65,7 +65,7 @@ v2 是主方法，v1/v3/v4 是对比项。v1 没有 citation 机制，理论上 
 
 **目的**：验证微调后的 v2 模型在不同检索配置下的泛化能力，同时找到与微调模型最匹配的检索参数。
 
-**固定变量**：复用最佳 v2 adapter（`models/webqsp_v2_best/`），仅做推理，无需重新训练。
+**固定变量**：复用最佳 v2 adapter（`models/webqsp/webqsp_v2/`），仅做推理，无需重新训练。
 
 **扫描 beam_size（固定 lambda=0.2）**：
 
@@ -119,15 +119,16 @@ data/output/WebQSP/
     results.csv                # 汇总表格（collect_ablation_results.py 生成）
 
 models/
-  webqsp_v2_best/              # 主方法 v2 adapter（Group A/C 的基线）
-  ablation/
-    groupA_v1/                 # 各消融配置训练的 adapter
-    groupA_v3/
-    groupA_v4/
-    groupB_noshuffle/
-    groupB_noscore/
-    groupB_dist0.3/
-    groupB_dist0.5/
+  webqsp/
+    webqsp_v2/                 # 主方法 v2 adapter（Group A/C 的基线）
+    ablation/
+      groupA_v1/               # 各消融配置训练的 adapter
+      groupA_v3/
+      groupA_v4/
+      groupB_noshuffle/
+      groupB_noscore/
+      groupB_dist0.3/
+      groupB_dist0.5/
 ```
 
 ---
@@ -138,7 +139,7 @@ models/
 
 1. 确认训练集存在：`data/output/WebQSP/predict_train.jsonl`
 2. 确认测试集存在：`data/output/WebQSP/grid_search/paths/beam20_lam0.2.jsonl`
-3. 确认基线 adapter 存在：`models/webqsp_v2_best/`（若路径不同，见下方说明）
+3. 确认基线 adapter 存在：`models/webqsp/webqsp_v2/`（若路径不同，见下方说明）
 4. GPU 环境已就绪（建议 24GB+ 显存）
 
 ---
@@ -164,9 +165,9 @@ python scripts/collect_ablation_results.py \
 bash scripts/run_ablation.sh --group C
 ```
 
-> 若基线 adapter 路径不是 `models/webqsp_v2_best/`，用环境变量覆盖：
+> 若基线 adapter 路径不是 `models/webqsp/webqsp_v2/`，用环境变量覆盖：
 > ```bash
-> BEST_ADAPTER=models/webqsp_v2 bash scripts/run_ablation.sh --group C
+> BEST_ADAPTER=models/webqsp/webqsp_v2 bash scripts/run_ablation.sh --group C
 > ```
 
 ---
@@ -222,7 +223,7 @@ bash scripts/run_ablation.sh
 脚本每步均检查输出是否已存在，中断后直接重新执行即可：
 
 - 训练数据跳过条件：`ablation/{config}/kgcot_train.jsonl` 已存在
-- 训练跳过条件：`models/ablation/{config}/adapter_config.json` 已存在
+- 训练跳过条件：`models/{dataset}/ablation/{config}/adapter_config.json` 已存在
 - 评估跳过条件：`ablation/{config}/*_eval.log` 已存在
 
 ---

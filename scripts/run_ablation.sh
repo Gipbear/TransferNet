@@ -16,6 +16,9 @@
 #
 # 用法：
 #   bash scripts/run_ablation.sh                            # 全量运行
+#   bash scripts/run_ablation.sh --dataset metaqa          # 使用 MetaQA_KB 数据
+#   bash scripts/run_ablation.sh --dataset cwq             # 使用 CWQ 数据
+#   bash scripts/run_ablation.sh --model_dataset webqsp    # 优先使用 WebQSP 模型
 #   bash scripts/run_ablation.sh --group A                  # 只跑 Group A
 #   bash scripts/run_ablation.sh --group B                  # 只跑 Group B
 #   bash scripts/run_ablation.sh --group C                  # 只跑 Group C（仅 eval）
@@ -29,15 +32,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+source "${SCRIPT_DIR}/run_ablation_lib.sh"
 
-# ── 路径配置 ──────────────────────────────────────────────────────────────────
-TRAIN_INPUT="${PROJECT_DIR}/data/output/WebQSP/predict_train.jsonl"
-PATHS_DIR="${PROJECT_DIR}/data/output/WebQSP/grid_search/paths"
-ABLATION_DATA="${PROJECT_DIR}/data/output/WebQSP/ablation"
-ABLATION_MODELS="${PROJECT_DIR}/models/ablation"
-BASELINE_ADAPTER="${PROJECT_DIR}/models/webqsp_v2_best"
-# Group C 使用的 adapter，可通过环境变量覆盖
-BEST_ADAPTER="${BEST_ADAPTER:-${BASELINE_ADAPTER}}"
 # 多轮 shuffle 推理次数（每轮用不同种子，report mean±std）；设为 1 关闭多轮
 NUM_RUNS="${NUM_RUNS:-3}"
 
@@ -45,18 +41,21 @@ BUILD_SCRIPT="${PROJECT_DIR}/llm_infer/build_kgcot_dataset.py"
 TRAIN_SCRIPT="${PROJECT_DIR}/llm_infer/train_sft.py"
 EVAL_SCRIPT="${PROJECT_DIR}/llm_infer/eval_faithfulness.py"
 
-# 固定测试集（Group A/B）
-TEST_BEAM20_LAM02="${PATHS_DIR}/beam20_lam0.2.jsonl"
-
-# 解析 --group / --phase 参数
+# 解析 --group / --phase / --dataset / --model_dataset 参数
 RUN_GROUP="ALL"
 RUN_PHASE="all"   # all | train | eval
+RUN_DATASET="webqsp"
+MODEL_DATASET="webqsp"
 PREV=""
 for arg in "$@"; do
     if [[ "$PREV" == "--group" ]]; then
         RUN_GROUP="$arg"
     elif [[ "$PREV" == "--phase" ]]; then
         RUN_PHASE="$arg"
+    elif [[ "$PREV" == "--dataset" ]]; then
+        RUN_DATASET="$arg"
+    elif [[ "$PREV" == "--model_dataset" ]]; then
+        MODEL_DATASET="$arg"
     fi
     PREV="$arg"
 done
@@ -64,6 +63,19 @@ if [[ "$RUN_PHASE" != "all" && "$RUN_PHASE" != "train" && "$RUN_PHASE" != "eval"
     echo "[ERROR] --phase 仅支持: all | train | eval"
     exit 1
 fi
+
+init_dataset_context "${PROJECT_DIR}" "${RUN_DATASET}"
+
+# ── 路径配置（由 --dataset / --model_dataset 决定）───────────────────────────
+TRAIN_INPUT="${DATASET_TRAIN_INPUT}"
+PATHS_DIR="${DATASET_PATHS_DIR}"
+ABLATION_DATA="${DATASET_ABLATION_DATA}"
+ABLATION_MODELS="${DATASET_ABLATION_MODELS}"
+TEST_BEAM20_LAM02="${DATASET_TEST_BEAM20_LAM02}"
+BASELINE_ADAPTER="$(resolve_baseline_adapter "${PROJECT_DIR}" "${MODEL_DATASET}")"
+EVAL_LIMIT="${EVAL_LIMIT:-$(resolve_eval_limit "${RUN_DATASET}")}"
+# Group C 使用的 adapter，可通过环境变量覆盖
+BEST_ADAPTER="${BEST_ADAPTER:-${BASELINE_ADAPTER}}"
 
 # ── 辅助函数 ──────────────────────────────────────────────────────────────────
 
@@ -97,6 +109,7 @@ run_experiment() {
     local model_dir="${ABLATION_MODELS}/${config_name}"
     local dataset="${data_dir}/kgcot_train.jsonl"
     local adapter_flag="${model_dir}/adapter_config.json"
+    local eval_adapter="${model_dir}"
     # eval 输出文件名由 eval_faithfulness.py 自动生成
     local eval_log="${data_dir}/beam20_lam0.2_${fmt}_ft_eval.log"
 
@@ -142,15 +155,20 @@ run_experiment() {
     elif [[ -f "${eval_log}" ]]; then
         echo "[SKIP] 评估结果已存在: ${eval_log}"
     else
+        if [[ "${RUN_PHASE}" == "eval" ]]; then
+            eval_adapter="$(resolve_slot_adapter "${PROJECT_DIR}" "${MODEL_DATASET}" "${config_name}")"
+        fi
         log_step "Step 3/3: 忠实度评估"
+        echo "[INFO] 评估 adapter: ${eval_adapter}"
         T0=$(date +%s)
         # shellcheck disable=SC2086
         python "${EVAL_SCRIPT}" \
             --input         "${TEST_BEAM20_LAM02}" \
             --output        "${data_dir}" \
-            --adapter       "${model_dir}" \
+            --adapter       "${eval_adapter}" \
             --output_format "${fmt}" \
             --num_runs      "${NUM_RUNS}" \
+            --limit         "${EVAL_LIMIT}" \
             ${eval_extra}
         echo "[INFO] 评估完成，耗时 $(($(date +%s) - T0))s"
     fi
@@ -183,6 +201,7 @@ run_eval_only() {
     fi
 
     log_step "评估: ${config_name}  [$(basename "${test_input}")] format=${fmt}"
+    echo "[INFO] 评估 adapter: ${adapter}"
     T0=$(date +%s)
     # shellcheck disable=SC2086
     python "${EVAL_SCRIPT}" \
@@ -191,6 +210,7 @@ run_eval_only() {
         --adapter       "${adapter}" \
         --output_format "${fmt}" \
         --num_runs      "${NUM_RUNS}" \
+        --limit         "${EVAL_LIMIT}" \
         ${eval_extra}
     echo "[INFO] 评估完成，耗时 $(($(date +%s) - T0))s"
 }
@@ -199,16 +219,22 @@ run_eval_only() {
 echo "======================================================"
 echo "  消融实验编排脚本"
 echo "  PROJECT_DIR   : ${PROJECT_DIR}"
+echo "  DATASET       : ${RUN_DATASET}"
+echo "  MODEL_DATASET : ${MODEL_DATASET}"
 echo "  TRAIN_INPUT   : ${TRAIN_INPUT}"
+echo "  PATHS_DIR     : ${PATHS_DIR}"
+echo "  ABLATION_DATA : ${ABLATION_DATA}"
+echo "  ABLATION_MODELS: ${ABLATION_MODELS}"
 echo "  BASELINE_ADAPTER: ${BASELINE_ADAPTER}"
 echo "  BEST_ADAPTER  : ${BEST_ADAPTER}"
+echo "  EVAL_LIMIT    : ${EVAL_LIMIT}"
 echo "  RUN_GROUP     : ${RUN_GROUP}"
 echo "  RUN_PHASE     : ${RUN_PHASE}"
 echo "  NUM_RUNS      : ${NUM_RUNS}"
 echo "  $(date '+%Y-%m-%d %H:%M:%S')"
 echo "======================================================"
 
-if [[ ! -f "${TRAIN_INPUT}" ]]; then
+if [[ "${RUN_PHASE}" != "eval" && ! -f "${TRAIN_INPUT}" ]]; then
     echo "[ERROR] 训练数据不存在: ${TRAIN_INPUT}"
     exit 1
 fi
