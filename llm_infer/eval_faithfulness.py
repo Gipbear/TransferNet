@@ -426,8 +426,8 @@ def parse_args():
     p.add_argument("--limit",          type=int, default=0, help="只评估前 N 条（0=全部）")
     p.add_argument("--noise_paths",    type=int, default=0,
                    help="推理时在输入末尾追加 N 条伪干扰路径（抗噪鲁棒性实验）")
-    p.add_argument("--no_score",       action="store_true",
-                   help="路径字符串中不包含 score（需与训练时 --no_score 对齐）")
+    p.add_argument("--show_score",      action="store_true",
+                   help="路径字符串中包含 [score=S]（默认不含；需与训练时对齐）")
     p.add_argument("--path_format",    default="arrow", choices=["arrow", "nl"],
                    help="路径表示方式: arrow=符号格式(默认) nl=自然语言格式(V9 使用)")
     p.add_argument("--num_runs",       type=int, default=1,
@@ -456,7 +456,7 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
     import random as _random
 
     system_prompt = FORMAT_PROMPTS[args.output_format]
-    show_score    = not args.no_score
+    show_score    = args.show_score
     path_format   = getattr(args, "path_format", "arrow")
     # V5 若未显式指定，自动切换为自然语言路径
     if args.output_format == "v5" and path_format == "arrow":
@@ -635,7 +635,7 @@ def main():
     log.info("  limit         : %s", args.limit if args.limit > 0 else "全部")
     log.info("  batch_size    : %d", args.batch_size)
     log.info("  noise_paths   : %d", args.noise_paths)
-    log.info("  no_score      : %s", args.no_score)
+    log.info("  show_score    : %s", args.show_score)
     log.info("  num_runs      : %d", args.num_runs)
     log.info("=" * 60)
 

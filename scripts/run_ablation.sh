@@ -251,8 +251,8 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "B" ]]; then
     # 关闭路径顺序打乱
     run_experiment "groupB_noshuffle" "v2" "--no_shuffle" ""
 
-    # 路径字符串不含 score（build + eval 均需 --no_score）
-    run_experiment "groupB_noscore" "v2" "--no_score" "--no_score"
+    # 路径字符串不含 score（现为默认行为，无需额外参数）
+    run_experiment "groupB_noscore" "v2" "" ""
 
     # 干扰路径比例 0.3
     run_experiment "groupB_dist0.3" "v2" "--distractor_ratio 0.3" ""
@@ -284,7 +284,7 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "C" ]]; then
     run_eval_only "groupC" "${BEST_ADAPTER}" "${TEST_BEAM20_LAM02}" "v2" ""
 
     # 固定 beam=20，扫 lambda（跳过 lam0.2 已处理）
-    for lam in 0.0 0.5 0.7; do
+    for lam in 0.0 0.5 0.7 1.0; do
         test_file="${PATHS_DIR}/beam20_lam${lam}.jsonl"
         if [[ ! -f "${test_file}" ]]; then
             echo "[WARN] 测试集不存在，跳过: ${test_file}"

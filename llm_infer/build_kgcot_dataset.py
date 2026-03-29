@@ -349,8 +349,8 @@ def parse_args():
                          "v5=自然语言路径 v11=完整CoT(备用) all=全部"))
     p.add_argument("--no_shuffle", action="store_true",
                    help="关闭路径顺序随机打乱（默认开启，用于防止 positional bias）")
-    p.add_argument("--no_score", action="store_true",
-                   help="路径字符串中不包含 score（消融实验用）")
+    p.add_argument("--show_score", action="store_true",
+                   help="路径字符串中包含 [score=S]（默认不含）")
     p.add_argument("--distractor_ratio", type=float, default=None,
                    help="干扰路径占比上限 0~1，None=不调整")
     p.add_argument("--path_format", default="arrow", choices=["arrow", "nl"],
@@ -366,7 +366,7 @@ def main():
     rng  = random.Random(args.seed)
 
     shuffle     = not args.no_shuffle
-    show_score  = not args.no_score
+    show_score  = args.show_score
     path_format = args.path_format
 
     log_path = os.path.splitext(args.output)[0] + "_build.log"

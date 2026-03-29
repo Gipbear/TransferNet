@@ -53,11 +53,11 @@ v2 是主方法，v1/v3/v4 是对比项。v1 没有 citation 机制，理论上 
 |------|-------|------|
 | **基线（v2）** | shuffle + 含分数 + 无 distractor 限制 | 复用 Group A 的 v2 结果 |
 | no_shuffle | 关闭路径顺序随机打乱 | 验证 shuffle 防止 positional bias 的作用 |
-| no_score | 路径字符串不含 `[score=S]` | 验证分数信息对模型的影响（build + eval 均需对齐） |
+| no_score | 路径字符串不含 `[score=S]`（现为默认行为） | 验证分数信息对模型的影响（结论：无影响） |
 | dist_0.3 | distractor_ratio=0.3 | 干扰路径占比≤30%，验证降低噪音的效果 |
 | dist_0.5 | distractor_ratio=0.5 | 干扰路径占比≤50% |
 
-> **注意**：no_score 配置下，`build_kgcot_dataset.py` 和 `eval_faithfulness.py` 必须同时使用 `--no_score`，确保训练和推理时路径格式一致。
+> **注意**：路径不含分数现为默认行为。若需含分数，`build_kgcot_dataset.py` 和 `eval_faithfulness.py` 均需使用 `--show_score`，确保训练和推理时格式一致。
 
 ---
 
@@ -109,7 +109,7 @@ data/output/WebQSP/
     groupA_v3/ ...
     groupA_v4/ ...
     groupB_noshuffle/ ...
-    groupB_noscore/ ...
+    groupB_noscore/ ...       # 现为默认行为（路径不含 score）
     groupB_dist0.3/ ...
     groupB_dist0.5/ ...
     groupC/                    # 各检索参数的评估结果

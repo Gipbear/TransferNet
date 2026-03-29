@@ -314,7 +314,7 @@ class RetrievePathsTool(BaseTool):
                 chain = " ".join(
                     f"({e[0]}) -[{e[1]}]-> ({e[2]})" for e in edges
                 )
-                lines.append(f"Path {idx} [score={log_score:.4f}]: {chain}")
+                lines.append(f"Path {idx}: {chain}")
 
             logger.debug(
                 "retrieve_paths: K=%d lambda=%.2f -> selected %d/%d paths",
@@ -394,7 +394,7 @@ class ReasonAndCiteTool(BaseTool):
 
             system_prompt = FORMAT_PROMPTS[self._output_format]
             user_content = build_user_content(
-                paths_with_meta, question, show_score=True, path_format="arrow"
+                paths_with_meta, question, path_format="arrow"
             )
 
             messages = [

@@ -88,11 +88,11 @@ FORMAT_PROMPTS = {
 # ─── 路径格式化 ───────────────────────────────────────────────────────────────
 
 def format_path_str(path_edges: list, log_score: float, idx: int,
-                    show_score: bool = True) -> str:
+                    show_score: bool = False) -> str:
     """将路径序列化为符号表示字符串（默认格式）。
 
-    show_score=True（默认）:  'Path N [score=S]: (e0) -[r]-> (e1) ...'
-    show_score=False:          'Path N: (e0) -[r]-> (e1) ...'
+    show_score=False（默认）: 'Path N: (e0) -[r]-> (e1) ...'
+    show_score=True:           'Path N [score=S]: (e0) -[r]-> (e1) ...'
     """
     chain = " ".join(f"({e[0]}) -[{e[1]}]-> ({e[2]})" for e in path_edges)
     if show_score:
@@ -106,11 +106,11 @@ def _rel_to_text(rel: str) -> str:
 
 
 def format_path_str_nl(path_edges: list, log_score: float, idx: int,
-                       show_score: bool = True) -> str:
+                       show_score: bool = False) -> str:
     """将路径序列化为自然语言句子（供 V5 使用）。
 
-    单跳: 'Path N [score=S]: subject rel object'
-    多跳: 'Path N [score=S]: s1 r1 o1; s2 r2 o2; ...'
+    单跳: 'Path N: subject rel object'
+    多跳: 'Path N: s1 r1 o1; s2 r2 o2; ...'
     """
     parts = [f"{e[0]} {_rel_to_text(e[1])} {e[2]}" for e in path_edges]
     chain = "; ".join(parts)
@@ -120,7 +120,7 @@ def format_path_str_nl(path_edges: list, log_score: float, idx: int,
 
 
 def build_user_content(paths_with_meta: list, question: str,
-                       show_score: bool = True,
+                       show_score: bool = False,
                        path_format: str = "arrow") -> str:
     """构建 User 消息：问题前置，路径列表随后。
 
