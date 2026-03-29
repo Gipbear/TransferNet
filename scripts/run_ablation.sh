@@ -4,10 +4,11 @@
 #
 # 消融实验自动化编排脚本（第四章）
 #
-# 覆盖三组消融实验：
+# 覆盖四组消融实验：
 #   Group A: 输出格式消融 (v1 / v2 / v3 / v4)
 #   Group B: 训练数据消融 (no_shuffle / no_score / distractor_ratio)
 #   Group C: 检索参数消融 (不同 beam/lambda，仅 eval，复用最佳模型)
+#   Group D: 路径输入格式消融 (arrow/tuple/chain × MID/name，固定 v2 输出)
 #
 # 特性：
 #   - 三步流程：build_kgcot_dataset → train_sft → eval_faithfulness
@@ -22,6 +23,7 @@
 #   bash scripts/run_ablation.sh --group A                  # 只跑 Group A
 #   bash scripts/run_ablation.sh --group B                  # 只跑 Group B
 #   bash scripts/run_ablation.sh --group C                  # 只跑 Group C（仅 eval）
+#   bash scripts/run_ablation.sh --group D                  # 只跑 Group D（路径格式消融）
 #   bash scripts/run_ablation.sh --group A --phase train    # 只做数据构建 + 训练
 #   bash scripts/run_ablation.sh --group A --phase eval     # 只做推理评估
 #   BEST_ADAPTER=models/my_adapter bash scripts/run_ablation.sh --group C
@@ -317,6 +319,41 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "C" ]]; then
             continue
         fi
         run_eval_only "groupC" "${BEST_ADAPTER}" "${test_file}" "v2" ""
+    done
+fi
+
+# ── Group D: 路径输入格式消融 ─────────────────────────────────────────────────
+if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "D" ]]; then
+    log_section "Group D: 路径输入格式消融 (3 格式 × 2 实体表示，固定 v2 输出)"
+
+    ENTITY_MAP="${PROJECT_DIR}/data/resources/WebQSP/fbwq_full/mapped_entities.txt"
+
+    if [[ ! -f "${ENTITY_MAP}" ]]; then
+        echo "[ERROR] 实体映射文件不存在: ${ENTITY_MAP}"
+        exit 1
+    fi
+
+    # D-arrow-mid: 复用基线 adapter（与 GroupA v2 完全相同）
+    log_section "实验: groupD_arrow_mid (arrow+MID, baseline eval)"
+    run_eval_only "groupD_arrow_mid" "${BASELINE_ADAPTER}" "${TEST_BEAM20_LAM02}" "v2" \
+        "--path_format arrow"
+
+    # D-arrow-name: arrow 格式 + 实体名称
+    run_experiment "groupD_arrow_name" "v2" \
+        "--path_format arrow --entity_map ${ENTITY_MAP}" \
+        "--path_format arrow --entity_map ${ENTITY_MAP}"
+
+    # D-tuple/chain × MID/name
+    for pfmt in tuple chain; do
+        # MID 变体
+        run_experiment "groupD_${pfmt}_mid" "v2" \
+            "--path_format ${pfmt}" \
+            "--path_format ${pfmt}"
+
+        # Name 变体
+        run_experiment "groupD_${pfmt}_name" "v2" \
+            "--path_format ${pfmt} --entity_map ${ENTITY_MAP}" \
+            "--path_format ${pfmt} --entity_map ${ENTITY_MAP}"
     done
 fi
 

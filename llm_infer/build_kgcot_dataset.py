@@ -42,6 +42,8 @@ from typing import Optional
 from kg_format import (
     FORMAT_PROMPTS,
     build_user_content,
+    load_entity_map,
+    map_answers,
 )
 
 
@@ -183,7 +185,8 @@ def output_v11(paths_with_meta: list, golden_indices: list, answers: list) -> st
 def make_sample(record: dict, fmt: str, shuffle: bool,
                 distractor_ratio: Optional[float], show_score: bool,
                 rng: random.Random,
-                path_format: str = "arrow") -> Optional[dict]:
+                path_format: str = "arrow",
+                entity_map: dict = None) -> Optional[dict]:
     """
     从一条 predict JSONL 记录构造训练样本。
     返回 None 表示 Hit@K 未命中，丢弃。
@@ -222,11 +225,20 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
     # 极端情况兜底（理论上不应发生）
     answer_entities = path_answers if path_answers else golden
 
+    # 实体映射：将路径中的 MID 答案映射为实体名称
+    if entity_map:
+        answer_entities = map_answers(answer_entities, entity_map)
+
     user_content = build_user_content(
         paths_with_meta, question,
         show_score=show_score, path_format=path_format,
+        entity_map=entity_map,
     )
-    system_prompt = FORMAT_PROMPTS.get(fmt, FORMAT_PROMPTS["v2"])
+
+    if entity_map and fmt == "v2":
+        system_prompt = FORMAT_PROMPTS["v2_name"]
+    else:
+        system_prompt = FORMAT_PROMPTS.get(fmt, FORMAT_PROMPTS["v2"])
 
     if fmt == "v1":
         asst = output_v1(answer_entities)
@@ -259,6 +271,7 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
             "format":              fmt,
             "show_score":          show_score,
             "path_format":         path_format,
+            "entity_map_used":     bool(entity_map),
             "hop":                 record.get("hop"),
         },
     }
@@ -269,11 +282,12 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
 def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
           distractor_ratio: Optional[float], sample_n: int, show_score: bool,
           rng: random.Random, log: logging.Logger,
-          path_format: str = "arrow") -> dict:
+          path_format: str = "arrow",
+          entity_map: dict = None) -> dict:
     with open(input_path, encoding="utf-8") as f:
         records = [json.loads(l) for l in f if l.strip()]
-    log.info("读入 %d 条记录  格式=%s  show_score=%s  path_format=%s",
-             len(records), fmt, show_score, path_format)
+    log.info("读入 %d 条记录  格式=%s  show_score=%s  path_format=%s  entity_map=%s",
+             len(records), fmt, show_score, path_format, bool(entity_map))
 
     if sample_n > 0 and len(records) > sample_n:
         records = rng.sample(records, sample_n)
@@ -282,7 +296,7 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
     samples, skipped = [], 0
     for rec in records:
         s = make_sample(rec, fmt, shuffle, distractor_ratio, show_score, rng,
-                        path_format=path_format)
+                        path_format=path_format, entity_map=entity_map)
         if s is None:
             skipped += 1
         else:
@@ -353,8 +367,11 @@ def parse_args():
                    help="路径字符串中包含 [score=S]（默认不含）")
     p.add_argument("--distractor_ratio", type=float, default=None,
                    help="干扰路径占比上限 0~1，None=不调整")
-    p.add_argument("--path_format", default="arrow", choices=["arrow", "nl"],
-                   help="路径表示方式: arrow=符号格式(默认) nl=自然语言格式(V9 使用)")
+    p.add_argument("--path_format", default="arrow",
+                   choices=["arrow", "nl", "tuple", "chain"],
+                   help="路径表示方式: arrow=符号格式(默认) nl=自然语言格式 tuple=三元组 chain=连续链式")
+    p.add_argument("--entity_map", default=None,
+                   help="实体映射文件路径 (MID→Name, tab-separated)，提供时输入路径和输出答案均使用实体名称")
     p.add_argument("--sample", type=int, default=0,
                    help="采样 N 条（0=全量），MetaQA 329K 时使用")
     p.add_argument("--seed", type=int, default=42)
@@ -372,10 +389,22 @@ def main():
     log_path = os.path.splitext(args.output)[0] + "_build.log"
     log = setup_logger(log_path)
     log.info("命令: %s", " ".join(sys.argv))
-    log.info("shuffle=%s  show_score=%s  path_format=%s", shuffle, show_score, path_format)
+
+    entity_map = None
+    if args.entity_map:
+        entity_map = load_entity_map(args.entity_map)
+        log.info("加载实体映射: %s (%d 条)", args.entity_map, len(entity_map))
+
+    log.info("shuffle=%s  show_score=%s  path_format=%s  entity_map=%s",
+             shuffle, show_score, path_format, args.entity_map)
 
     # all 模式：生成 v1-v5 全部格式（不含 v0/v11）
     ALL_FORMATS = ["v1", "v2", "v3", "v4", "v5"]
+
+    if args.format == "all" and entity_map:
+        log.warning("--format all + --entity_map: 仅 v2 使用 v2_name system prompt，"
+                    "其他格式（v1/v3/v4/v5）system prompt 仍说 'entity IDs'，"
+                    "建议在使用 entity_map 时单独指定 --format v2")
 
     if args.format == "all":
         base, ext = os.path.splitext(args.output)
@@ -386,7 +415,8 @@ def main():
             pf = "nl" if fmt == "v5" else path_format
             stat = build(args.input, f"{base}_{fmt}{ext}", fmt,
                          shuffle, args.distractor_ratio, args.sample,
-                         show_score, rng, log, path_format=pf)
+                         show_score, rng, log, path_format=pf,
+                         entity_map=entity_map)
             stats_list.append(stat)
         log.info("=" * 50)
         for st in stats_list:
@@ -402,7 +432,8 @@ def main():
             path_format = "nl"
         st = build(args.input, args.output, args.format,
                    shuffle, args.distractor_ratio, args.sample,
-                   show_score, rng, log, path_format=path_format)
+                   show_score, rng, log, path_format=path_format,
+                   entity_map=entity_map)
         log.info("total=%d skip=%d avg_golden=%.2f avg_distractor=%.2f"
                  " seq_len_avg=%d seq_len_p90=%d",
                  st["total"], st["skipped"],

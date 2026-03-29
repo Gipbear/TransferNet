@@ -57,7 +57,8 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
 logging.getLogger("transformers").setLevel(logging.ERROR)
 
 # kg_format 与本脚本同目录（llm_infer/）
-from kg_format import FORMAT_PROMPTS, build_user_content
+from kg_format import (FORMAT_PROMPTS, build_user_content,
+                       load_entity_map, apply_entity_map, build_reverse_entity_map)
 
 
 # ─── 日志 ─────────────────────────────────────────────────────────────────────
@@ -428,8 +429,11 @@ def parse_args():
                    help="推理时在输入末尾追加 N 条伪干扰路径（抗噪鲁棒性实验）")
     p.add_argument("--show_score",      action="store_true",
                    help="路径字符串中包含 [score=S]（默认不含；需与训练时对齐）")
-    p.add_argument("--path_format",    default="arrow", choices=["arrow", "nl"],
-                   help="路径表示方式: arrow=符号格式(默认) nl=自然语言格式(V9 使用)")
+    p.add_argument("--path_format",    default="arrow",
+                   choices=["arrow", "nl", "tuple", "chain"],
+                   help="路径表示方式: arrow=符号格式(默认) nl=自然语言格式 tuple=三元组 chain=连续链式")
+    p.add_argument("--entity_map", default=None,
+                   help="实体映射文件路径 (MID→Name, tab-separated)")
     p.add_argument("--num_runs",       type=int, default=1,
                    help="多轮 shuffle 推理次数（每轮使用不同路径排列顺序），"
                         "num_runs>1 时日志输出 mean±std（默认 1，向后兼容）")
@@ -455,7 +459,19 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
     """
     import random as _random
 
-    system_prompt = FORMAT_PROMPTS[args.output_format]
+    entity_map_dict = getattr(args, "entity_map_dict", None)
+    rev_entity_map = getattr(args, "rev_entity_map", None)
+    if entity_map_dict and args.output_format == "v2":
+        system_prompt = FORMAT_PROMPTS["v2_name"]
+    else:
+        system_prompt = FORMAT_PROMPTS[args.output_format]
+        if entity_map_dict and args.output_format not in ("v2",):
+            log.warning(
+                "entity_map 已启用，但 output_format=%s 没有对应的 _name system prompt。"
+                "系统 prompt 仍要求输出实体 ID，而路径已替换为实体名称，可能导致模型混淆。"
+                "建议使用 --output_format v2 配合 --entity_map。",
+                args.output_format,
+            )
     show_score    = args.show_score
     path_format   = getattr(args, "path_format", "arrow")
     # V5 若未显式指定，自动切换为自然语言路径
@@ -488,6 +504,7 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
         user_content = build_user_content(
             paths_with_meta, question,
             show_score=show_score, path_format=path_format,
+            entity_map=entity_map_dict,
         )
         messages = [
             {"role": "system", "content": system_prompt},
@@ -538,8 +555,31 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
 
             parsed         = parse_output(raw_text, args.output_format)
             golden_indices = label_golden_indices(mmr_paths, golden)
-            path_entities  = get_all_path_entities(mmr_paths)
-            answer_m       = compute_answer_metrics(parsed["answers"], golden)
+
+            # For hallucination: collect path entities in the format used during inference
+            if entity_map_dict:
+                path_entities = set()
+                for p in mmr_paths:
+                    for edge in apply_entity_map(p.get("path", []), entity_map_dict):
+                        path_entities.add(edge[0].lower().strip())
+                        path_entities.add(edge[2].lower().strip())
+            else:
+                path_entities = get_all_path_entities(mmr_paths)
+
+            # For answer metrics: expand predicted names to MIDs when entity_map active
+            expanded_pred = None
+            if entity_map_dict:
+                expanded_pred = []
+                for name in parsed["answers"]:
+                    key = name.lower().strip()
+                    if rev_entity_map and key in rev_entity_map:
+                        expanded_pred.extend(sorted(rev_entity_map[key]))
+                    else:
+                        expanded_pred.append(name)
+                answer_m = compute_answer_metrics(expanded_pred, golden)
+            else:
+                answer_m = compute_answer_metrics(parsed["answers"], golden)
+
             faith_m        = compute_faithfulness(
                 parsed["cited_indices"], golden_indices,
                 parsed["answers"], path_entities,
@@ -550,6 +590,9 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
                 "mmr_reason_paths":      mmr_paths,
                 "llm_raw_output":        raw_text,
                 "llm_pred":              parsed["answers"],
+                # 当 entity_map 启用时，llm_pred 为名称，pred_n 对应展开后的 MID 数量
+                # 此字段便于对比原始名称预测与展开的 MID 列表
+                "llm_pred_expanded_mids": expanded_pred if entity_map_dict else None,
                 "cited_indices":         sorted(parsed["cited_indices"]),
                 "golden_path_indices":   sorted(golden_indices),
                 "format_ok":             parsed["format_ok"],
@@ -636,6 +679,8 @@ def main():
     log.info("  batch_size    : %d", args.batch_size)
     log.info("  noise_paths   : %d", args.noise_paths)
     log.info("  show_score    : %s", args.show_score)
+    log.info("  path_format   : %s", getattr(args, 'path_format', 'arrow'))
+    log.info("  entity_map    : %s", args.entity_map or "None")
     log.info("  num_runs      : %d", args.num_runs)
     log.info("=" * 60)
 
@@ -671,6 +716,14 @@ def main():
     if args.limit > 0:
         samples = samples[:args.limit]
     log.info("样本数: %d", len(samples))
+
+    args.entity_map_dict = None
+    args.rev_entity_map = None
+    if args.entity_map:
+        args.entity_map_dict = load_entity_map(args.entity_map)
+        args.rev_entity_map = build_reverse_entity_map(args.entity_map_dict)
+        log.info("加载实体映射: %s (%d 条, 反向映射 %d 键)",
+                 args.entity_map, len(args.entity_map_dict), len(args.rev_entity_map))
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 

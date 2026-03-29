@@ -74,14 +74,29 @@ SYSTEM_PROMPT_V11 = (
 # V1 与 V0 零样本共用同一 prompt（仅输出答案）
 SYSTEM_PROMPT_V1 = SYSTEM_PROMPT_ANSWER_ONLY
 
+# V2_NAME: 与 V2 相同，但用于实体名称（-name 变体），区别在于措辞
+SYSTEM_PROMPT_V2_NAME = (
+    "You are a KGQA assistant. "
+    "Given reasoning paths from a knowledge graph and a question, "
+    "identify which paths support the answer, then extract the answer "
+    "from the tail entities of those supporting paths.\n"
+    "Rules:\n"
+    "- Only output entity names that appear in the provided paths.\n"
+    "- Do not generate or fabricate new entity names.\n"
+    "Output format:\n"
+    "Supporting Paths: <path numbers>\n"
+    "Answer: <entity_name> | <entity_name>"
+)
+
 FORMAT_PROMPTS = {
-    "v0":  SYSTEM_PROMPT_ANSWER_ONLY,
-    "v1":  SYSTEM_PROMPT_ANSWER_ONLY,
-    "v2":  SYSTEM_PROMPT_V2,
-    "v3":  SYSTEM_PROMPT_V3,
-    "v4":  SYSTEM_PROMPT_V4,   # Compact CoT
-    "v5":  SYSTEM_PROMPT_V5,   # Natural Language Path（同 V2 prompt，输入格式不同）
-    "v11": SYSTEM_PROMPT_V11,  # Full CoT（备用）
+    "v0":     SYSTEM_PROMPT_ANSWER_ONLY,
+    "v1":     SYSTEM_PROMPT_ANSWER_ONLY,
+    "v2":     SYSTEM_PROMPT_V2,
+    "v3":     SYSTEM_PROMPT_V3,
+    "v4":     SYSTEM_PROMPT_V4,     # Compact CoT
+    "v5":     SYSTEM_PROMPT_V5,     # Natural Language Path（同 V2 prompt，输入格式不同）
+    "v11":    SYSTEM_PROMPT_V11,    # Full CoT（备用）
+    "v2_name": SYSTEM_PROMPT_V2_NAME,  # Entity-name variant
 }
 
 
@@ -119,16 +134,102 @@ def format_path_str_nl(path_edges: list, log_score: float, idx: int,
     return f"Path {idx}: {chain}"
 
 
+def format_path_str_tuple(path_edges: list, log_score: float, idx: int,
+                          show_score: bool = False) -> str:
+    """将路径序列化为三元组格式。
+    'N: (s, r, o), (s, r, o)'
+    """
+    if not path_edges:
+        return f"{idx}:"
+    triples = ", ".join(f"({e[0]}, {e[1]}, {e[2]})" for e in path_edges)
+    if show_score:
+        return f"{idx} [score={log_score:.4f}]: {triples}"
+    return f"{idx}: {triples}"
+
+
+def format_path_str_chain(path_edges: list, log_score: float, idx: int,
+                          show_score: bool = False) -> str:
+    """将路径序列化为连续链式格式（去重中间实体）。
+    单跳: 'N: e0 -> r -> e1'
+    多跳: 'N: e0 -> r1 -> e1 -> r2 -> e2'
+    """
+    if not path_edges:
+        return f"{idx}:"
+    parts = [path_edges[0][0]]
+    for e in path_edges:
+        parts.extend([e[1], e[2]])
+    chain = " -> ".join(parts)
+    if show_score:
+        return f"{idx} [score={log_score:.4f}]: {chain}"
+    return f"{idx}: {chain}"
+
+
+# ─── 实体映射工具 ─────────────────────────────────────────────────────────────
+
+def load_entity_map(path: str) -> dict:
+    """从 tab-separated 文件加载 MID→Name 映射表。"""
+    emap = {}
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if "\t" not in line:
+                continue
+            mid, name = line.split("\t", 1)
+            emap[mid] = name
+    return emap
+
+
+def apply_entity_map(path_edges: list, emap: dict) -> list:
+    """将路径中实体 MID 替换为名称，未映射的 MID 保持原样。
+    返回新列表，不修改原始数据。
+    """
+    return [
+        [emap.get(e[0], e[0]), e[1], emap.get(e[2], e[2])]
+        for e in path_edges
+    ]
+
+
+def map_answers(answers: list, emap: dict) -> list:
+    """将答案实体 MID 替换为名称，未映射保持原样。"""
+    return [emap.get(a, a) for a in answers]
+
+
+def build_reverse_entity_map(emap: dict) -> dict:
+    """构建 name→set(MIDs) 反向映射（供 eval 时 name→MID 匹配使用）。
+    一个名称可能对应多个 MID（一对多）。
+    """
+    rev = {}
+    for mid, name in emap.items():
+        key = name.lower().strip()
+        rev.setdefault(key, set()).add(mid)
+    return rev
+
+
+# ─── User 消息构建 ────────────────────────────────────────────────────────────
+
+_FORMAT_FN_MAP = {
+    "arrow":  format_path_str,
+    "nl":     format_path_str_nl,
+    "tuple":  format_path_str_tuple,
+    "chain":  format_path_str_chain,
+}
+
+
 def build_user_content(paths_with_meta: list, question: str,
                        show_score: bool = False,
-                       path_format: str = "arrow") -> str:
+                       path_format: str = "arrow",
+                       entity_map: dict = None) -> str:
     """构建 User 消息：问题前置，路径列表随后。
 
     paths_with_meta: [(path_edges, log_score, display_idx), ...]
-    path_format: 'arrow'（默认符号格式）或 'nl'（自然语言格式，供 V5 使用）
+    path_format: 'arrow'（默认）/ 'nl'（自然语言）/ 'tuple'（三元组）/ 'chain'（连续链式）
+    entity_map: MID→Name 映射表（可选），提供时对路径实体做替换
     """
-    fmt_fn = format_path_str_nl if path_format == "nl" else format_path_str
+    fmt_fn = _FORMAT_FN_MAP.get(path_format)
+    if fmt_fn is None:
+        raise ValueError(f"未知 path_format {path_format!r}，有效值：{list(_FORMAT_FN_MAP)}")
     lines = [f"Question: {question}", "", "Reasoning Paths:"]
     for path_edges, log_score, display_idx in paths_with_meta:
-        lines.append(fmt_fn(path_edges, log_score, display_idx, show_score))
+        edges = apply_entity_map(path_edges, entity_map) if entity_map else path_edges
+        lines.append(fmt_fn(edges, log_score, display_idx, show_score))
     return "\n".join(lines)
