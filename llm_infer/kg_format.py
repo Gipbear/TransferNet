@@ -38,7 +38,7 @@ SYSTEM_PROMPT_V3 = (
     "Rules:\n"
     "- Only output entity IDs that appear in the provided paths.\n"
     "- Do not generate or fabricate new entity IDs.\n"
-    'Output format: {"reasoning": ["Path 1", "Path 3"], "answer": ["<entity_id>", "<entity_id>"]}'
+    'Output format: {"reasoning": ["1", "3"], "answer": ["<entity_id>", "<entity_id>"]}'
 )
 
 # V4: Compact CoT —— 一句话推理 + citation + 答案
@@ -68,7 +68,7 @@ SYSTEM_PROMPT_V11 = (
     "Rules:\n"
     "- Only output entity IDs that appear in the provided paths.\n"
     "- Do not generate or fabricate new entity IDs.\n"
-    "Output format:\n[Reasoning]\nPath 1 → <tail_entity> via [rel1] -> [rel2]\n...\n[Answer]\nSupporting Paths: 1, 3\nAnswer: <entity_id>"
+    "Output format:\n[Reasoning]\n1 → <tail_entity> via [rel1] -> [rel2]\n...\n[Answer]\nSupporting Paths: 1, 3\nAnswer: <entity_id>"
 )
 
 # V1 与 V0 零样本共用同一 prompt（仅输出答案）
@@ -111,8 +111,8 @@ def format_path_str(path_edges: list, log_score: float, idx: int,
     """
     chain = " ".join(f"({e[0]}) -[{e[1]}]-> ({e[2]})" for e in path_edges)
     if show_score:
-        return f"Path {idx} [score={log_score:.4f}]: {chain}"
-    return f"Path {idx}: {chain}"
+        return f"{idx} [score={log_score:.4f}]: {chain}"
+    return f"{idx}: {chain}"
 
 
 def _rel_to_text(rel: str) -> str:
@@ -130,8 +130,8 @@ def format_path_str_nl(path_edges: list, log_score: float, idx: int,
     parts = [f"{e[0]} {_rel_to_text(e[1])} {e[2]}" for e in path_edges]
     chain = "; ".join(parts)
     if show_score:
-        return f"Path {idx} [score={log_score:.4f}]: {chain}"
-    return f"Path {idx}: {chain}"
+        return f"{idx} [score={log_score:.4f}]: {chain}"
+    return f"{idx}: {chain}"
 
 
 def format_path_str_tuple(path_edges: list, log_score: float, idx: int,

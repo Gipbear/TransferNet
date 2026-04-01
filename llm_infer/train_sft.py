@@ -77,7 +77,6 @@ def parse_args():
     p.add_argument("--max_seq_len", type=int,  default=1024+256)
     p.add_argument("--warmup_ratio", type=float, default=0.05)
     p.add_argument("--seed",       type=int,   default=42)
-    p.add_argument("--save_steps", type=int,   default=100)
     return p.parse_args()
 
 
@@ -106,7 +105,7 @@ def load_dataset_from_jsonl(path: str, tokenizer, max_seq_len: int, log: logging
                 records.append(json.loads(line))
     log.info("加载 %d 条训练样本", len(records))
 
-    _PATH_LINE_RE = _re.compile(r"^Path (\d+)[\s\[]")
+    _PATH_LINE_RE = _re.compile(r"^(\d+)[\s:\[]")
     truncated_count = [0]
 
     def _drop_distractors_until_fits(messages: list, golden_indices: set,
@@ -275,8 +274,7 @@ def main():
         fp16=not torch.cuda.is_bf16_supported(),
         bf16=torch.cuda.is_bf16_supported(),
         logging_steps=10,
-        save_steps=args.save_steps,
-        save_total_limit=2,
+        save_strategy="no",
         seed=args.seed,
         report_to="none",
         dataloader_num_workers=0,

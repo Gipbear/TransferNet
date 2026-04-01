@@ -37,7 +37,9 @@ PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 source "${SCRIPT_DIR}/run_ablation_lib.sh"
 
 # 多轮 shuffle 推理次数（每轮用不同种子，report mean±std）；设为 1 关闭多轮
-NUM_RUNS="${NUM_RUNS:-3}"
+NUM_RUNS="${NUM_RUNS:-2}"
+# QLoRA 训练轮数
+EPOCHS="${EPOCHS:-2}"
 
 BUILD_SCRIPT="${PROJECT_DIR}/llm_infer/build_kgcot_dataset.py"
 TRAIN_SCRIPT="${PROJECT_DIR}/llm_infer/train_sft.py"
@@ -147,7 +149,7 @@ run_experiment() {
         python "${TRAIN_SCRIPT}" \
             --train      "${dataset}" \
             --output_dir "${model_dir}" \
-            --epochs     5
+            --epochs     "${EPOCHS}"
         echo "[INFO] 训练完成，耗时 $(($(date +%s) - T0))s"
     fi
 
@@ -233,6 +235,7 @@ echo "  EVAL_LIMIT    : ${EVAL_LIMIT}"
 echo "  RUN_GROUP     : ${RUN_GROUP}"
 echo "  RUN_PHASE     : ${RUN_PHASE}"
 echo "  NUM_RUNS      : ${NUM_RUNS}"
+echo "  EPOCHS        : ${EPOCHS}"
 echo "  $(date '+%Y-%m-%d %H:%M:%S')"
 echo "======================================================"
 
@@ -270,6 +273,40 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "A" ]]; then
 
     # v5: Natural Language Path 输入（输出格式同 v2，路径用自然语言表示）
     run_experiment "groupA_v5" "v5" "" ""
+fi
+
+# ── Group Amid: 链式路径 + MID 实体表示，v1-v4 ────────────────────────────────
+if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "Amid" ]]; then
+    log_section "Group Amid: 输出格式消融 + chain 路径 + MID 实体 (v1 / v2 / v3 / v4)"
+
+    run_experiment "groupAmid_v1" "v1" "--path_format chain" "--path_format chain"
+    run_experiment "groupAmid_v2" "v2" "--path_format chain" "--path_format chain"
+    run_experiment "groupAmid_v3" "v3" "--path_format chain" "--path_format chain"
+    run_experiment "groupAmid_v4" "v4" "--path_format chain" "--path_format chain"
+fi
+
+# ── Group Aname: 链式路径 + name 实体表示，v1-v4 ──────────────────────────────
+if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "Aname" ]]; then
+    log_section "Group Aname: 输出格式消融 + chain 路径 + name 实体 (v1 / v2 / v3 / v4)"
+
+    ENTITY_MAP_A="${PROJECT_DIR}/data/resources/WebQSP/fbwq_full/mapped_entities.txt"
+    if [[ ! -f "${ENTITY_MAP_A}" ]]; then
+        echo "[ERROR] 实体映射文件不存在: ${ENTITY_MAP_A}"
+        exit 1
+    fi
+
+    run_experiment "groupAname_v1" "v1" \
+        "--path_format chain --entity_map ${ENTITY_MAP_A}" \
+        "--path_format chain --entity_map ${ENTITY_MAP_A}"
+    run_experiment "groupAname_v2" "v2" \
+        "--path_format chain --entity_map ${ENTITY_MAP_A}" \
+        "--path_format chain --entity_map ${ENTITY_MAP_A}"
+    run_experiment "groupAname_v3" "v3" \
+        "--path_format chain --entity_map ${ENTITY_MAP_A}" \
+        "--path_format chain --entity_map ${ENTITY_MAP_A}"
+    run_experiment "groupAname_v4" "v4" \
+        "--path_format chain --entity_map ${ENTITY_MAP_A}" \
+        "--path_format chain --entity_map ${ENTITY_MAP_A}"
 fi
 
 # ── Group B: 训练数据消融 ─────────────────────────────────────────────────────

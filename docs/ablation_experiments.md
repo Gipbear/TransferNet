@@ -22,7 +22,7 @@
 
 ## 实验设计
 
-消融实验分三组，共 7 次训练、15 次评估。
+消融实验分四组，共 12 次训练、21 次评估。
 
 ---
 
@@ -88,6 +88,83 @@ v2 是主方法，v1/v3/v4 是对比项。v1 没有 citation 机制，理论上 
 
 ---
 
+### Group D：路径输入格式消融
+
+**目的**：验证路径格式（arrow/tuple/chain/nl）与实体表示方式（MID/name）对答案质量和忠实度的影响。
+
+**背景**：GroupA 发现路径数据占用 token 过多，约 35% 训练样本被截断（max_seq_len=1280）。独立消融路径格式和实体表示两个正交维度，以找出最优输入表示。
+
+**固定变量**：v2 输出格式，beam20_lam0.2，shuffle=on，show_score=off，5 epochs，LLaMA 3.1 8B
+
+实验矩阵：4 路径格式 × 2 实体表示 = **8 组**，`arrow_mid` 直接复用 Group A 的 v2 基线 adapter（无需重训）。
+
+| 配置 | 路径格式 | 实体表示 | 路径示例（2 跳） |
+|------|---------|---------|----------------|
+| **D-arrow-mid（基线）** | arrow | MID | `Path 1: (m.0a) -[r1]-> (m.0b) (m.0b) -[r2]-> (m.0c)` |
+| D-tuple-mid | tuple | MID | `1: (m.0a, r1, m.0b), (m.0b, r2, m.0c)` |
+| D-chain-mid | chain | MID | `1: m.0a -> r1 -> m.0b -> r2 -> m.0c` |
+| D-nl-mid | nl | MID | `Path 1: m.0a location country official language m.0b; m.0b ...` |
+| D-arrow-name | arrow | name | `Path 1: (Jamaica) -[r1]-> (English) (English) -[r2]-> (UK)` |
+| D-tuple-name | tuple | name | `1: (Jamaica, r1, English), (English, r2, UK)` |
+| D-chain-name | chain | name | `1: Jamaica -> r1 -> English -> r2 -> UK` |
+| D-nl-name | nl | name | `Path 1: Jamaica location country official language English; English ...` |
+
+> **nl 格式关系名处理**：将 Freebase 关系名中的 `.` 和 `_` 替换为空格（如 `location.country.official_language` → `location country official language`），不做进一步 NLP 处理。
+
+> **实体名称映射**：使用 `data/resources/WebQSP/fbwq_full/mapped_entities.txt`（~96 万条，51% 覆盖率），未映射的 MID 保持原样。
+
+> **name 格式评估说明**：name 格式存在名称歧义问题（同名实体对应多个 MID），评估时使用**路径约束消歧**：将预测名称展开为候选 MID 后取与路径实体的交集，消歧覆盖率约 93.7–94.1%。原始数字会系统性低估约 6–19%，结果表格均使用修正后数值。
+
+---
+
+## 实验结果
+
+### Group D 汇总结果
+
+#### 全集（n=1541）
+
+| 配置 | Hit@1 | Hit@Any | Macro F1 | Exact Match | Citation Acc | Citation Recall | Halluc Rate |
+|------|------:|--------:|---------:|------------:|-------------:|----------------:|------------:|
+| arrow_mid | 0.7339 | 0.7939 | 0.6740 | 0.5387 | 0.7355 | 0.7576 | 0.0016 |
+| tuple_mid | 0.7599 | 0.8176 | 0.7110 | 0.5902 | 0.7588 | 0.7987 | 0.0022 |
+| chain_mid | 0.7576 | 0.8186 | 0.7110 | 0.5873 | 0.7618 | 0.7968 | 0.0007 |
+| nl_mid | — | — | — | — | — | — | — |
+| arrow_name（修正） | **0.7904** | 0.8407 | **0.7350** | **0.6090** | 0.7981 | 0.8270 | 0.0151 |
+| tuple_name（修正） | **0.7884** | 0.8462 | **0.7360** | **0.6032** | 0.7987 | 0.8340 | 0.0190 |
+| chain_name（修正） | **0.7975** | 0.8494 | **0.7390** | **0.6126** | 0.8032 | 0.8369 | 0.0160 |
+| nl_name（修正） | — | — | — | — | — | — | — |
+
+#### path_hit=True 子集（n=1388）
+
+| 配置 | Hit@1 | Hit@Any | Macro F1 | Exact Match | Citation Acc | Halluc Rate |
+|------|------:|--------:|---------:|------------:|-------------:|------------:|
+| arrow_mid | 0.8048 | 0.8761 | 0.7436 | 0.5944 | 0.8121 | 0.0015 |
+| tuple_mid | 0.8408 | 0.9042 | 0.7836 | 0.6484 | 0.8378 | 0.0000 |
+| chain_mid | 0.8444 | 0.9164 | 0.7943 | 0.6542 | 0.8492 | 0.0000 |
+| nl_mid | — | — | — | — | — | — |
+| arrow_name（修正） | **0.8757** | 0.9316 | **0.8143** | **0.6751** | 0.8861 | 0.0152 |
+| tuple_name（修正） | **0.8728** | 0.9362 | **0.8155** | **0.6689** | 0.8868 | 0.0169 |
+| chain_name（修正） | **0.8844** | 0.9416 | **0.8203** | **0.6798** | 0.8918 | 0.0171 |
+| nl_name（修正） | — | — | — | — | — | — |
+
+### Group D 结论
+
+**路径格式**：在 MID 体系内，`tuple_mid ≈ chain_mid > arrow_mid`，差距约 +2.4% Hit@1；在 name 体系内（修正后），三种格式差异极小（≤0.9%），格式选择影响不显著。
+
+**实体表示**：修正后 name 格式在所有答案质量指标上全面超过 MID：Hit@1 高 +2.9–5.6%，Macro F1 高 +2.6–6.1%，EM 高 +1.3–7.0%。原因：实体名称提供语义上下文，帮助模型更准确地选择引用路径（Citation Accuracy 约 +4%）。
+
+**幻觉率权衡**：name 格式幻觉率（1.5–1.9%）是 MID 格式（0.07–0.22%）的 7–27 倍，主要来源为实体名称歧义与映射表缺失。
+
+**最优配置**：
+
+| 使用场景 | 推荐配置 | 理由 |
+|---------|---------|------|
+| 综合答案质量最优 | **chain_name** | 修正后 Hit@1=0.7975，Macro F1=0.739，全集最高 |
+| 幻觉率要求严格 | **chain_mid** | 幻觉率 0.0007，几乎为零；答案质量次优 |
+| 平衡可解释性与质量 | **tuple_mid** 或 **chain_mid** | 引用忠实，幻觉可控 |
+
+---
+
 ## 文件说明
 
 ```
@@ -116,6 +193,14 @@ data/output/WebQSP/
       beam5_lam0.2_v2_ft_eval.log
       beam10_lam0.2_v2_ft_eval.log
       ...
+    groupD_arrow_mid/          # 复用 Group A v2 baseline，无需重训
+    groupD_tuple_mid/
+    groupD_chain_mid/
+    groupD_nl_mid/
+    groupD_arrow_name/
+    groupD_tuple_name/
+    groupD_chain_name/
+    groupD_nl_name/
     results.csv                # 汇总表格（collect_ablation_results.py 生成）
 
 models/
@@ -129,6 +214,14 @@ models/
       groupB_noscore/
       groupB_dist0.3/
       groupB_dist0.5/
+    ablation/
+      groupD_tuple_mid/        # GroupD 各配置训练的 adapter（arrow_mid 复用基线）
+      groupD_chain_mid/
+      groupD_nl_mid/
+      groupD_arrow_name/
+      groupD_tuple_name/
+      groupD_chain_name/
+      groupD_nl_name/
 ```
 
 ---
@@ -198,19 +291,40 @@ bash scripts/run_ablation.sh --group B
 
 ---
 
-### 步骤五：汇总所有结果
+### 步骤五：运行 Group D（路径输入格式消融，约 6 小时）
+
+```bash
+bash scripts/run_ablation.sh --group D
+```
+
+此步骤会：
+1. 构建 tuple_mid / chain_mid / arrow_name / tuple_name / chain_name 五份训练数据（arrow_mid 复用基线）
+2. 训练 5 个模型（arrow_mid 跳过）
+3. 对 6 组配置分别评估
+
+> **名称映射**：需要确认 `data/resources/WebQSP/fbwq_full/mapped_entities.txt` 存在。
+> 若路径不同，用环境变量覆盖：
+> ```bash
+> ENTITY_MAP=path/to/mapped_entities.txt bash scripts/run_ablation.sh --group D
+> ```
+
+> **name 格式评估**：评估时自动应用路径约束消歧，修正名称歧义导致的指标低估。
+
+---
+
+### 步骤六：汇总所有结果
 
 ```bash
 python scripts/collect_ablation_results.py
 ```
 
 输出：
-- 终端打印 Group A/B/C 三张对比表格
+- 终端打印 Group A/B/C/D 四张对比表格
 - 写出 `data/output/WebQSP/ablation/results.csv`
 
 ---
 
-### 一键全量运行（约 10 小时）
+### 一键全量运行（约 16 小时）
 
 ```bash
 bash scripts/run_ablation.sh
