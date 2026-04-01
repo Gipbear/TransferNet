@@ -8,7 +8,7 @@
 #   Group A: 输出格式消融 (v1 / v2 / v3 / v4)
 #   Group B: 训练数据消融 (no_shuffle / no_score / distractor_ratio)
 #   Group C: 检索参数消融 (不同 beam/lambda，仅 eval，复用最佳模型)
-#   Group D: 路径输入格式消融 (arrow/tuple/chain × MID/name，固定 v2 输出)
+#   Group D: 路径输入格式消融 (arrow/tuple/chain/nl × MID/name，固定 v2 输出)
 #
 # 特性：
 #   - 三步流程：build_kgcot_dataset → train_sft → eval_faithfulness
@@ -343,8 +343,8 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "D" ]]; then
         "--path_format arrow --entity_map ${ENTITY_MAP}" \
         "--path_format arrow --entity_map ${ENTITY_MAP}"
 
-    # D-tuple/chain × MID/name
-    for pfmt in tuple chain; do
+    # D-tuple/chain/nl × MID/name
+    for pfmt in tuple chain nl; do
         # MID 变体
         run_experiment "groupD_${pfmt}_mid" "v2" \
             "--path_format ${pfmt}" \

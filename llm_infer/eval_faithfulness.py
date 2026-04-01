@@ -104,6 +104,38 @@ def get_all_path_entities(mmr_paths: list) -> set:
     return entities
 
 
+def expand_pred_answers_with_path_constraint(
+    pred_answers: list,
+    rev_entity_map: dict | None,
+    path_mid_entities: set | None,
+) -> tuple[list, list]:
+    """名称答案先全量展开，再用路径实体 MID 做约束消歧。
+
+    返回:
+      expanded_pred:      原始 name -> all candidate MIDs 展开结果
+      constrained_pred:   若候选 MID 与路径实体有交集，则仅保留交集；否则回退到原展开
+    """
+    expanded_pred = []
+    constrained_pred = []
+    path_mid_entities = path_mid_entities or set()
+
+    for answer in pred_answers:
+        key = answer.lower().strip()
+        if rev_entity_map and key in rev_entity_map:
+            expanded = sorted(rev_entity_map[key])
+            constrained = [
+                mid for mid in expanded
+                if mid.lower().strip() in path_mid_entities
+            ]
+            expanded_pred.extend(expanded)
+            constrained_pred.extend(constrained if constrained else expanded)
+        else:
+            expanded_pred.append(answer)
+            constrained_pred.append(answer)
+
+    return expanded_pred, constrained_pred
+
+
 # ─── 输出解析 ──────────────────────────────────────────────────────────────────
 
 _ANSWER_RE      = re.compile(r"Answer\s*[:：]\s*(.+)", re.IGNORECASE)
@@ -555,6 +587,7 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
 
             parsed         = parse_output(raw_text, args.output_format)
             golden_indices = label_golden_indices(mmr_paths, golden)
+            path_mid_entities = get_all_path_entities(mmr_paths)
 
             # For hallucination: collect path entities in the format used during inference
             if entity_map_dict:
@@ -568,15 +601,14 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
 
             # For answer metrics: expand predicted names to MIDs when entity_map active
             expanded_pred = None
+            constrained_pred = None
             if entity_map_dict:
-                expanded_pred = []
-                for name in parsed["answers"]:
-                    key = name.lower().strip()
-                    if rev_entity_map and key in rev_entity_map:
-                        expanded_pred.extend(sorted(rev_entity_map[key]))
-                    else:
-                        expanded_pred.append(name)
-                answer_m = compute_answer_metrics(expanded_pred, golden)
+                expanded_pred, constrained_pred = expand_pred_answers_with_path_constraint(
+                    pred_answers=parsed["answers"],
+                    rev_entity_map=rev_entity_map,
+                    path_mid_entities=path_mid_entities,
+                )
+                answer_m = compute_answer_metrics(constrained_pred, golden)
             else:
                 answer_m = compute_answer_metrics(parsed["answers"], golden)
 
@@ -590,9 +622,9 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
                 "mmr_reason_paths":      mmr_paths,
                 "llm_raw_output":        raw_text,
                 "llm_pred":              parsed["answers"],
-                # 当 entity_map 启用时，llm_pred 为名称，pred_n 对应展开后的 MID 数量
-                # 此字段便于对比原始名称预测与展开的 MID 列表
+                # 当 entity_map 启用时，保留原始全量展开与路径约束消歧后的 MID 列表
                 "llm_pred_expanded_mids": expanded_pred if entity_map_dict else None,
+                "llm_pred_disambiguated_mids": constrained_pred if entity_map_dict else None,
                 "cited_indices":         sorted(parsed["cited_indices"]),
                 "golden_path_indices":   sorted(golden_indices),
                 "format_ok":             parsed["format_ok"],
