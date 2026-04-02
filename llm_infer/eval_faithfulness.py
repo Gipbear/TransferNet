@@ -542,34 +542,38 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_content},
         ]
-        prompt = tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+        result = tokenizer.apply_chat_template(
+            messages, tokenize=True, add_generation_prompt=True
         )
-        return prompt, mmr_paths, golden, sample
+        # 新版 transformers 可能返回 BatchEncoding，取 input_ids list
+        input_ids = result["input_ids"] if hasattr(result, "__getitem__") and not isinstance(result, list) else result
+        return input_ids, mmr_paths, golden, sample
 
     prepared = [prepare_sample(s) for s in samples]
+    # 按 prompt token 数升序排序；orig_idx 用于还原输出顺序
+    indexed = sorted(enumerate(prepared), key=lambda x: len(x[1][0]))
 
-    results = []
+    results = [None] * len(prepared)
     bs = args.batch_size
     desc = f"Run {run_idx} / Inference (batch={bs})"
 
-    for batch_start in tqdm(range(0, len(prepared), bs), desc=desc,
-                            total=(len(prepared) + bs - 1) // bs):
-        batch      = prepared[batch_start: batch_start + bs]
-        prompts    = [b[0] for b in batch]
-        mmr_batch  = [b[1] for b in batch]
-        gold_batch = [b[2] for b in batch]
-        orig_batch = [b[3] for b in batch]
+    for batch_start in tqdm(range(0, len(indexed), bs), desc=desc,
+                            total=(len(indexed) + bs - 1) // bs):
+        batch          = indexed[batch_start: batch_start + bs]
+        orig_indices   = [b[0] for b in batch]
+        input_ids_list = [b[1][0] for b in batch]
+        mmr_batch      = [b[1][1] for b in batch]
+        gold_batch     = [b[1][2] for b in batch]
+        orig_batch     = [b[1][3] for b in batch]
 
-        inputs = tokenizer(
-            prompts,
+        inputs = tokenizer.pad(
+            [{"input_ids": ids} for ids in input_ids_list],
             return_tensors="pt",
             padding=True,
-            truncation=True,
-            max_length=2048,
+            padding_side="left",
         ).to(model.device)
 
-        with torch.no_grad():
+        with torch.inference_mode():
             output_ids = model.generate(
                 **inputs,
                 max_new_tokens=args.max_new_tokens,
@@ -582,8 +586,8 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
             output_ids[:, prompt_len:], skip_special_tokens=True
         )
 
-        for raw_text, mmr_paths, golden, orig_sample in zip(
-                raw_texts, mmr_batch, gold_batch, orig_batch):
+        for orig_idx, raw_text, mmr_paths, golden, orig_sample in zip(
+                orig_indices, raw_texts, mmr_batch, gold_batch, orig_batch):
 
             parsed         = parse_output(raw_text, args.output_format)
             golden_indices = label_golden_indices(mmr_paths, golden)
@@ -642,7 +646,7 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
                 "hallucination_rate":    faith_m["hallucination_rate"],
                 "hallucinated_entities": faith_m["hallucinated_entities"],
             }
-            results.append(rec)
+            results[orig_idx] = rec
 
     # 每轮结果写入独立文件（num_runs=1 时写 output_path 本身，保持原有行为）
     stem, ext = os.path.splitext(output_path)

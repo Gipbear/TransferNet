@@ -80,6 +80,28 @@ def parse_args():
     return p.parse_args()
 
 
+def build_training_args(args, torch_module):
+    from transformers import TrainingArguments
+
+    return TrainingArguments(
+        output_dir=args.output_dir,
+        num_train_epochs=args.epochs,
+        per_device_train_batch_size=args.batch_size,
+        gradient_accumulation_steps=args.grad_accum,
+        learning_rate=args.lr,
+        lr_scheduler_type="cosine",
+        warmup_ratio=args.warmup_ratio,
+        fp16=not torch_module.cuda.is_bf16_supported(),
+        bf16=torch_module.cuda.is_bf16_supported(),
+        logging_steps=10,
+        save_strategy="no",
+        seed=args.seed,
+        report_to="none",
+        dataloader_num_workers=0,
+    )
+
+
+
 # ─── 数据加载 ──────────────────────────────────────────────────────────────────
 
 def load_dataset_from_jsonl(path: str, tokenizer, max_seq_len: int, log: logging.Logger):
@@ -192,6 +214,7 @@ def load_dataset_from_jsonl(path: str, tokenizer, max_seq_len: int, log: logging
             "input_ids":      full_ids,
             "attention_mask": [1] * len(full_ids),
             "labels":         labels,
+            "length":         len(full_ids),
         }
 
     raw = Dataset.from_list([
@@ -258,27 +281,14 @@ def main():
     train_dataset = load_dataset_from_jsonl(
         args.train, tokenizer, args.max_seq_len, log
     )
+    # 按序列长度升序排列，使同批次内长度相近，减少 padding 浪费
+    train_dataset = train_dataset.sort("length")
+    log.info("数据集已按长度排序（共 %d 条）", len(train_dataset))
 
     # ── 训练配置 ─────────────────────────────────────────────────────────────
-    from transformers import TrainingArguments
     from trl import SFTTrainer
 
-    training_args = TrainingArguments(
-        output_dir=args.output_dir,
-        num_train_epochs=args.epochs,
-        per_device_train_batch_size=args.batch_size,
-        gradient_accumulation_steps=args.grad_accum,
-        learning_rate=args.lr,
-        lr_scheduler_type="cosine",
-        warmup_ratio=args.warmup_ratio,
-        fp16=not torch.cuda.is_bf16_supported(),
-        bf16=torch.cuda.is_bf16_supported(),
-        logging_steps=10,
-        save_strategy="no",
-        seed=args.seed,
-        report_to="none",
-        dataloader_num_workers=0,
-    )
+    training_args = build_training_args(args, torch)
 
     # SFTTrainer：直接传入已经 tokenize（含 labels）的数据集
     # dataset_kwargs skip_prepare_dataset=True 确保 SFTTrainer 不重新处理 labels
