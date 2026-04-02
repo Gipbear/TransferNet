@@ -4,11 +4,12 @@
 #
 # 消融实验自动化编排脚本（第四章）
 #
-# 覆盖四组消融实验：
+# 覆盖五组消融实验：
 #   Group A: 输出格式消融 (v1 / v2 / v3 / v4)
 #   Group B: 训练数据消融 (no_shuffle / no_score / distractor_ratio)
 #   Group C: 检索参数消融 (不同 beam/lambda，仅 eval，复用最佳模型)
 #   Group D: 路径输入格式消融 (arrow/tuple/chain/nl × MID/name，固定 v2 输出)
+#   Group E: Base Model 零样本评估 (chain × MID/name × v2/v4，无微调)
 #
 # 特性：
 #   - 三步流程：build_kgcot_dataset → train_sft → eval_faithfulness
@@ -219,6 +220,44 @@ run_eval_only() {
     echo "[INFO] 评估完成，耗时 $(($(date +%s) - T0))s"
 }
 
+# run_base_eval CONFIG_NAME TEST_INPUT FORMAT EVAL_EXTRA_FLAGS
+#   零样本评估（不加载 adapter，直接用 base model）
+run_base_eval() {
+    local config_name="$1"
+    local test_input="$2"
+    local fmt="$3"
+    local eval_extra="${4:-}"
+
+    if [[ "${RUN_PHASE}" == "train" ]]; then
+        echo "[SKIP] phase=train，跳过评估: ${config_name}"
+        return
+    fi
+
+    local out_dir="${ABLATION_DATA}/${config_name}"
+    local stem
+    stem="$(basename "${test_input}" .jsonl)"
+    local eval_log="${out_dir}/${stem}_${fmt}_eval.log"
+
+    mkdir -p "${out_dir}"
+
+    if [[ -f "${eval_log}" ]]; then
+        echo "[SKIP] 评估结果已存在: ${eval_log}"
+        return
+    fi
+
+    log_step "零样本评估: ${config_name}  [$(basename "${test_input}")] format=${fmt}"
+    T0=$(date +%s)
+    # shellcheck disable=SC2086
+    python "${EVAL_SCRIPT}" \
+        --input         "${test_input}" \
+        --output        "${out_dir}" \
+        --output_format "${fmt}" \
+        --num_runs      "${NUM_RUNS}" \
+        --limit         "${EVAL_LIMIT}" \
+        ${eval_extra}
+    echo "[INFO] 评估完成，耗时 $(($(date +%s) - T0))s"
+}
+
 # ── 入口检查 ──────────────────────────────────────────────────────────────────
 echo "======================================================"
 echo "  消融实验编排脚本"
@@ -391,6 +430,27 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "D" ]]; then
         run_experiment "groupD_${pfmt}_name" "v2" \
             "--path_format ${pfmt} --entity_map ${ENTITY_MAP}" \
             "--path_format ${pfmt} --entity_map ${ENTITY_MAP}"
+    done
+fi
+
+# ── Group E: Base Model 零样本评估 ────────────────────────────────────────────
+if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "E" ]]; then
+    log_section "Group E: Base Model 零样本评估 (chain × MID/name × v2/v4)"
+
+    ENTITY_MAP="${PROJECT_DIR}/data/resources/WebQSP/fbwq_full/mapped_entities.txt"
+
+    if [[ ! -f "${ENTITY_MAP}" ]]; then
+        echo "[ERROR] 实体映射文件不存在: ${ENTITY_MAP}"
+        exit 1
+    fi
+
+    for fmt in v2 v4; do
+        # chain + MID
+        run_base_eval "groupE_chain_mid_${fmt}" "${TEST_BEAM20_LAM02}" "${fmt}" \
+            "--path_format chain"
+        # chain + name
+        run_base_eval "groupE_chain_name_${fmt}" "${TEST_BEAM20_LAM02}" "${fmt}" \
+            "--path_format chain --entity_map ${ENTITY_MAP}"
     done
 fi
 

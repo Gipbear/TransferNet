@@ -15,8 +15,8 @@ GroupD 独立消融两个正交维度：
 
 | 实验 ID | 格式 | 实体 | 路径示例（2跳） |
 |---------|------|------|----------------|
-| D-arrow-mid | arrow | MID | `Path 1: (m.0a) -[r1]-> (m.0b) (m.0b) -[r2]-> (m.0c)` |
-| D-arrow-name | arrow | name | `Path 1: (Jamaica) -[r1]-> (English) (English) -[r2]-> (UK)` |
+| D-arrow-mid | arrow | MID | `1: (m.0a) -[r1]-> (m.0b) (m.0b) -[r2]-> (m.0c)` |
+| D-arrow-name | arrow | name | `1: (Jamaica) -[r1]-> (English) (English) -[r2]-> (UK)` |
 | D-tuple-mid | tuple | MID | `1: (m.0a, r1, m.0b), (m.0b, r2, m.0c)` |
 | D-tuple-name | tuple | name | `1: (Jamaica, r1, English), (English, r2, UK)` |
 | D-chain-mid | chain | MID | `1: m.0a -> r1 -> m.0b -> r2 -> m.0c` |
