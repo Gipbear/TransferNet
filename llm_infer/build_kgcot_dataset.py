@@ -169,7 +169,7 @@ def output_v11(paths_with_meta: list, golden_indices: list, answers: list) -> st
         if display_idx in golden_set and edges:
             relations = " -> ".join(f"[{e[1]}]" for e in edges)
             tail = edges[-1][2]
-            reasoning_lines.append(f"Path {display_idx} → {tail} via {relations}")
+            reasoning_lines.append(f"{display_idx} → {tail} via {relations}")
     reasoning = "\n".join(reasoning_lines) if reasoning_lines else "No supporting path found."
     cited = ", ".join(str(i) for i in sorted(golden_indices))
     return (

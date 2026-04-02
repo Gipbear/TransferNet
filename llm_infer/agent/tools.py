@@ -314,7 +314,7 @@ class RetrievePathsTool(BaseTool):
                 chain = " ".join(
                     f"({e[0]}) -[{e[1]}]-> ({e[2]})" for e in edges
                 )
-                lines.append(f"Path {idx}: {chain}")
+                lines.append(f"{idx}: {chain}")
 
             logger.debug(
                 "retrieve_paths: K=%d lambda=%.2f -> selected %d/%d paths",

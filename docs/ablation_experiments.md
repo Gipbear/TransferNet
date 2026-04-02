@@ -37,7 +37,7 @@
 | v1（answer-only） | 仅答案 | `Answer: entity1 \| entity2` |
 | **v2（基线）** | 路径引用 + 答案 | `Supporting Paths: 2, 5`<br>`Answer: entity1` |
 | v3（JSON） | JSON 结构 | `{"reasoning": ["Path 2"], "answer": ["entity1"]}` |
-| v4（CoT） | 自然语言推理链 + 答案 | `[Reasoning] Path 2 supports ...\n[Answer]\nSupporting Paths: 2\nAnswer: entity1` |
+| v4（CoT） | 自然语言推理链 + 答案 | `Reasoning: Paths 2 lead to the answer via "r1"`<br>`Supporting Paths: 2`<br>`Answer: entity1` |
 
 v2 是主方法，v1/v3/v4 是对比项。v1 没有 citation 机制，理论上 citation 相关指标（Citation Accuracy/Recall）无法计算。
 
@@ -100,14 +100,14 @@ v2 是主方法，v1/v3/v4 是对比项。v1 没有 citation 机制，理论上 
 
 | 配置 | 路径格式 | 实体表示 | 路径示例（2 跳） |
 |------|---------|---------|----------------|
-| **D-arrow-mid（基线）** | arrow | MID | `Path 1: (m.0a) -[r1]-> (m.0b) (m.0b) -[r2]-> (m.0c)` |
+| **D-arrow-mid（基线）** | arrow | MID | `1: (m.0a) -[r1]-> (m.0b) (m.0b) -[r2]-> (m.0c)` |
 | D-tuple-mid | tuple | MID | `1: (m.0a, r1, m.0b), (m.0b, r2, m.0c)` |
 | D-chain-mid | chain | MID | `1: m.0a -> r1 -> m.0b -> r2 -> m.0c` |
-| D-nl-mid | nl | MID | `Path 1: m.0a location country official language m.0b; m.0b ...` |
-| D-arrow-name | arrow | name | `Path 1: (Jamaica) -[r1]-> (English) (English) -[r2]-> (UK)` |
+| D-nl-mid | nl | MID | `1: m.0a location country official language m.0b; m.0b ...` |
+| D-arrow-name | arrow | name | `1: (Jamaica) -[r1]-> (English) (English) -[r2]-> (UK)` |
 | D-tuple-name | tuple | name | `1: (Jamaica, r1, English), (English, r2, UK)` |
 | D-chain-name | chain | name | `1: Jamaica -> r1 -> English -> r2 -> UK` |
-| D-nl-name | nl | name | `Path 1: Jamaica location country official language English; English ...` |
+| D-nl-name | nl | name | `1: Jamaica location country official language English; English ...` |
 
 > **nl 格式关系名处理**：将 Freebase 关系名中的 `.` 和 `_` 替换为空格（如 `location.country.official_language` → `location country official language`），不做进一步 NLP 处理。
 
