@@ -129,6 +129,11 @@ def output_v2(golden_indices: list, answers: list) -> str:
     return f"Supporting Paths: {cited}\nAnswer: {' | '.join(answers)}"
 
 
+def output_v2_reject() -> str:
+    """V2 拒答回复：路径中无正确答案时输出（Group F）。"""
+    return "Supporting Paths: (none)\nAnswer: (none)"
+
+
 def output_v3(golden_indices: list, answers: list) -> str:
     """V3 SFT-JSON：JSON 格式，消融对比项。"""
     return json.dumps(
@@ -186,13 +191,15 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
                 distractor_ratio: Optional[float], show_score: bool,
                 rng: random.Random,
                 path_format: str = "arrow",
-                entity_map: dict = None) -> Optional[dict]:
+                entity_map: dict = None,
+                include_rejection: bool = False) -> Optional[dict]:
     """
     从一条 predict JSONL 记录构造训练样本。
-    返回 None 表示 Hit@K 未命中，丢弃。
+    返回 None 表示样本无效（无问题/无答案），或 Hit@K 未命中且未启用拒答。
 
-    show_score:   路径字符串中是否包含 [score=S]（False 用于消融实验）
-    path_format:  路径表示方式 'arrow'（符号）或 'nl'（自然语言，V9 使用）
+    show_score:        路径字符串中是否包含 [score=S]（False 用于消融实验）
+    path_format:       路径表示方式 'arrow'（符号）或 'nl'（自然语言，V9 使用）
+    include_rejection: True 时，Hit@K=0 样本不丢弃，而是生成拒答训练样本（Group F）
     """
     question = record.get("question", "")
     mmr_paths = record.get("mmr_reason_paths", [])
@@ -203,9 +210,50 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
 
     labeled = label_paths(mmr_paths, golden)
 
-    # Hit@K 检查：必须至少有一条 Golden Path
-    if not any(is_g for _, _, is_g in labeled):
-        return None
+    has_golden_path = any(is_g for _, _, is_g in labeled)
+
+    # Hit@K=0：路径中无正确答案
+    if not has_golden_path:
+        if not include_rejection:
+            return None
+
+        # 拒答样本：以所有干扰路径为上下文，助手输出拒答格式
+        labeled = augment(labeled, shuffle, distractor_ratio, rng)
+        paths_with_meta = [
+            (edges, score, i + 1)
+            for i, (edges, score, _) in enumerate(labeled)
+        ]
+        user_content = build_user_content(
+            paths_with_meta, question,
+            show_score=show_score, path_format=path_format,
+            entity_map=entity_map,
+        )
+        if entity_map:
+            system_prompt = FORMAT_PROMPTS["v2_name_reject"]
+        else:
+            system_prompt = FORMAT_PROMPTS["v2_reject"]
+        asst = output_v2_reject()
+        return {
+            "messages": [
+                {"role": "system",    "content": system_prompt},
+                {"role": "user",      "content": user_content},
+                {"role": "assistant", "content": asst},
+            ],
+            "_meta": {
+                "question":            question,
+                "golden":              golden,
+                "path_answers":        [],
+                "golden_path_indices": [],
+                "n_golden":            0,
+                "n_distractor":        len(labeled),
+                "format":              "v2",
+                "show_score":          show_score,
+                "path_format":         path_format,
+                "entity_map_used":     bool(entity_map),
+                "hop":                 record.get("hop"),
+                "is_rejection":        True,
+            },
+        }
 
     labeled = augment(labeled, shuffle, distractor_ratio, rng)
 
@@ -235,7 +283,13 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
         entity_map=entity_map,
     )
 
-    if entity_map and fmt == "v2":
+    if include_rejection:
+        # 拒答训练模式：所有样本使用含拒答规则的 system prompt
+        if entity_map:
+            system_prompt = FORMAT_PROMPTS["v2_name_reject"]
+        else:
+            system_prompt = FORMAT_PROMPTS["v2_reject"]
+    elif entity_map and fmt == "v2":
         system_prompt = FORMAT_PROMPTS["v2_name"]
     else:
         system_prompt = FORMAT_PROMPTS.get(fmt, FORMAT_PROMPTS["v2"])
@@ -283,26 +337,34 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
           distractor_ratio: Optional[float], sample_n: int, show_score: bool,
           rng: random.Random, log: logging.Logger,
           path_format: str = "arrow",
-          entity_map: dict = None) -> dict:
+          entity_map: dict = None,
+          include_rejection: bool = False) -> dict:
     with open(input_path, encoding="utf-8") as f:
         records = [json.loads(l) for l in f if l.strip()]
-    log.info("读入 %d 条记录  格式=%s  show_score=%s  path_format=%s  entity_map=%s",
-             len(records), fmt, show_score, path_format, bool(entity_map))
+    log.info("读入 %d 条记录  格式=%s  show_score=%s  path_format=%s  entity_map=%s  include_rejection=%s",
+             len(records), fmt, show_score, path_format, bool(entity_map), include_rejection)
 
     if sample_n > 0 and len(records) > sample_n:
         records = rng.sample(records, sample_n)
         log.info("采样后 %d 条", len(records))
 
-    samples, skipped = [], 0
+    samples, skipped, n_rejection = [], 0, 0
     for rec in records:
         s = make_sample(rec, fmt, shuffle, distractor_ratio, show_score, rng,
-                        path_format=path_format, entity_map=entity_map)
+                        path_format=path_format, entity_map=entity_map,
+                        include_rejection=include_rejection)
         if s is None:
             skipped += 1
         else:
+            if s.get("_meta", {}).get("is_rejection"):
+                n_rejection += 1
             samples.append(s)
 
-    log.info("有效样本 %d  丢弃(Hit@K=0) %d", len(samples), skipped)
+    if include_rejection:
+        log.info("有效样本 %d（其中拒答 %d）  丢弃(无问题/无答案) %d",
+                 len(samples), n_rejection, skipped)
+    else:
+        log.info("有效样本 %d  丢弃(Hit@K=0) %d", len(samples), skipped)
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
@@ -342,6 +404,7 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
         "format":         fmt,
         "total":          n,
         "skipped":        skipped,
+        "n_rejection":    n_rejection,
         "avg_golden":     avg_golden,
         "avg_distractor": avg_distractor,
         "seq_len_avg":    sum(seq_lens) // n,
@@ -375,6 +438,8 @@ def parse_args():
     p.add_argument("--sample", type=int, default=0,
                    help="采样 N 条（0=全量），MetaQA 329K 时使用")
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--include_rejection", action="store_true",
+                   help="包含 Hit@K=0 样本并生成拒答训练样本（Group F）")
     return p.parse_args()
 
 
@@ -395,8 +460,8 @@ def main():
         entity_map = load_entity_map(args.entity_map)
         log.info("加载实体映射: %s (%d 条)", args.entity_map, len(entity_map))
 
-    log.info("shuffle=%s  show_score=%s  path_format=%s  entity_map=%s",
-             shuffle, show_score, path_format, args.entity_map)
+    log.info("shuffle=%s  show_score=%s  path_format=%s  entity_map=%s  include_rejection=%s",
+             shuffle, show_score, path_format, args.entity_map, args.include_rejection)
 
     # all 模式：生成 v1-v5 全部格式（不含 v0/v11）
     ALL_FORMATS = ["v1", "v2", "v3", "v4", "v5"]
@@ -416,7 +481,8 @@ def main():
             stat = build(args.input, f"{base}_{fmt}{ext}", fmt,
                          shuffle, args.distractor_ratio, args.sample,
                          show_score, rng, log, path_format=pf,
-                         entity_map=entity_map)
+                         entity_map=entity_map,
+                         include_rejection=args.include_rejection)
             stats_list.append(stat)
         log.info("=" * 50)
         for st in stats_list:
@@ -433,12 +499,20 @@ def main():
         st = build(args.input, args.output, args.format,
                    shuffle, args.distractor_ratio, args.sample,
                    show_score, rng, log, path_format=path_format,
-                   entity_map=entity_map)
-        log.info("total=%d skip=%d avg_golden=%.2f avg_distractor=%.2f"
-                 " seq_len_avg=%d seq_len_p90=%d",
-                 st["total"], st["skipped"],
-                 st["avg_golden"], st["avg_distractor"],
-                 st.get("seq_len_avg", 0), st.get("seq_len_p90", 0))
+                   entity_map=entity_map,
+                   include_rejection=args.include_rejection)
+        if args.include_rejection:
+            log.info("total=%d (rejection=%d) skip=%d avg_golden=%.2f avg_distractor=%.2f"
+                     " seq_len_avg=%d seq_len_p90=%d",
+                     st["total"], st.get("n_rejection", 0), st["skipped"],
+                     st["avg_golden"], st["avg_distractor"],
+                     st.get("seq_len_avg", 0), st.get("seq_len_p90", 0))
+        else:
+            log.info("total=%d skip=%d avg_golden=%.2f avg_distractor=%.2f"
+                     " seq_len_avg=%d seq_len_p90=%d",
+                     st["total"], st["skipped"],
+                     st["avg_golden"], st["avg_distractor"],
+                     st.get("seq_len_avg", 0), st.get("seq_len_p90", 0))
 
     log.info("日志: %s", log_path)
 

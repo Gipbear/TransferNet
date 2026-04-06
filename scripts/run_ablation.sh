@@ -9,7 +9,7 @@
 #   Group B: 训练数据消融 (no_shuffle / no_score / distractor_ratio)
 #   Group C: 检索参数消融 (不同 beam/lambda，仅 eval，复用最佳模型)
 #   Group D: 路径输入格式消融 (arrow/tuple/chain/nl × MID/name，固定 v2 输出)
-#   Group E: Base Model 零样本评估 (chain × MID/name × v2/v4，无微调)
+#   Group E: Base Model 零样本评估 (chain × MID/name × v1/v2/v3/v4，无微调)
 #
 # 特性：
 #   - 三步流程：build_kgcot_dataset → train_sft → eval_faithfulness
@@ -435,7 +435,7 @@ fi
 
 # ── Group E: Base Model 零样本评估 ────────────────────────────────────────────
 if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "E" ]]; then
-    log_section "Group E: Base Model 零样本评估 (chain × MID/name × v2/v4)"
+    log_section "Group E: Base Model 零样本评估 (chain × MID/name × v1/v2/v3/v4)"
 
     ENTITY_MAP="${PROJECT_DIR}/data/resources/WebQSP/fbwq_full/mapped_entities.txt"
 
@@ -444,7 +444,7 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "E" ]]; then
         exit 1
     fi
 
-    for fmt in v2 v4; do
+    for fmt in v1 v2 v3 v4; do
         # chain + MID
         run_base_eval "groupE_chain_mid_${fmt}" "${TEST_BEAM20_LAM02}" "${fmt}" \
             "--path_format chain"
@@ -452,6 +452,28 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "E" ]]; then
         run_base_eval "groupE_chain_name_${fmt}" "${TEST_BEAM20_LAM02}" "${fmt}" \
             "--path_format chain --entity_map ${ENTITY_MAP}"
     done
+fi
+
+# ── Group F: 拒答能力训练 ─────────────────────────────────────────────────────
+if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "F" ]]; then
+    log_section "Group F: 拒答能力训练 (chain+v2, 含 Hit@K=0 拒答样本)"
+
+    ENTITY_MAP="${PROJECT_DIR}/data/resources/WebQSP/fbwq_full/mapped_entities.txt"
+
+    if [[ ! -f "${ENTITY_MAP}" ]]; then
+        echo "[ERROR] 实体映射文件不存在: ${ENTITY_MAP}"
+        exit 1
+    fi
+
+    # F1: chain + MID + rejection
+    run_experiment "groupF_chain_mid" "v2" \
+        "--path_format chain --include_rejection" \
+        "--path_format chain --reject_prompt"
+
+    # F2: chain + name + rejection
+    run_experiment "groupF_chain_name" "v2" \
+        "--path_format chain --entity_map ${ENTITY_MAP} --include_rejection" \
+        "--path_format chain --entity_map ${ENTITY_MAP} --reject_prompt"
 fi
 
 # ── 完成 ──────────────────────────────────────────────────────────────────────

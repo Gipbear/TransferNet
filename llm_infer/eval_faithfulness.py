@@ -141,6 +141,17 @@ def expand_pred_answers_with_path_constraint(
 _ANSWER_RE      = re.compile(r"Answer\s*[:：]\s*(.+)", re.IGNORECASE)
 _CITE_RE        = re.compile(r"Supporting\s*Paths?\s*[:：]\s*([\d,\s]+)", re.IGNORECASE)
 _JSON_RE        = re.compile(r"\{.*\}", re.DOTALL)
+_REJECT_CITE_RE = re.compile(r"Supporting\s*Paths?\s*[:：]\s*\(none\)", re.IGNORECASE)
+
+REJECTION_SENTINEL = "(none)"
+
+
+def is_rejection_response(parsed: dict) -> bool:
+    """检查模型输出是否为拒答响应（所有答案为 (none) 或答案为空）。"""
+    answers = parsed.get("answers", [])
+    if not answers:
+        return False  # 空答案视为格式错误，不视为主动拒答
+    return all(a.strip().lower() == REJECTION_SENTINEL.lower() for a in answers)
 
 
 def parse_output(raw: str, fmt: str) -> dict:
@@ -176,18 +187,23 @@ def parse_output(raw: str, fmt: str) -> dict:
 
     elif fmt == "v2":
         # 期望: "Supporting Paths: 1, 3\nAnswer: entity"
-        cite_m   = _CITE_RE.search(raw)
-        answer_m = _ANSWER_RE.search(raw)
-        format_ok = bool(cite_m and answer_m)
+        # 拒答格式: "Supporting Paths: (none)\nAnswer: (none)"
+        cite_m      = _CITE_RE.search(raw)
+        reject_cite = bool(_REJECT_CITE_RE.search(raw))
+        answer_m    = _ANSWER_RE.search(raw)
+        format_ok   = bool((cite_m or reject_cite) and answer_m)
 
         cited_indices = set()
-        if cite_m:
+        if cite_m and not reject_cite:
             for tok in re.split(r"[,\s]+", cite_m.group(1)):
                 tok = tok.strip()
                 if tok.isdigit():
                     cited_indices.add(int(tok))
 
-        answers = _parse_answers(answer_m.group(1).strip().splitlines()[0]) if answer_m else []
+        if reject_cite and answer_m and REJECTION_SENTINEL in answer_m.group(1).lower():
+            answers = [REJECTION_SENTINEL]
+        else:
+            answers = _parse_answers(answer_m.group(1).strip().splitlines()[0]) if answer_m else []
         return {"answers": answers, "cited_indices": cited_indices, "format_ok": format_ok}
 
     elif fmt == "v3":
@@ -332,6 +348,56 @@ def compute_faithfulness(cited_indices: set, golden_indices: set,
     }
 
 
+# ─── 拒答指标 ─────────────────────────────────────────────────────────────────
+
+def compute_rejection_metrics(results: list) -> dict:
+    """计算拒答能力的混淆矩阵和 P/R/F1。
+
+    四类情形：
+      correct_rejections:  模型拒答 & path_hit=False（正确拒答，TN）
+      missed_rejections:   模型回答 & path_hit=False（漏拒，FP）
+      false_rejections:    模型拒答 & path_hit=True（误拒，FN）
+      correct_answers:     模型回答 & path_hit=True（正常作答）
+
+    Rejection Precision = correct_rej / (correct_rej + false_rej)
+    Rejection Recall    = correct_rej / (correct_rej + missed_rej)
+    """
+    correct_rej = missed_rej = false_rej = correct_ans = 0
+    for r in results:
+        path_hit      = bool(r.get("mmr_answer_path_hit", False))
+        model_rejected = bool(r.get("is_rejection", False))
+
+        if path_hit and not model_rejected:
+            correct_ans += 1
+        elif path_hit and model_rejected:
+            false_rej += 1
+        elif not path_hit and model_rejected:
+            correct_rej += 1
+        else:
+            missed_rej += 1
+
+    total_rej    = correct_rej + false_rej
+    unanswerable = correct_rej + missed_rej
+    answerable   = correct_ans + false_rej
+
+    rej_prec = correct_rej / total_rej    if total_rej    > 0 else 0.0
+    rej_rec  = correct_rej / unanswerable if unanswerable > 0 else 0.0
+    rej_f1   = (2 * rej_prec * rej_rec / (rej_prec + rej_rec)
+                if (rej_prec + rej_rec) > 0 else 0.0)
+
+    return {
+        "answerable_n":       answerable,
+        "unanswerable_n":     unanswerable,
+        "correct_rejections": correct_rej,
+        "missed_rejections":  missed_rej,
+        "false_rejections":   false_rej,
+        "correct_answers":    correct_ans,
+        "rejection_precision": round(rej_prec, 4),
+        "rejection_recall":    round(rej_rec,  4),
+        "rejection_f1":        round(rej_f1,   4),
+    }
+
+
 # ─── 汇总 ─────────────────────────────────────────────────────────────────────
 
 def aggregate(results: list) -> dict:
@@ -469,6 +535,8 @@ def parse_args():
     p.add_argument("--num_runs",       type=int, default=1,
                    help="多轮 shuffle 推理次数（每轮使用不同路径排列顺序），"
                         "num_runs>1 时日志输出 mean±std（默认 1，向后兼容）")
+    p.add_argument("--reject_prompt", action="store_true",
+                   help="使用含拒答规则的 system prompt（Group F）")
     return p.parse_args()
 
 
@@ -493,7 +561,14 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
 
     entity_map_dict = getattr(args, "entity_map_dict", None)
     rev_entity_map = getattr(args, "rev_entity_map", None)
-    if entity_map_dict and args.output_format == "v2":
+    use_reject_prompt = getattr(args, "reject_prompt", False)
+    if use_reject_prompt:
+        # Group F: 使用含拒答规则的 system prompt
+        if entity_map_dict:
+            system_prompt = FORMAT_PROMPTS["v2_name_reject"]
+        else:
+            system_prompt = FORMAT_PROMPTS["v2_reject"]
+    elif entity_map_dict and args.output_format == "v2":
         system_prompt = FORMAT_PROMPTS["v2_name"]
     else:
         system_prompt = FORMAT_PROMPTS[args.output_format]
@@ -590,6 +665,7 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
                 orig_indices, raw_texts, mmr_batch, gold_batch, orig_batch):
 
             parsed         = parse_output(raw_text, args.output_format)
+            model_rejected = is_rejection_response(parsed)
             golden_indices = label_golden_indices(mmr_paths, golden)
             path_mid_entities = get_all_path_entities(mmr_paths)
 
@@ -626,6 +702,7 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
                 "mmr_reason_paths":      mmr_paths,
                 "llm_raw_output":        raw_text,
                 "llm_pred":              parsed["answers"],
+                "is_rejection":          model_rejected,
                 # 当 entity_map 启用时，保留原始全量展开与路径约束消歧后的 MID 列表
                 "llm_pred_expanded_mids": expanded_pred if entity_map_dict else None,
                 "llm_pred_disambiguated_mids": constrained_pred if entity_map_dict else None,
@@ -693,6 +770,30 @@ def _log_stratified(log: logging.Logger, results: list):
     log.info("")
     log.info("  Format Compliance: %d/%d = %.4f", n_ok, n_all,
              n_ok / n_all if n_all else 0)
+
+    # 拒答分析（当存在拒答样本或存在 path_hit=False 样本时输出）
+    has_rejection = any(r.get("is_rejection", False) for r in results)
+    has_unanswerable = any(not r.get("mmr_answer_path_hit", True) for r in results)
+    if has_rejection or has_unanswerable:
+        rej_m = compute_rejection_metrics(results)
+        log.info("")
+        log.info("  --- Rejection Analysis ---")
+        log.info("    Answerable   (path_hit=True)  : %d", rej_m["answerable_n"])
+        log.info("    Unanswerable (path_hit=False)  : %d", rej_m["unanswerable_n"])
+        log.info("    Correct Rejections             : %d", rej_m["correct_rejections"])
+        log.info("    Missed  Rejections             : %d", rej_m["missed_rejections"])
+        log.info("    False   Rejections             : %d", rej_m["false_rejections"])
+        log.info("    Correct Answers                : %d", rej_m["correct_answers"])
+        log.info("    Rejection Precision            : %.4f", rej_m["rejection_precision"])
+        log.info("    Rejection Recall               : %.4f", rej_m["rejection_recall"])
+        log.info("    Rejection F1                   : %.4f", rej_m["rejection_f1"])
+        # 仅在可回答且模型作答的子集上统计答案质量
+        answerable_answered = [r for r in results
+                               if r.get("mmr_answer_path_hit") and not r.get("is_rejection")]
+        if answerable_answered and len(answerable_answered) < len(results):
+            log.info("")
+            log.info("  --- Answerable & Answered subset (n=%d) ---", len(answerable_answered))
+            log_metrics(log, "answerable_answered", aggregate(answerable_answered))
 
 
 def main():

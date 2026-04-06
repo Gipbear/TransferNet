@@ -88,15 +88,51 @@ SYSTEM_PROMPT_V2_NAME = (
     "Answer: <entity_name> | <entity_name>"
 )
 
+# V2_REJECT: 与 V2 相同，但新增拒答规则（Group F）
+SYSTEM_PROMPT_V2_REJECT = (
+    "You are a KGQA assistant. "
+    "Given reasoning paths from a knowledge graph and a question, "
+    "identify which paths support the answer, then extract the answer "
+    "from the tail entities of those supporting paths.\n"
+    "Rules:\n"
+    "- Only output entity IDs that appear in the provided paths.\n"
+    "- Do not generate or fabricate new entity IDs.\n"
+    "- If none of the path tail entities could reasonably answer the question, output:\n"
+    "  Supporting Paths: (none)\n"
+    "  Answer: (none)\n"
+    "Output format:\n"
+    "Supporting Paths: <path numbers>\n"
+    "Answer: <entity_id> | <entity_id>"
+)
+
+# V2_NAME_REJECT: 与 V2_NAME 相同，但新增拒答规则（Group F）
+SYSTEM_PROMPT_V2_NAME_REJECT = (
+    "You are a KGQA assistant. "
+    "Given reasoning paths from a knowledge graph and a question, "
+    "identify which paths support the answer, then extract the answer "
+    "from the tail entities of those supporting paths.\n"
+    "Rules:\n"
+    "- Only output entity names that appear in the provided paths.\n"
+    "- Do not generate or fabricate new entity names.\n"
+    "- If none of the path tail entities could reasonably answer the question, output:\n"
+    "  Supporting Paths: (none)\n"
+    "  Answer: (none)\n"
+    "Output format:\n"
+    "Supporting Paths: <path numbers>\n"
+    "Answer: <entity_name> | <entity_name>"
+)
+
 FORMAT_PROMPTS = {
-    "v0":     SYSTEM_PROMPT_ANSWER_ONLY,
-    "v1":     SYSTEM_PROMPT_ANSWER_ONLY,
-    "v2":     SYSTEM_PROMPT_V2,
-    "v3":     SYSTEM_PROMPT_V3,
-    "v4":     SYSTEM_PROMPT_V4,     # Compact CoT
-    "v5":     SYSTEM_PROMPT_V5,     # Natural Language Path（同 V2 prompt，输入格式不同）
-    "v11":    SYSTEM_PROMPT_V11,    # Full CoT（备用）
-    "v2_name": SYSTEM_PROMPT_V2_NAME,  # Entity-name variant
+    "v0":           SYSTEM_PROMPT_ANSWER_ONLY,
+    "v1":           SYSTEM_PROMPT_ANSWER_ONLY,
+    "v2":           SYSTEM_PROMPT_V2,
+    "v3":           SYSTEM_PROMPT_V3,
+    "v4":           SYSTEM_PROMPT_V4,          # Compact CoT
+    "v5":           SYSTEM_PROMPT_V5,          # Natural Language Path（同 V2 prompt，输入格式不同）
+    "v11":          SYSTEM_PROMPT_V11,         # Full CoT（备用）
+    "v2_name":      SYSTEM_PROMPT_V2_NAME,     # Entity-name variant
+    "v2_reject":      SYSTEM_PROMPT_V2_REJECT,      # Rejection-aware MID variant（Group F）
+    "v2_name_reject": SYSTEM_PROMPT_V2_NAME_REJECT, # Rejection-aware name variant（Group F）
 }
 
 

@@ -53,10 +53,14 @@ _METRIC_PATTERNS = {
     "exact_match":        re.compile(rf"Exact Match\s*:\s*{_VS}"),
     "citation_accuracy":  re.compile(rf"Citation Accuracy\s*:\s*{_VS}"),
     "citation_recall":    re.compile(rf"Citation Recall\s*:\s*{_VS}"),
-    "hallucination_rate": re.compile(rf"Hallucination Rate\s*:\s*{_VS}"),
-    "format_compliance":  re.compile(rf"Format Compliance\s*:\s*{_VS}"),
+    "hallucination_rate":  re.compile(rf"Hallucination Rate\s*:\s*{_VS}"),
+    "format_compliance":   re.compile(rf"Format Compliance\s*:\s*{_VS}"),
+    # 拒答指标（Group F）
+    "rejection_precision": re.compile(rf"Rejection Precision\s*:\s*{_VS}"),
+    "rejection_recall":    re.compile(rf"Rejection Recall\s*:\s*{_VS}"),
+    "rejection_f1":        re.compile(rf"Rejection F1\s*:\s*{_VS}"),
     # 兼容 "[ ALL ... ]  (n=1541)" 和 "[ 多轮汇总 ... ]  (avg n=1541)"
-    "n":                  re.compile(r"\[ (?:ALL|多轮汇总).*?\]\s+\((?:avg )?n=(\d+)\)"),
+    "n":                   re.compile(r"\[ (?:ALL|多轮汇总).*?\]\s+\((?:avg )?n=(\d+)\)"),
 }
 
 
@@ -120,6 +124,24 @@ def parse_eval_log(log_path: str) -> dict | None:
         result["micro_p"] = result["micro_r"] = result["micro_f1"] = None
         result["micro_p_std"] = result["micro_r_std"] = result["micro_f1_std"] = None
 
+    # 拒答指标（Group F）：从 "--- Rejection Analysis ---" 段落解析
+    rej_start = text.find("--- Rejection Analysis ---")
+    if rej_start != -1:
+        rej_end = text.find("---", rej_start + len("--- Rejection Analysis ---"))
+        rej_segment = text[rej_start:rej_end] if rej_end != -1 else text[rej_start:]
+        for key in ("rejection_precision", "rejection_recall", "rejection_f1"):
+            m = _METRIC_PATTERNS[key].search(rej_segment)
+            if m:
+                result[key]          = float(m.group(1))
+                result[f"{key}_std"] = float(m.group(2)) if m.group(2) else None
+            else:
+                result[key]          = None
+                result[f"{key}_std"] = None
+    else:
+        for key in ("rejection_precision", "rejection_recall", "rejection_f1"):
+            result[key]          = None
+            result[f"{key}_std"] = None
+
     return result
 
 
@@ -170,6 +192,8 @@ def classify_group(config_name: str) -> str:
         return "B"
     if config_name.startswith("groupC"):
         return "C"
+    if config_name.startswith("groupF"):
+        return "F"
     return "X"
 
 
@@ -295,6 +319,40 @@ def print_group_c(rows: list[dict]):
     print("(* = 基线)" + ("  [±std = 多轮汇总]" if std else ""))
 
 
+def print_group_f(rows: list[dict]):
+    """Group F: 拒答能力消融对比表"""
+    std = _has_std(rows)
+    cw = 14 if std else 7
+    total = 20 + 1 + (cw + 1) * 7 + 8
+    print("\n" + "=" * total)
+    print("  Group F: 拒答能力训练 (chain+v2, MID vs Name)")
+    print("=" * total)
+    header = (f"{'Config':<20}"
+              f" {'Hit@1':>{cw}}"
+              f" {'MacroF1':>{cw+1}}"
+              f" {'EM':>{cw}}"
+              f" {'Rej.Prec':>{cw}}"
+              f" {'Rej.Rec':>{cw}}"
+              f" {'Rej.F1':>{cw}}"
+              f" {'n':>6}")
+    print(header)
+    print("-" * total)
+    for r in sorted(rows, key=lambda x: x.get("config", "")):
+        m = r.get("metrics") or {}
+        print(
+            f"{r.get('config','?'):<20}"
+            f" {fmt_val(m.get('hit1'),                m.get('hit1_std')):>{cw}}"
+            f" {fmt_val(m.get('macro_f1'),             m.get('macro_f1_std')):>{cw+1}}"
+            f" {fmt_val(m.get('exact_match'),          m.get('exact_match_std')):>{cw}}"
+            f" {fmt_val(m.get('rejection_precision'),  m.get('rejection_precision_std')):>{cw}}"
+            f" {fmt_val(m.get('rejection_recall'),     m.get('rejection_recall_std')):>{cw}}"
+            f" {fmt_val(m.get('rejection_f1'),         m.get('rejection_f1_std')):>{cw}}"
+            f" {m.get('n') or '--':>6}"
+        )
+    print("  Hit@1/MacroF1/EM 仅统计作答样本，Rej.* 为拒答 P/R/F1"
+          + ("  [±std = 多轮汇总]" if std else ""))
+
+
 # ─── CSV 写出 ─────────────────────────────────────────────────────────────────
 
 _METRIC_KEYS = [
@@ -302,6 +360,7 @@ _METRIC_KEYS = [
     "micro_p", "micro_r", "micro_f1",
     "exact_match", "citation_accuracy", "citation_recall",
     "hallucination_rate", "format_compliance",
+    "rejection_precision", "rejection_recall", "rejection_f1",
 ]
 
 CSV_FIELDS = (
@@ -754,6 +813,7 @@ def main():
     group_a = [r for r in records if r["group"] == "A"]
     group_b = [r for r in records if r["group"] == "B"]
     group_c = [r for r in records if r["group"] == "C"]
+    group_f = [r for r in records if r["group"] == "F"]
 
     # 打印表格
     if group_a:
@@ -767,6 +827,9 @@ def main():
 
     if group_c:
         print_group_c(group_c)
+
+    if group_f:
+        print_group_f(group_f)
 
     # 写 CSV
     write_csv(records, csv_path)
