@@ -338,17 +338,20 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
           rng: random.Random, log: logging.Logger,
           path_format: str = "arrow",
           entity_map: dict = None,
-          include_rejection: bool = False) -> dict:
+          include_rejection: bool = False,
+          rejection_oversample: int = 1) -> dict:
     with open(input_path, encoding="utf-8") as f:
         records = [json.loads(l) for l in f if l.strip()]
-    log.info("读入 %d 条记录  格式=%s  show_score=%s  path_format=%s  entity_map=%s  include_rejection=%s",
-             len(records), fmt, show_score, path_format, bool(entity_map), include_rejection)
+    log.info("读入 %d 条记录  格式=%s  show_score=%s  path_format=%s  entity_map=%s  include_rejection=%s  rejection_oversample=%d",
+             len(records), fmt, show_score, path_format, bool(entity_map), include_rejection, rejection_oversample)
 
     if sample_n > 0 and len(records) > sample_n:
         records = rng.sample(records, sample_n)
         log.info("采样后 %d 条", len(records))
 
     samples, skipped, n_rejection = [], 0, 0
+    rejection_records = []  # 保存 Hit@K=0 原始记录，用于上采样
+
     for rec in records:
         s = make_sample(rec, fmt, shuffle, distractor_ratio, show_score, rng,
                         path_format=path_format, entity_map=entity_map,
@@ -358,11 +361,26 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
         else:
             if s.get("_meta", {}).get("is_rejection"):
                 n_rejection += 1
+                rejection_records.append(rec)
             samples.append(s)
 
+    # 拒答样本上采样：对 Hit@K=0 记录重复 make_sample（每次 shuffle 产生不同路径顺序）
+    n_oversampled = 0
+    if include_rejection and rejection_oversample > 1 and rejection_records:
+        for _ in range(rejection_oversample - 1):
+            for rec in rejection_records:
+                s = make_sample(rec, fmt, shuffle, distractor_ratio, show_score, rng,
+                                path_format=path_format, entity_map=entity_map,
+                                include_rejection=True)
+                if s is not None:
+                    samples.append(s)
+                    n_oversampled += 1
+        rng.shuffle(samples)  # 打乱避免拒答样本聚集在末尾
+
     if include_rejection:
-        log.info("有效样本 %d（其中拒答 %d）  丢弃(无问题/无答案) %d",
-                 len(samples), n_rejection, skipped)
+        log.info("有效样本 %d（原始拒答 %d + 上采样 %d = 拒答共 %d）  丢弃(无问题/无答案) %d",
+                 len(samples), n_rejection, n_oversampled,
+                 n_rejection + n_oversampled, skipped)
     else:
         log.info("有效样本 %d  丢弃(Hit@K=0) %d", len(samples), skipped)
 
@@ -404,7 +422,7 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
         "format":         fmt,
         "total":          n,
         "skipped":        skipped,
-        "n_rejection":    n_rejection,
+        "n_rejection":    n_rejection + n_oversampled,
         "avg_golden":     avg_golden,
         "avg_distractor": avg_distractor,
         "seq_len_avg":    sum(seq_lens) // n,
@@ -440,6 +458,8 @@ def parse_args():
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--include_rejection", action="store_true",
                    help="包含 Hit@K=0 样本并生成拒答训练样本（Group F）")
+    p.add_argument("--rejection_oversample", type=int, default=1,
+                   help="拒答样本上采样倍数（默认 1=不上采样）；每次重复 make_sample 以获得不同 shuffle 顺序")
     return p.parse_args()
 
 
@@ -482,7 +502,8 @@ def main():
                          shuffle, args.distractor_ratio, args.sample,
                          show_score, rng, log, path_format=pf,
                          entity_map=entity_map,
-                         include_rejection=args.include_rejection)
+                         include_rejection=args.include_rejection,
+                         rejection_oversample=args.rejection_oversample)
             stats_list.append(stat)
         log.info("=" * 50)
         for st in stats_list:
@@ -500,7 +521,8 @@ def main():
                    shuffle, args.distractor_ratio, args.sample,
                    show_score, rng, log, path_format=path_format,
                    entity_map=entity_map,
-                   include_rejection=args.include_rejection)
+                   include_rejection=args.include_rejection,
+                   rejection_oversample=args.rejection_oversample)
         if args.include_rejection:
             log.info("total=%d (rejection=%d) skip=%d avg_golden=%.2f avg_distractor=%.2f"
                      " seq_len_avg=%d seq_len_p90=%d",

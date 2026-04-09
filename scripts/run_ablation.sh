@@ -10,6 +10,9 @@
 #   Group C: 检索参数消融 (不同 beam/lambda，仅 eval，复用最佳模型)
 #   Group D: 路径输入格式消融 (arrow/tuple/chain/nl × MID/name，固定 v2 输出)
 #   Group E: Base Model 零样本评估 (chain × MID/name × v1/v2/v3/v4，无微调)
+#   Group F: 拒答能力训练 (chain+v2, 含 Hit@K=0 拒答样本)
+#   Group G: 训练轮数消融 (epochs 1-5, chain+name+v2, limit=500)
+#   Group H: 无路径基线 (base model 直接回答，无检索路径输入)
 #
 # 特性：
 #   - 三步流程：build_kgcot_dataset → train_sft → eval_faithfulness
@@ -28,6 +31,8 @@
 #   bash scripts/run_ablation.sh --group A --phase train    # 只做数据构建 + 训练
 #   bash scripts/run_ablation.sh --group A --phase eval     # 只做推理评估
 #   BEST_ADAPTER=models/my_adapter bash scripts/run_ablation.sh --group C
+#   bash scripts/run_ablation.sh --group G                  # 只跑 Group G（训练轮数消融）
+#   bash scripts/run_ablation.sh --group H                  # 只跑 Group H（无路径基线）
 #
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -80,7 +85,8 @@ TEST_BEAM20_LAM02="${DATASET_TEST_BEAM20_LAM02}"
 BASELINE_ADAPTER="$(resolve_baseline_adapter "${PROJECT_DIR}" "${MODEL_DATASET}")"
 EVAL_LIMIT="${EVAL_LIMIT:-$(resolve_eval_limit "${RUN_DATASET}")}"
 # Group C 使用的 adapter，可通过环境变量覆盖
-BEST_ADAPTER="${BEST_ADAPTER:-${BASELINE_ADAPTER}}"
+# 默认使用 groupAname_v2（chain+name+v2，消融最优配置）
+BEST_ADAPTER="${BEST_ADAPTER:-$(resolve_slot_adapter "${PROJECT_DIR}" "${MODEL_DATASET}" "groupAname_v2")}"
 
 # ── 辅助函数 ──────────────────────────────────────────────────────────────────
 
@@ -374,18 +380,26 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "C" ]]; then
         exit 1
     fi
 
+    ENTITY_MAP_C="${PROJECT_DIR}/data/resources/WebQSP/fbwq_full/mapped_entities.txt"
+    if [[ ! -f "${ENTITY_MAP_C}" ]]; then
+        echo "[ERROR] 实体映射文件不存在: ${ENTITY_MAP_C}"
+        exit 1
+    fi
+    # groupAname_v2 以 chain+name 格式训练，评估时需保持一致
+    GROUPC_EVAL_EXTRA="--path_format chain --entity_map ${ENTITY_MAP_C}"
+
     # 固定 lambda=0.2，扫 beam
-    for beam in 5 10 15 30; do
+    for beam in 5 10 15 20 30 40 50; do
         test_file="${PATHS_DIR}/beam${beam}_lam0.2.jsonl"
         if [[ ! -f "${test_file}" ]]; then
             echo "[WARN] 测试集不存在，跳过: ${test_file}"
             continue
         fi
-        run_eval_only "groupC" "${BEST_ADAPTER}" "${test_file}" "v2" ""
+        run_eval_only "groupC" "${BEST_ADAPTER}" "${test_file}" "v2" "${GROUPC_EVAL_EXTRA}"
     done
 
     # beam20_lam0.2 基线（通常已存在于 grid_search/paths/，复制进 groupC 以便汇总）
-    run_eval_only "groupC" "${BEST_ADAPTER}" "${TEST_BEAM20_LAM02}" "v2" ""
+    run_eval_only "groupC" "${BEST_ADAPTER}" "${TEST_BEAM20_LAM02}" "v2" "${GROUPC_EVAL_EXTRA}"
 
     # 固定 beam=20，扫 lambda（跳过 lam0.2 已处理）
     for lam in 0.0 0.5 0.7 1.0; do
@@ -394,7 +408,7 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "C" ]]; then
             echo "[WARN] 测试集不存在，跳过: ${test_file}"
             continue
         fi
-        run_eval_only "groupC" "${BEST_ADAPTER}" "${test_file}" "v2" ""
+        run_eval_only "groupC" "${BEST_ADAPTER}" "${test_file}" "v2" "${GROUPC_EVAL_EXTRA}"
     done
 fi
 
@@ -474,6 +488,60 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "F" ]]; then
     run_experiment "groupF_chain_name" "v2" \
         "--path_format chain --entity_map ${ENTITY_MAP} --include_rejection" \
         "--path_format chain --entity_map ${ENTITY_MAP} --reject_prompt"
+
+    # F3/F4: chain + name + rejection + 拒答样本上采样（仅 name 变体）
+    run_experiment "groupF_chain_name_os5" "v2" \
+        "--path_format chain --entity_map ${ENTITY_MAP} --include_rejection --rejection_oversample 5" \
+        "--path_format chain --entity_map ${ENTITY_MAP} --reject_prompt"
+
+    run_experiment "groupF_chain_name_os10" "v2" \
+        "--path_format chain --entity_map ${ENTITY_MAP} --include_rejection --rejection_oversample 10" \
+        "--path_format chain --entity_map ${ENTITY_MAP} --reject_prompt"
+fi
+
+# ── Group G: 训练轮数消融 ─────────────────────────────────────────────────────
+if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "G" ]]; then
+    log_section "Group G: 训练轮数消融 (epochs 1-5, chain+name+v2, limit=500)"
+
+    ENTITY_MAP="${PROJECT_DIR}/data/resources/WebQSP/fbwq_full/mapped_entities.txt"
+
+    if [[ ! -f "${ENTITY_MAP}" ]]; then
+        echo "[ERROR] 实体映射文件不存在: ${ENTITY_MAP}"
+        exit 1
+    fi
+
+    SAVED_EPOCHS="${EPOCHS}"
+    SAVED_EVAL_LIMIT="${EVAL_LIMIT}"
+    EVAL_LIMIT=500
+
+    for ep in 1 2 3 4 5; do
+        EPOCHS="${ep}"
+        run_experiment "groupG_epoch${ep}" "v2" \
+            "--path_format chain --entity_map ${ENTITY_MAP}" \
+            "--path_format chain --entity_map ${ENTITY_MAP}"
+    done
+
+    EPOCHS="${SAVED_EPOCHS}"
+    EVAL_LIMIT="${SAVED_EVAL_LIMIT}"
+fi
+
+# ── Group H: 无路径基线 ───────────────────────────────────────────────────────
+if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "H" ]]; then
+    log_section "Group H: 无路径基线 (base model 直接回答，无检索路径输入)"
+
+    if [[ "${RUN_PHASE}" == "train" ]]; then
+        echo "[SKIP] phase=train，Group H 仅做评估"
+    else
+        # H1: base model（无 adapter） + 无路径
+        run_base_eval "groupH_base_nopaths" "${TEST_BEAM20_LAM02}" "v1" "--no_paths"
+
+        # H2: 微调模型（groupAname_v2） + 无路径，对比参数知识 vs 检索增强
+        if [[ -d "${BEST_ADAPTER}" ]]; then
+            run_eval_only "groupH_ft_nopaths" "${BEST_ADAPTER}" "${TEST_BEAM20_LAM02}" "v1" "--no_paths"
+        else
+            echo "[WARN] BEST_ADAPTER 不存在，跳过 H2: ${BEST_ADAPTER}"
+        fi
+    fi
 fi
 
 # ── 完成 ──────────────────────────────────────────────────────────────────────

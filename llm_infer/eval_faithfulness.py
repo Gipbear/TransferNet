@@ -57,7 +57,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
 logging.getLogger("transformers").setLevel(logging.ERROR)
 
 # kg_format 与本脚本同目录（llm_infer/）
-from kg_format import (FORMAT_PROMPTS, build_user_content,
+from kg_format import (FORMAT_PROMPTS, build_user_content, build_user_content_no_paths,
                        load_entity_map, apply_entity_map, build_reverse_entity_map)
 
 
@@ -537,12 +537,17 @@ def parse_args():
                         "num_runs>1 时日志输出 mean±std（默认 1，向后兼容）")
     p.add_argument("--reject_prompt", action="store_true",
                    help="使用含拒答规则的 system prompt（Group F）")
+    p.add_argument("--no_paths", action="store_true",
+                   help="忽略输入中的检索路径，直接以问题裸文本推理（Group H）")
     return p.parse_args()
 
 
-def resolve_output(input_path: str, output_arg, fmt: str, adapter: str) -> str:
+def resolve_output(input_path: str, output_arg, fmt: str, adapter: str,
+                   no_paths: bool = False) -> str:
     stem   = os.path.splitext(os.path.basename(input_path))[0]
     suffix = f"_{fmt}"
+    if no_paths:
+        suffix += "_nopaths"
     if adapter:
         suffix += "_ft"
     suffix += "_eval.jsonl"
@@ -562,7 +567,11 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
     entity_map_dict = getattr(args, "entity_map_dict", None)
     rev_entity_map = getattr(args, "rev_entity_map", None)
     use_reject_prompt = getattr(args, "reject_prompt", False)
-    if use_reject_prompt:
+    use_no_paths      = getattr(args, "no_paths", False)
+    if use_no_paths:
+        # Group H: 无路径输入，使用专用 system prompt
+        system_prompt = FORMAT_PROMPTS["no_paths"]
+    elif use_reject_prompt:
         # Group F: 使用含拒答规则的 system prompt
         if entity_map_dict:
             system_prompt = FORMAT_PROMPTS["v2_name_reject"]
@@ -590,29 +599,34 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
         mmr_paths = list(sample.get("mmr_reason_paths", []))
         golden    = sample.get("golden", [])
 
-        if args.noise_paths > 0 and mmr_paths:
-            existing = list(mmr_paths)
-            for i in range(args.noise_paths):
-                base = existing[i % len(existing)]
-                fake = [[f"noise_{i}_{j}", e[1], f"noise_{i}_{j+1}"]
-                        for j, e in enumerate(base.get("path", []))]
-                mmr_paths.append({"path": fake, "log_score": -99.0})
+        if use_no_paths:
+            # Group H: 丢弃所有检索路径，仅以问题本身作为输入
+            mmr_paths = []
+            user_content = build_user_content_no_paths(question)
+        else:
+            if args.noise_paths > 0 and mmr_paths:
+                existing = list(mmr_paths)
+                for i in range(args.noise_paths):
+                    base = existing[i % len(existing)]
+                    fake = [[f"noise_{i}_{j}", e[1], f"noise_{i}_{j+1}"]
+                            for j, e in enumerate(base.get("path", []))]
+                    mmr_paths.append({"path": fake, "log_score": -99.0})
 
-        # run_idx=0 时种子 = hash(question) % 2**31，与原始行为完全一致
-        # run_idx>0 时加偏移，产生不同的排列顺序
-        _seed = (hash(question) + run_idx) % (2 ** 31)
-        _rng  = _random.Random(_seed)
-        _rng.shuffle(mmr_paths)
+            # run_idx=0 时种子 = hash(question) % 2**31，与原始行为完全一致
+            # run_idx>0 时加偏移，产生不同的排列顺序
+            _seed = (hash(question) + run_idx) % (2 ** 31)
+            _rng  = _random.Random(_seed)
+            _rng.shuffle(mmr_paths)
 
-        paths_with_meta = [
-            (p.get("path", []), p.get("log_score", 0.0), i + 1)
-            for i, p in enumerate(mmr_paths)
-        ]
-        user_content = build_user_content(
-            paths_with_meta, question,
-            show_score=show_score, path_format=path_format,
-            entity_map=entity_map_dict,
-        )
+            paths_with_meta = [
+                (p.get("path", []), p.get("log_score", 0.0), i + 1)
+                for i, p in enumerate(mmr_paths)
+            ]
+            user_content = build_user_content(
+                paths_with_meta, question,
+                show_score=show_score, path_format=path_format,
+                entity_map=entity_map_dict,
+            )
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": user_content},
@@ -799,7 +813,8 @@ def _log_stratified(log: logging.Logger, results: list):
 def main():
     args = parse_args()
 
-    output_path = resolve_output(args.input, args.output, args.output_format, args.adapter)
+    output_path = resolve_output(args.input, args.output, args.output_format, args.adapter,
+                                 no_paths=getattr(args, "no_paths", False))
     log_path    = os.path.splitext(output_path)[0] + ".log"
     log         = setup_logger(log_path)
 

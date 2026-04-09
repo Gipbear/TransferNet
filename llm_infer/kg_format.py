@@ -74,6 +74,13 @@ SYSTEM_PROMPT_V11 = (
 # V1 与 V0 零样本共用同一 prompt（仅输出答案）
 SYSTEM_PROMPT_V1 = SYSTEM_PROMPT_ANSWER_ONLY
 
+# NO_PATHS: 无检索路径输入，直接基于参数化知识回答（Group H）
+SYSTEM_PROMPT_NO_PATHS = (
+    "You are a KGQA assistant. "
+    "Answer the following question based on your knowledge.\n"
+    "Output format:\nAnswer: <entity_id> | <entity_id>"
+)
+
 # V2_NAME: 与 V2 相同，但用于实体名称（-name 变体），区别在于措辞
 SYSTEM_PROMPT_V2_NAME = (
     "You are a KGQA assistant. "
@@ -133,6 +140,7 @@ FORMAT_PROMPTS = {
     "v2_name":      SYSTEM_PROMPT_V2_NAME,     # Entity-name variant
     "v2_reject":      SYSTEM_PROMPT_V2_REJECT,      # Rejection-aware MID variant（Group F）
     "v2_name_reject": SYSTEM_PROMPT_V2_NAME_REJECT, # Rejection-aware name variant（Group F）
+    "no_paths":     SYSTEM_PROMPT_NO_PATHS,    # 无路径输入（Group H）
 }
 
 
@@ -269,3 +277,8 @@ def build_user_content(paths_with_meta: list, question: str,
         edges = apply_entity_map(path_edges, entity_map) if entity_map else path_edges
         lines.append(fmt_fn(edges, log_score, display_idx, show_score))
     return "\n".join(lines)
+
+
+def build_user_content_no_paths(question: str) -> str:
+    """构建无路径 User 消息（Group H）：仅包含问题本身，不附带检索路径。"""
+    return f"Question: {question}"
