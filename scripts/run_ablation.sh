@@ -389,7 +389,7 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "C" ]]; then
     GROUPC_EVAL_EXTRA="--path_format chain --entity_map ${ENTITY_MAP_C}"
 
     # 固定 lambda=0.2，扫 beam
-    for beam in 5 10 15 20 30 40 50; do
+    for beam in 5 10 15 20 30; do
         test_file="${PATHS_DIR}/beam${beam}_lam0.2.jsonl"
         if [[ ! -f "${test_file}" ]]; then
             echo "[WARN] 测试集不存在，跳过: ${test_file}"

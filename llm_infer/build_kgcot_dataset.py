@@ -1,5 +1,5 @@
 """
-KG-CoT 数据构造脚本（第四章核心流水线）
+大模型微调数据构造脚本（第四章核心流水线）
 
 功能：
   1. Golden Path 标注：判断路径尾实体是否在 golden 答案中
@@ -435,7 +435,7 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
 # ─── 主入口 ────────────────────────────────────────────────────────────────────
 
 def parse_args():
-    p = argparse.ArgumentParser(description="KG-CoT 数据构造")
+    p = argparse.ArgumentParser(description="大模型微调训练数据构造")
     p.add_argument("--input",  required=True)
     p.add_argument("--output", required=True)
     p.add_argument("--format", default="v2",
