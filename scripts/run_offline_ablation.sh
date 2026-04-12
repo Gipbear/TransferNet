@@ -12,7 +12,7 @@
 #
 # 特性：
 #   - Group A 仅 eval，复用已有 adapter；Group B/C/D 支持完整三步流程
-#   - 断点续跑（数据集/adapter/eval_log 已存在则跳过）
+#   - 断点续跑（数据集/adapter/eval_jsonl 已存在则跳过）
 #   - --phase all|train|eval 控制跑哪些步骤
 #   - EVAL_LIMIT 默认 500
 #
@@ -142,16 +142,16 @@ eval_one() {
     shift 5
     local extra_args=("$@")
 
-    local stem out_dir eval_log
+    local stem out_dir eval_json
     stem="$(basename "${input}" .jsonl)"
     out_dir="${ABLATION_DATA}/${variant}"
-    eval_log="${out_dir}/${stem}_${output_format}_ft_eval.log"
+    eval_json="${out_dir}/${stem}_${output_format}_ft_eval.jsonl"
 
     if [[ ! -f "${input}" ]]; then
         echo "[WARN] 文件不存在，跳过: ${input}"; return 0
     fi
-    if [[ -f "${eval_log}" ]]; then
-        echo "[SKIP] ${variant}: ${eval_log}"; return 0
+    if [[ -f "${eval_json}" ]]; then
+        echo "[SKIP] ${variant}: ${eval_json}"; return 0
     fi
 
     echo ""
@@ -197,7 +197,7 @@ run_offline_experiment() {
 
     local stem
     stem="$(basename "${eval_input}" .jsonl)"
-    local eval_log="${data_dir}/${stem}_${fmt}_ft_eval.log"
+    local eval_json="${data_dir}/${stem}_${fmt}_ft_eval.jsonl"
 
     mkdir -p "${data_dir}" "${model_dir}"
 
@@ -242,8 +242,8 @@ run_offline_experiment() {
     # ── Step 3: 评估 ─────────────────────────────────────────────────────────
     if [[ "${RUN_PHASE}" == "train" ]]; then
         echo "[SKIP] phase=train，跳过评估"
-    elif [[ -f "${eval_log}" ]]; then
-        echo "[SKIP] 评估结果已存在: ${eval_log}"
+    elif [[ -f "${eval_json}" ]]; then
+        echo "[SKIP] 评估结果已存在: ${eval_json}"
     else
         if [[ "${RUN_PHASE}" == "eval" ]]; then
             eval_adapter="$(resolve_slot_adapter "${PROJ_DIR}" "${MODEL_DATASET}" "${config_name}" \
