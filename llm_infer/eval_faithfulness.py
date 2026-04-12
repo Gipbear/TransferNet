@@ -887,6 +887,7 @@ def main():
             log.info("--- Run %d / %d ---", run_idx, args.num_runs - 1)
         results = run_single(samples, model, tokenizer, args, log, run_idx, output_path)
         results_per_run.append(results)
+        torch.cuda.empty_cache()
 
     log.info("")
     log.info("finish_time: %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))

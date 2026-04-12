@@ -1,26 +1,15 @@
 """离线路径搜索实验脚本
 
 从 WebQSP/predict.py 生成的得分缓存（.pt 文件）加载中间得分矩阵，
-在 CPU 上快速重放路径搜索，支持可插拔的评分策略和多样性策略。
+在 CPU 上快速重放路径搜索，支持 tail_blend 新实验和基线复现两种固定方法。
 
 典型用法：
 
-  # 复现在线 MMR 结果（用于验证一致性）
+  # 运行 tail_blend 实验
   python scripts/offline_path_search.py \\
       --cache output/score_cache/webqsp_val.pt \\
       --input_dir data/WebQSP \\
-      --scoring log_norm --diversity mmr \\
-      --threshold 0.01 --beam_size 3 --lambda_val 0.5
-
-  # 网格搜索
-  for thresh in 0.001 0.005 0.01 0.05; do
-    for lam in 0.0 0.3 0.5 0.8; do
-      python scripts/offline_path_search.py \\
-          --cache output/score_cache/webqsp_val.pt \\
-          --input_dir data/WebQSP \\
-          --threshold $thresh --lambda_val $lam --beam_size 5
-    done
-  done
+      --method tail_blend --threshold 0.01 --beam_size 20 --lambda_val 0.2
 """
 from __future__ import annotations
 
@@ -29,7 +18,7 @@ import json
 import math
 import os
 import sys
-from abc import ABC, abstractmethod
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Optional
 
@@ -48,6 +37,108 @@ from utils.path_utils import (
 )
 
 EPS = 1e-9
+
+
+@dataclass(frozen=True)
+class PathCandidate:
+    """A path plus cached features used by offline reranking."""
+
+    nodes: list[int]
+    rels: list[int]
+    hop: int
+    base_score: float
+    final_tail_score: float = 0.0
+    tail_id: Optional[int] = None
+    order: int = 0
+    score: Optional[float] = None
+
+    def __post_init__(self):
+        if self.tail_id is None and self.nodes:
+            object.__setattr__(self, "tail_id", self.nodes[-1])
+        if self.score is None:
+            object.__setattr__(self, "score", self.base_score)
+
+
+def compute_candidate_score(
+    candidate: PathCandidate,
+    method: str,
+    alpha_final: float,
+) -> float:
+    """Compute the fixed reranking score for a formal method."""
+    if method == "baseline":
+        return candidate.base_score
+    if method != "tail_blend":
+        raise ValueError(f"unknown method: {method}")
+    score = candidate.base_score + alpha_final * math.log(
+        max(candidate.final_tail_score, 0.0) + EPS
+    )
+    return score / max(candidate.hop, 1)
+
+
+def score_path_candidates(
+    candidates: list[PathCandidate],
+    method: str,
+    alpha_final: float,
+) -> list[PathCandidate]:
+    """Return candidates with fixed method scores populated."""
+    return [
+        replace(candidate, score=compute_candidate_score(candidate, method, alpha_final))
+        for candidate in candidates
+    ]
+
+
+def _ranked_candidates(candidates: list[PathCandidate]) -> list[PathCandidate]:
+    return sorted(
+        candidates,
+        key=lambda c: (-(c.score if c.score is not None else -float("inf")), c.order),
+    )
+
+
+def candidate_to_tuple(candidate: PathCandidate) -> tuple[list[int], list[int], float]:
+    score = candidate.score if candidate.score is not None else candidate.base_score
+    return (candidate.nodes, candidate.rels, float(score))
+
+
+def select_path_candidates(
+    candidates: list[PathCandidate],
+    k: int,
+    method: str,
+    alpha_final: float,
+    lambda_val: float,
+) -> list[PathCandidate]:
+    """Score and select candidates with fixed MMR and deterministic tie-breaking."""
+    if not candidates or k <= 0:
+        return []
+
+    scored = _ranked_candidates(score_path_candidates(candidates, method, alpha_final))
+
+    rel_sets = [path_to_rel_set(c.rels) for c in scored]
+    selected = []
+    remaining = list(range(len(scored)))
+    max_sims = [0.0] * len(scored)
+    while len(selected) < k and remaining:
+        best_idx: Optional[int] = None
+        best_mmr = -float("inf")
+        for idx in remaining:
+            candidate = scored[idx]
+            base_score = float(candidate.score)
+            mmr_score = base_score - lambda_val * max_sims[idx] * abs(base_score)
+            current_best_order = (
+                -(scored[best_idx].order) if best_idx is not None else -10**18
+            )
+            if (mmr_score, -candidate.order) > (best_mmr, current_best_order):
+                best_mmr = mmr_score
+                best_idx = idx
+
+        selected.append(scored[best_idx])
+        remaining.remove(best_idx)
+        sel_rel_set = rel_sets[best_idx]
+        for idx in remaining:
+            union = rel_sets[idx] | sel_rel_set
+            sim = len(rel_sets[idx] & sel_rel_set) / len(union) if union else 0.0
+            if sim > max_sims[idx]:
+                max_sims[idx] = sim
+    return selected
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -115,33 +206,18 @@ def rebuild_valid_edges_dict(input_dir: str) -> dict[int, list[tuple[int, int]]]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 可插拔评分策略
+# 基础路径评分
 # ─────────────────────────────────────────────────────────────────────────────
 
-class ScoringStrategy(ABC):
-    """评分策略基类。
-
-    给定单步的关系得分字典、实体得分字典和候选 (rel_id, tail_id)，
-    返回该步的得分增量（越大越好）。
-    """
-
-    @abstractmethod
-    def score_step(self, rel_dict: dict[int, float], ent_dict: dict[int, float],
-                   rel_id: int, tail_id: int) -> float:
-        ...
-
-    def name(self) -> str:
-        return self.__class__.__name__
-
-
-class LogNormStrategy(ScoringStrategy):
+class LogNormStrategy:
     """当前默认策略：log(局部归一化关系得分) + log(全局归一化实体得分)。
 
     与 mmr_diversity_beam_search 的 Plan-A 逻辑完全一致，用于验证离线复现。
     """
 
     def score_step(self, rel_dict: dict[int, float], ent_dict: dict[int, float],
-                   rel_id: int, tail_id: int) -> float:
+                   rel_id: int, tail_id: int,
+                   local_rel_ids: Optional[set[int]] = None) -> float:
         rel_score = rel_dict.get(rel_id, 0.0)
         ent_score = ent_dict.get(tail_id, 0.0)
         if rel_score <= 0 or ent_score <= 0:
@@ -156,147 +232,6 @@ class LogNormStrategy(ScoringStrategy):
         return "log_norm"
 
 
-class RawProductStrategy(ScoringStrategy):
-    """rel_score × ent_score 的对数，不做归一化。"""
-
-    def score_step(self, rel_dict: dict[int, float], ent_dict: dict[int, float],
-                   rel_id: int, tail_id: int) -> float:
-        rel_score = rel_dict.get(rel_id, 0.0)
-        ent_score = ent_dict.get(tail_id, 0.0)
-        if rel_score <= 0 or ent_score <= 0:
-            return -float("inf")
-        return math.log(rel_score + EPS) + math.log(ent_score + EPS)
-
-    def name(self) -> str:
-        return "raw_product"
-
-
-class SoftmaxRelStrategy(ScoringStrategy):
-    """对关系得分做 softmax 归一化后取 log；实体得分保持全局归一化。"""
-
-    def score_step(self, rel_dict: dict[int, float], ent_dict: dict[int, float],
-                   rel_id: int, tail_id: int) -> float:
-        rel_score = rel_dict.get(rel_id, 0.0)
-        ent_score = ent_dict.get(tail_id, 0.0)
-        if rel_score <= 0 or ent_score <= 0:
-            return -float("inf")
-        # softmax over all relations in rel_dict
-        max_r = max(rel_dict.values())
-        exp_sum = sum(math.exp(v - max_r) for v in rel_dict.values()) or 1.0
-        softmax_rel = math.exp(rel_score - max_r) / exp_sum
-        sum_ent = sum(ent_dict.values()) or 1.0
-        local_ent = ent_score / sum_ent
-        return math.log(softmax_rel + EPS) + math.log(local_ent + EPS)
-
-    def name(self) -> str:
-        return "softmax_rel"
-
-
-SCORING_STRATEGIES: dict[str, type[ScoringStrategy]] = {
-    "log_norm": LogNormStrategy,
-    "raw_product": RawProductStrategy,
-    "softmax_rel": SoftmaxRelStrategy,
-}
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# 可插拔多样性策略
-# ─────────────────────────────────────────────────────────────────────────────
-
-class DiversityStrategy(ABC):
-    """多样性选择策略基类。
-
-    输入有序候选列表（已按得分降序排列），选出 k 条路径。
-    每条路径格式：(nodes: list[int], rels: list[int], score: float)
-    """
-
-    @abstractmethod
-    def select(self, candidates: list[tuple[list[int], list[int], float]],
-               k: int) -> list[tuple[list[int], list[int], float]]:
-        ...
-
-    def name(self) -> str:
-        return self.__class__.__name__
-
-
-class NoDiversity(DiversityStrategy):
-    """纯 top-K，无多样性惩罚。"""
-
-    def select(self, candidates, k):
-        return candidates[:k]
-
-    def name(self) -> str:
-        return "none"
-
-
-class MMRDiversity(DiversityStrategy):
-    """基于关系集合 Jaccard 相似度的 MMR 多样性选择。
-
-    与 mmr_diversity_beam_search 的 MMR 部分逻辑完全一致。
-    """
-
-    def __init__(self, lambda_val: float = 0.5):
-        self.lambda_val = lambda_val
-
-    def select(self, candidates, k):
-        if not candidates or k <= 0:
-            return []
-        rel_sets = [path_to_rel_set(rels) for (_, rels, _) in candidates]
-        selected: list[tuple[list[int], list[int], float]] = []
-        remaining = list(range(len(candidates)))
-        max_sims = [0.0] * len(candidates)
-
-        while len(selected) < k and remaining:
-            best_idx: Optional[int] = None
-            best_mmr = -float("inf")
-            for idx in remaining:
-                score = candidates[idx][2]
-                mmr_score = score - self.lambda_val * max_sims[idx] * abs(score)
-                if mmr_score > best_mmr:
-                    best_mmr = mmr_score
-                    best_idx = idx
-
-            selected.append(candidates[best_idx])
-            remaining.remove(best_idx)
-            sel_rel_set = rel_sets[best_idx]
-            for idx in remaining:
-                union = rel_sets[idx] | sel_rel_set
-                sim = len(rel_sets[idx] & sel_rel_set) / len(union) if union else 0.0
-                if sim > max_sims[idx]:
-                    max_sims[idx] = sim
-
-        return selected
-
-    def name(self) -> str:
-        return f"mmr(λ={self.lambda_val})"
-
-
-class MaxCoverDiversity(DiversityStrategy):
-    """贪心最大化尾实体覆盖：每次选尾实体集合扩充最多的候选。"""
-
-    def select(self, candidates, k):
-        covered: set[int] = set()
-        selected = []
-        remaining = list(candidates)
-        while len(selected) < k and remaining:
-            best = max(remaining,
-                       key=lambda c: (len(set([c[0][-1]]) - covered), c[2]))
-            selected.append(best)
-            covered.add(best[0][-1])
-            remaining.remove(best)
-        return selected
-
-    def name(self) -> str:
-        return "max_cover"
-
-
-DIVERSITY_STRATEGIES: dict[str, type] = {
-    "none": NoDiversity,
-    "mmr": MMRDiversity,
-    "max_cover": MaxCoverDiversity,
-}
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 路径搜索（beam 展开 + 策略打分）
 # ─────────────────────────────────────────────────────────────────────────────
@@ -307,7 +242,7 @@ def search_paths(
     ent_dicts: list[dict[int, float]],
     hop_num: int,
     valid_edges_dict: dict[int, list[tuple[int, int]]],
-    scoring: ScoringStrategy,
+    scoring: LogNormStrategy,
     beam_size: int,
 ) -> list[tuple[list[int], list[int], float]]:
     """从 topic 出发，逐跳展开 beam，用 scoring 策略打分，返回所有候选路径。
@@ -327,10 +262,11 @@ def search_paths(
         for nodes, rels, cur_score in beam:
             head = nodes[-1]
             edges = valid_edges_dict.get(head, [])
+            local_rel_ids = {r for r, _ in edges if r in rel_dict}
             for rel_id, tail_id in edges:
                 if rel_id not in rel_dict or tail_id not in ent_dict:
                     continue
-                step = scoring.score_step(rel_dict, ent_dict, rel_id, tail_id)
+                step = scoring.score_step(rel_dict, ent_dict, rel_id, tail_id, local_rel_ids)
                 if step == -float("inf"):
                     continue
                 next_candidates.append((
@@ -350,6 +286,59 @@ def search_paths(
     return beam
 
 
+def search_path_candidates(
+    topic_ids: list[int],
+    rel_dicts: list[dict[int, float]],
+    ent_dicts: list[dict[int, float]],
+    hop_num: int,
+    valid_edges_dict: dict[int, list[tuple[int, int]]],
+    scoring: LogNormStrategy,
+    beam_size: int,
+    final_ent_scores: Optional[dict[int, float]] = None,
+    order_start: int = 0,
+) -> list[PathCandidate]:
+    """Beam-expand candidate paths and attach cached features for reranking."""
+    beam: list[tuple[list[int], list[int], float]] = [([t_id], [], 0.0) for t_id in topic_ids]
+    order = order_start
+
+    for t in range(hop_num):
+        rel_dict = rel_dicts[t]
+        ent_dict = ent_dicts[t]
+        next_candidates: list[tuple[list[int], list[int], float]] = []
+        for nodes, rels, cur_score in beam:
+            head = nodes[-1]
+            edges = valid_edges_dict.get(head, [])
+            local_rel_ids = {r for r, _ in edges if r in rel_dict}
+            for rel_id, tail_id in edges:
+                if rel_id not in rel_dict or tail_id not in ent_dict:
+                    continue
+                step = scoring.score_step(rel_dict, ent_dict, rel_id, tail_id, local_rel_ids)
+                if step == -float("inf"):
+                    continue
+                next_candidates.append((nodes + [tail_id], rels + [rel_id], cur_score + step))
+
+        if not next_candidates:
+            return []
+        next_candidates.sort(key=lambda x: x[2], reverse=True)
+        beam = next_candidates[: beam_size * 10]
+
+    candidates = []
+    final_scores = final_ent_scores or {}
+    for nodes, rels, score in sorted(beam, key=lambda x: x[2], reverse=True):
+        tail_id = nodes[-1]
+        candidates.append(PathCandidate(
+            nodes=nodes,
+            rels=rels,
+            hop=hop_num,
+            base_score=score,
+            final_tail_score=final_scores.get(tail_id, 0.0),
+            tail_id=tail_id,
+            order=order,
+        ))
+        order += 1
+    return candidates
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 实验主逻辑
 # ─────────────────────────────────────────────────────────────────────────────
@@ -367,14 +356,30 @@ def _path_to_triples(
     ]
 
 
+def _method_hop_numbers(method: str, argmax_hop: int, num_steps: int) -> list[int]:
+    if method == "baseline":
+        return [argmax_hop]
+    if method == "tail_blend":
+        return list(range(1, num_steps + 1))
+    raise ValueError(f"unknown method: {method}")
+
+
+def final_ent_score_dict(sample: dict) -> dict[int, float]:
+    return {
+        int(idx): float(val)
+        for idx, val in zip(sample["e_score_indices"].tolist(), sample["e_score_values"].tolist())
+    }
+
+
 def run_experiment(
     cache: dict,
     valid_edges_dict: dict,
-    scoring: ScoringStrategy,
-    diversity: DiversityStrategy,
+    method: str,
     threshold: float,
     beam_size: int,
     output_path: Optional[str] = None,
+    alpha_final: float = 2.0,
+    lambda_val: float = 0.2,
 ) -> dict:
     """对缓存中所有样本运行离线路径搜索，返回聚合指标。
 
@@ -403,14 +408,16 @@ def run_experiment(
         out_file = open(output_path, "w", encoding="utf-8")
 
     try:
+        scoring = LogNormStrategy()
         for sample in tqdm(samples, desc="search", unit="sample", dynamic_ncols=True):
             hop_num = int(sample["hop_attn"].argmax().item()) + 1
+            hop_nums = _method_hop_numbers(method, hop_num, len(sample["rel_probs"]))
             topic_ids = sample["topic_ids"]
             gold_ids = set(sample["gold_ids"])
 
             # 重建每跳的稀疏字典
             rel_dicts, ent_dicts = [], []
-            for t in range(hop_num):
+            for t in range(max(hop_nums)):
                 rel_dicts.append(reconstruct_rel_dict(sample["rel_probs"][t], threshold))
                 ed = reconstruct_ent_dict(sample["ent_indices"][t], sample["ent_scores"][t], threshold)
                 ent_dicts.append(ed)
@@ -419,11 +426,23 @@ def run_experiment(
                 if len(scores_t) == topk and float(scores_t[-1]) >= threshold:
                     truncation_warnings += 1
 
-            # beam 展开
-            candidates = search_paths(
-                topic_ids, rel_dicts, ent_dicts, hop_num,
-                valid_edges_dict, scoring, beam_size,
+            path_candidates: list[PathCandidate] = []
+            final_scores = final_ent_score_dict(sample)
+            for candidate_hop in hop_nums:
+                path_candidates.extend(search_path_candidates(
+                    topic_ids, rel_dicts, ent_dicts, candidate_hop,
+                    valid_edges_dict, scoring, beam_size,
+                    final_ent_scores=final_scores,
+                    order_start=len(path_candidates),
+                ))
+            selected_candidates = select_path_candidates(
+                path_candidates,
+                beam_size,
+                method=method,
+                alpha_final=alpha_final,
+                lambda_val=lambda_val,
             )
+            candidates = [candidate_to_tuple(c) for c in selected_candidates]
 
             if not candidates:
                 agg["empty_path"] += 1
@@ -432,8 +451,7 @@ def run_experiment(
                     out_file.write(json.dumps(record, ensure_ascii=False) + "\n")
                 continue
 
-            # 多样性选择
-            selected = diversity.select(candidates, beam_size)
+            selected = candidates
 
             # 评估
             m = compute_path_metrics(selected, gold_ids)
@@ -563,27 +581,30 @@ def _build_empty_record(sample: dict, hop_num: int, id2ent: dict) -> dict:
 # CLI
 # ─────────────────────────────────────────────────────────────────────────────
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="TransferNet 离线路径搜索实验")
     parser.add_argument("--cache", required=True,
                         help="predict.py 生成的得分缓存路径（.pt 文件）")
     parser.add_argument("--input_dir", default=None,
                         help="WebQSP 数据目录，用于重建 valid_edges_dict。"
                              "不提供时从缓存 meta.input_dir 自动读取。")
-    parser.add_argument("--scoring", default="log_norm",
-                        choices=list(SCORING_STRATEGIES.keys()),
-                        help="评分策略（默认: log_norm，与在线结果一致）")
-    parser.add_argument("--diversity", default="mmr",
-                        choices=list(DIVERSITY_STRATEGIES.keys()),
-                        help="多样性策略（默认: mmr）")
+    parser.add_argument("--method", default="tail_blend", choices=["tail_blend", "baseline"],
+                        help="路径检索方法：tail_blend 为新实验；baseline 为旧基线复现。")
+    parser.add_argument("--alpha_final", type=float, default=2.0,
+                        help="tail_blend 实验中最终实体得分融合权重（默认: 2.0；baseline 忽略）。")
     parser.add_argument("--threshold", type=float, default=0.01,
                         help="实体/关系得分过滤阈值（默认: 0.01）")
     parser.add_argument("--beam_size", type=int, default=3,
                         help="每个样本最终选取的路径数（默认: 3）")
-    parser.add_argument("--lambda_val", type=float, default=0.5,
-                        help="MMR 多样性惩罚系数（仅对 --diversity mmr 有效，默认: 0.5）")
+    parser.add_argument("--lambda_val", type=float, default=0.2,
+                        help="MMR 多样性惩罚系数（默认: 0.2）")
     parser.add_argument("--output", default=None,
                         help="逐样本结果输出路径（.jsonl），不指定则只打印聚合指标")
+    return parser
+
+
+def main():
+    parser = build_parser()
     args = parser.parse_args()
 
     print(f"[INFO] 加载得分缓存: {args.cache}", flush=True)
@@ -601,20 +622,17 @@ def main():
     valid_edges_dict = rebuild_valid_edges_dict(input_dir)
     print(f"[INFO] 完成，共 {len(valid_edges_dict)} 个实体节点的出边。", flush=True)
 
-    # 初始化策略
-    scoring = SCORING_STRATEGIES[args.scoring]()
-    if args.diversity == "mmr":
-        diversity = MMRDiversity(lambda_val=args.lambda_val)
-    else:
-        diversity = DIVERSITY_STRATEGIES[args.diversity]()
-
-    print(f"\n[RUN] scoring={scoring.name()}, diversity={diversity.name()}, "
-          f"threshold={args.threshold}, beam_size={args.beam_size}", flush=True)
+    print(f"\n[RUN] method={args.method}, selector=mmr, lambda={args.lambda_val}, "
+          f"alpha_final={args.alpha_final}, threshold={args.threshold}, "
+          f"beam_size={args.beam_size}", flush=True)
 
     metrics = run_experiment(
-        cache, valid_edges_dict, scoring, diversity,
+        cache, valid_edges_dict,
+        method=args.method,
         threshold=args.threshold, beam_size=args.beam_size,
         output_path=args.output,
+        alpha_final=args.alpha_final,
+        lambda_val=args.lambda_val,
     )
 
     print("\n" + "=" * 60)
