@@ -194,6 +194,8 @@ def classify_group(config_name: str) -> str:
         return "C"
     if config_name.startswith("groupF"):
         return "F"
+    if config_name.startswith("groupI"):
+        return "I"
     return "X"
 
 
@@ -350,6 +352,40 @@ def print_group_f(rows: list[dict]):
             f" {m.get('n') or '--':>6}"
         )
     print("  Hit@1/MacroF1/EM 仅统计作答样本，Rej.* 为拒答 P/R/F1"
+          + ("  [±std = 多轮汇总]" if std else ""))
+
+
+def print_group_i(rows: list[dict]):
+    """Group I: 问题特殊 token 对照表 (rawq vs stripq)"""
+    std = _has_std(rows)
+    cw = 14 if std else 7
+    total = 38 + 1 + (cw + 1) * 5 + 8
+    print("\n" + "=" * total)
+    print("  Group I: 问题特殊 token 消融 (chain+v2+name)")
+    print("=" * total)
+    header = (f"{'Config':<38}"
+              f" {'Hit@1':>{cw}}"
+              f" {'MacroF1':>{cw+1}}"
+              f" {'EM':>{cw}}"
+              f" {'CitAcc':>{cw}}"
+              f" {'CitRec':>{cw}}"
+              f" {'n':>6}")
+    print(header)
+    print("-" * total)
+    for r in sorted(rows, key=lambda x: x.get("config", "")):
+        m = r.get("metrics") or {}
+        tag = " *" if r.get("config") == "groupI_chain_v2_name_stripq" else "  "
+        print(
+            f"{r.get('config', '?'):<38}"
+            f" {fmt_val(m.get('hit1'),             m.get('hit1_std')):>{cw}}"
+            f" {fmt_val(m.get('macro_f1'),          m.get('macro_f1_std')):>{cw+1}}"
+            f" {fmt_val(m.get('exact_match'),       m.get('exact_match_std')):>{cw}}"
+            f" {fmt_val(m.get('citation_accuracy'), m.get('citation_accuracy_std')):>{cw}}"
+            f" {fmt_val(m.get('citation_recall'),   m.get('citation_recall_std')):>{cw}}"
+            f" {m.get('n') or '--':>6}"
+            f"{tag}"
+        )
+    print("(* = stripq，去除 [CLS]/[SEP]/## 的对照组)"
           + ("  [±std = 多轮汇总]" if std else ""))
 
 
@@ -814,6 +850,7 @@ def main():
     group_b = [r for r in records if r["group"] == "B"]
     group_c = [r for r in records if r["group"] == "C"]
     group_f = [r for r in records if r["group"] == "F"]
+    group_i = [r for r in records if r["group"] == "I"]
 
     # 打印表格
     if group_a:
@@ -830,6 +867,9 @@ def main():
 
     if group_f:
         print_group_f(group_f)
+
+    if group_i:
+        print_group_i(group_i)
 
     # 写 CSV
     write_csv(records, csv_path)

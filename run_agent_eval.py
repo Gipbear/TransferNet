@@ -247,7 +247,7 @@ def main():
 
         try:
             pred_answers = agent.run(question, topic_entity)
-            evidence_paths = getattr(agent, "last_evidence_paths", None) or record.get("mmr_reason_paths", [])
+            evidence_paths = agent.last_evidence_paths
             pred_scored, pred_expanded, m = resolve_scored_answers(
                 pred_answers=pred_answers,
                 golden=golden,
