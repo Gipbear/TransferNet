@@ -41,6 +41,7 @@ os.environ.setdefault("UNSLOTH_DISABLE_STATS", "1")
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+_LLM_INFER_DIR = os.path.join(_ROOT, "llm_infer")
 
 from pathfinder_agent.agent import PathfinderAgent
 from pathfinder_agent.tools.dynamic_retriever import TransferNetWrapper
@@ -73,6 +74,50 @@ def compute_metrics(pred: list, gold: list) -> dict:
     f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0.0
     return {"hit1": hit1, "hit_any": hit_any, "f1": round(f1, 4),
             "precision": round(p, 4), "recall": round(r, 4)}
+
+
+def _ensure_llm_infer_importable():
+    if _LLM_INFER_DIR not in sys.path:
+        sys.path.insert(0, _LLM_INFER_DIR)
+
+
+def load_eval_entity_map(entity_map_path: str | None) -> tuple[dict | None, dict | None]:
+    """Load MID->name and reverse maps for name-format Pathfinder answers."""
+    if not entity_map_path:
+        return None, None
+    _ensure_llm_infer_importable()
+    from kg_format import build_reverse_entity_map, load_entity_map
+
+    entity_map = load_entity_map(entity_map_path)
+    return entity_map, build_reverse_entity_map(entity_map)
+
+
+def resolve_scored_answers(pred_answers: list, golden: list, mmr_paths: list | None = None,
+                           rev_entity_map: dict | None = None) -> tuple[list, list | None, dict]:
+    """Return answers in the scoring namespace plus metrics.
+
+    Without an entity map, this preserves the current MID-vs-MID behavior.
+    With an entity map, name predictions are expanded to candidate MIDs and then
+    constrained by MIDs that appear in the retrieved paths.
+    """
+    expanded_answers = None
+    scored_answers = pred_answers
+
+    if rev_entity_map:
+        _ensure_llm_infer_importable()
+        from eval_faithfulness import (
+            expand_pred_answers_with_path_constraint,
+            get_all_path_entities,
+        )
+
+        path_mid_entities = get_all_path_entities(mmr_paths or [])
+        expanded_answers, scored_answers = expand_pred_answers_with_path_constraint(
+            pred_answers=pred_answers,
+            rev_entity_map=rev_entity_map,
+            path_mid_entities=path_mid_entities,
+        )
+
+    return scored_answers, expanded_answers, compute_metrics(scored_answers, golden)
 
 
 def aggregate(results: list) -> dict:
@@ -124,6 +169,8 @@ def parse_args():
     p.add_argument("--input_dir", required=True,  help="TransferNet data dir (WebQSP input_dir)")
     p.add_argument("--model",     default="unsloth/meta-llama-3.1-8b-instruct-bnb-4bit")
     p.add_argument("--adapter",   default=LORA_ADAPTER_PATH, help="LoRA adapter path")
+    p.add_argument("--entity_map", default=None,
+                   help="Optional MID→name TSV used to score name-format predictions as MIDs")
     p.add_argument("--limit",     type=int, default=0, help="Evaluate first N samples (0=all)")
     p.add_argument("--device",    default="cuda")
     return p.parse_args()
@@ -154,7 +201,13 @@ def main():
     log.info("  output   : %s", args.output)
     log.info("  ckpt     : %s", args.ckpt)
     log.info("  adapter  : %s", args.adapter)
+    log.info("  entity_map: %s", args.entity_map)
     log.info("=" * 60)
+
+    entity_map, rev_entity_map = load_eval_entity_map(args.entity_map)
+    if entity_map:
+        log.info("Loaded entity map: %d MID labels, %d reverse labels",
+                 len(entity_map), len(rev_entity_map))
 
     # -- Load data --
     with open(args.input, encoding="utf-8") as f:
@@ -194,14 +247,23 @@ def main():
 
         try:
             pred_answers = agent.run(question, topic_entity)
-            m = compute_metrics(pred_answers, golden)
+            evidence_paths = getattr(agent, "last_evidence_paths", None) or record.get("mmr_reason_paths", [])
+            pred_scored, pred_expanded, m = resolve_scored_answers(
+                pred_answers=pred_answers,
+                golden=golden,
+                mmr_paths=evidence_paths,
+                rev_entity_map=rev_entity_map,
+            )
             rec = {
                 "question":     question,
                 "topic_entity": topic_entity,
                 "golden":       golden,
-                "pred_answer":  pred_answers,
+                "pred_answer":  pred_scored,
+                "pred_answer_raw": pred_answers,
                 **m,
             }
+            if pred_expanded is not None:
+                rec["pred_answer_expanded_mids"] = pred_expanded
         except Exception as e:
             log.error("Error on sample %d (q=%r): %s", i + 1, question[:60], e, exc_info=True)
             rec = {
