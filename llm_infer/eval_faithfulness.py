@@ -576,6 +576,8 @@ def parse_args():
                    help="使用含拒答规则的 system prompt（Group F）")
     p.add_argument("--no_paths", action="store_true",
                    help="忽略输入中的检索路径，直接以问题裸文本推理（Group H）")
+    p.add_argument("--strip_question_special_tokens", action="store_true",
+                   help="在 User prompt 的问题文本中移除 [CLS]/[SEP] 标记")
     return p.parse_args()
 
 
@@ -627,6 +629,7 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
             )
     show_score    = args.show_score
     path_format   = getattr(args, "path_format", "arrow")
+    strip_question_special_tokens = getattr(args, "strip_question_special_tokens", False)
     # V5 若未显式指定，自动切换为自然语言路径
     if args.output_format == "v5" and path_format == "arrow":
         path_format = "nl"
@@ -639,7 +642,10 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
         if use_no_paths:
             # Group H: 丢弃所有检索路径，仅以问题本身作为输入
             mmr_paths = []
-            user_content = build_user_content_no_paths(question)
+            user_content = build_user_content_no_paths(
+                question,
+                strip_question_special_tokens=strip_question_special_tokens,
+            )
         else:
             if args.noise_paths > 0 and mmr_paths:
                 existing = list(mmr_paths)
@@ -663,6 +669,7 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
                 paths_with_meta, question,
                 show_score=show_score, path_format=path_format,
                 entity_map=entity_map_dict,
+                strip_question_special_tokens=strip_question_special_tokens,
             )
         messages = [
             {"role": "system", "content": system_prompt},
@@ -871,6 +878,7 @@ def main():
     log.info("  path_format   : %s", getattr(args, 'path_format', 'arrow'))
     log.info("  entity_map    : %s", args.entity_map or "None")
     log.info("  num_runs      : %d", args.num_runs)
+    log.info("  strip_question_special_tokens: %s", args.strip_question_special_tokens)
     log.info("=" * 60)
 
     # ── 加载模型（只加载一次）────────────────────────────────────────────────

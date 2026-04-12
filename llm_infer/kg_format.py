@@ -262,7 +262,8 @@ _FORMAT_FN_MAP = {
 def build_user_content(paths_with_meta: list, question: str,
                        show_score: bool = False,
                        path_format: str = "arrow",
-                       entity_map: dict = None) -> str:
+                       entity_map: dict = None,
+                       strip_question_special_tokens: bool = False) -> str:
     """构建 User 消息：问题前置，路径列表随后。
 
     paths_with_meta: [(path_edges, log_score, display_idx), ...]
@@ -272,6 +273,8 @@ def build_user_content(paths_with_meta: list, question: str,
     fmt_fn = _FORMAT_FN_MAP.get(path_format)
     if fmt_fn is None:
         raise ValueError(f"未知 path_format {path_format!r}，有效值：{list(_FORMAT_FN_MAP)}")
+    if strip_question_special_tokens:
+        question = clean_question_special_tokens(question)
     lines = [f"Question: {question}", "", "Reasoning Paths:"]
     for path_edges, log_score, display_idx in paths_with_meta:
         edges = apply_entity_map(path_edges, entity_map) if entity_map else path_edges
@@ -279,6 +282,16 @@ def build_user_content(paths_with_meta: list, question: str,
     return "\n".join(lines)
 
 
-def build_user_content_no_paths(question: str) -> str:
+def clean_question_special_tokens(question: str) -> str:
+    """移除 WebQSP 问题文本里的 [CLS]/[SEP] 和 WordPiece 连接标记。"""
+    question = question.replace("[CLS]", "").replace("[SEP]", "")
+    question = question.replace(" ##", "").replace("##", "")
+    return " ".join(question.split())
+
+
+def build_user_content_no_paths(question: str,
+                                strip_question_special_tokens: bool = False) -> str:
     """构建无路径 User 消息（Group H）：仅包含问题本身，不附带检索路径。"""
+    if strip_question_special_tokens:
+        question = clean_question_special_tokens(question)
     return f"Question: {question}"

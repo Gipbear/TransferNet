@@ -194,7 +194,8 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
                 path_format: str = "arrow",
                 entity_map: dict = None,
                 include_rejection: bool = False,
-                synthetic_rejection: bool = False) -> Optional[dict]:
+                synthetic_rejection: bool = False,
+                strip_question_special_tokens: bool = False) -> Optional[dict]:
     """
     从一条 predict JSONL 记录构造训练样本。
     返回 None 表示样本无效（无问题/无答案），或 Hit@K 未命中且未启用拒答。
@@ -204,6 +205,7 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
     include_rejection: True 时，Hit@K=0 样本不丢弃，而是生成拒答训练样本（Group F）
     synthetic_rejection: True 时，显式移除 answerable 样本中的 golden paths，
                          仅保留 distractor 生成 hard-negative 拒答样本。
+    strip_question_special_tokens: True 时，在 User prompt 中移除问题文本的 [CLS]/[SEP]。
     """
     question = record.get("question", "")
     mmr_paths = record.get("mmr_reason_paths", [])
@@ -232,6 +234,7 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
             paths_with_meta, question,
             show_score=show_score, path_format=path_format,
             entity_map=entity_map,
+            strip_question_special_tokens=strip_question_special_tokens,
         )
         system_prompt = (
             FORMAT_PROMPTS["v2_name_reject"] if entity_map
@@ -275,6 +278,7 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
             paths_with_meta, question,
             show_score=show_score, path_format=path_format,
             entity_map=entity_map,
+            strip_question_special_tokens=strip_question_special_tokens,
         )
         if entity_map:
             system_prompt = FORMAT_PROMPTS["v2_name_reject"]
@@ -329,6 +333,7 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
         paths_with_meta, question,
         show_score=show_score, path_format=path_format,
         entity_map=entity_map,
+        strip_question_special_tokens=strip_question_special_tokens,
     )
 
     if include_rejection:
@@ -388,12 +393,14 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
           entity_map: dict = None,
           include_rejection: bool = False,
           rejection_oversample: int = 1,
-          synthetic_rejection_ratio: float = 0.0) -> dict:
+          synthetic_rejection_ratio: float = 0.0,
+          strip_question_special_tokens: bool = False) -> dict:
     with open(input_path, encoding="utf-8") as f:
         records = [json.loads(l) for l in f if l.strip()]
-    log.info("读入 %d 条记录  格式=%s  show_score=%s  path_format=%s  entity_map=%s  include_rejection=%s  rejection_oversample=%d  synthetic_rejection_ratio=%.3f",
+    log.info("读入 %d 条记录  格式=%s  show_score=%s  path_format=%s  entity_map=%s  include_rejection=%s  rejection_oversample=%d  synthetic_rejection_ratio=%.3f  strip_question_special_tokens=%s",
              len(records), fmt, show_score, path_format, bool(entity_map),
-             include_rejection, rejection_oversample, synthetic_rejection_ratio)
+             include_rejection, rejection_oversample, synthetic_rejection_ratio,
+             strip_question_special_tokens)
 
     if sample_n > 0 and len(records) > sample_n:
         records = rng.sample(records, sample_n)
@@ -406,7 +413,8 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
     for rec in records:
         s = make_sample(rec, fmt, shuffle, distractor_ratio, show_score, rng,
                         path_format=path_format, entity_map=entity_map,
-                        include_rejection=include_rejection)
+                        include_rejection=include_rejection,
+                        strip_question_special_tokens=strip_question_special_tokens)
         if s is None:
             skipped += 1
         else:
@@ -424,7 +432,8 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
             for rec in rejection_records:
                 s = make_sample(rec, fmt, shuffle, distractor_ratio, show_score, rng,
                                 path_format=path_format, entity_map=entity_map,
-                                include_rejection=True)
+                                include_rejection=True,
+                                strip_question_special_tokens=strip_question_special_tokens)
                 if s is not None:
                     samples.append(s)
                     n_oversampled += 1
@@ -445,7 +454,8 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
             s = make_sample(rec, fmt, shuffle, distractor_ratio, show_score, rng,
                             path_format=path_format, entity_map=entity_map,
                             include_rejection=True,
-                            synthetic_rejection=True)
+                            synthetic_rejection=True,
+                            strip_question_special_tokens=strip_question_special_tokens)
             if s is not None:
                 samples.append(s)
                 n_synthetic += 1
@@ -538,6 +548,8 @@ def parse_args():
                    help="拒答样本上采样倍数（默认 1=不上采样）；每次重复 make_sample 以获得不同 shuffle 顺序")
     p.add_argument("--synthetic_rejection_ratio", type=float, default=0.0,
                    help="合成 hard-negative 拒答样本目标占比（0=关闭；建议 0.10~0.15 起步）")
+    p.add_argument("--strip_question_special_tokens", action="store_true",
+                   help="在 User prompt 的问题文本中移除 [CLS]/[SEP] 标记")
     return p.parse_args()
 
 
@@ -558,8 +570,9 @@ def main():
         entity_map = load_entity_map(args.entity_map)
         log.info("加载实体映射: %s (%d 条)", args.entity_map, len(entity_map))
 
-    log.info("shuffle=%s  show_score=%s  path_format=%s  entity_map=%s  include_rejection=%s",
-             shuffle, show_score, path_format, args.entity_map, args.include_rejection)
+    log.info("shuffle=%s  show_score=%s  path_format=%s  entity_map=%s  include_rejection=%s  strip_question_special_tokens=%s",
+             shuffle, show_score, path_format, args.entity_map, args.include_rejection,
+             args.strip_question_special_tokens)
 
     # all 模式：生成 v1-v5 全部格式（不含 v0/v11）
     ALL_FORMATS = ["v1", "v2", "v3", "v4", "v5"]
@@ -582,7 +595,8 @@ def main():
                          entity_map=entity_map,
                          include_rejection=args.include_rejection,
                          rejection_oversample=args.rejection_oversample,
-                         synthetic_rejection_ratio=args.synthetic_rejection_ratio)
+                         synthetic_rejection_ratio=args.synthetic_rejection_ratio,
+                         strip_question_special_tokens=args.strip_question_special_tokens)
             stats_list.append(stat)
         log.info("=" * 50)
         for st in stats_list:
@@ -602,7 +616,8 @@ def main():
                    entity_map=entity_map,
                    include_rejection=args.include_rejection,
                    rejection_oversample=args.rejection_oversample,
-                   synthetic_rejection_ratio=args.synthetic_rejection_ratio)
+                   synthetic_rejection_ratio=args.synthetic_rejection_ratio,
+                   strip_question_special_tokens=args.strip_question_special_tokens)
         if args.include_rejection:
             log.info("total=%d (rejection=%d synthetic=%d) skip=%d avg_golden=%.2f avg_distractor=%.2f"
                      " seq_len_avg=%d seq_len_p90=%d",

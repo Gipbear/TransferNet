@@ -4,7 +4,7 @@
 #
 # 消融实验自动化编排脚本（第四章）
 #
-# 覆盖五组消融实验：
+# 覆盖多组消融实验：
 #   Group A: 输出格式消融 (v1 / v2 / v3 / v4)
 #   Group B: 训练数据消融 (no_shuffle / no_score / distractor_ratio)
 #   Group C: 检索参数消融 (不同 beam/lambda，仅 eval，复用最佳模型)
@@ -13,6 +13,7 @@
 #   Group F: 拒答能力训练 (chain+v2, 含 Hit@K=0 拒答样本)
 #   Group G: 训练轮数消融 (epochs 1-5, chain+name+v2, limit=500)
 #   Group H: 无路径基线 (base model 直接回答，无检索路径输入)
+#   Group I: 问题特殊 token 消融 (chain+name+v2, 对比保留/去掉 [CLS]/[SEP]/##)
 #
 # 特性：
 #   - 三步流程：build_kgcot_dataset → train_sft → eval_faithfulness
@@ -33,6 +34,7 @@
 #   BEST_ADAPTER=models/my_adapter bash scripts/run_ablation.sh --group C
 #   bash scripts/run_ablation.sh --group G                  # 只跑 Group G（训练轮数消融）
 #   bash scripts/run_ablation.sh --group H                  # 只跑 Group H（无路径基线）
+#   bash scripts/run_ablation.sh --group I                  # 只跑 Group I（问题特殊 token 对照）
 #
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -523,6 +525,31 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "G" ]]; then
 
     EPOCHS="${SAVED_EPOCHS}"
     EVAL_LIMIT="${SAVED_EVAL_LIMIT}"
+fi
+
+# ── Group I: 问题特殊 token 消融 ──────────────────────────────────────────────
+if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "I" ]]; then
+    log_section "Group I: 问题特殊 token 消融 (chain+name+v2, raw vs strip)"
+
+    ENTITY_MAP="${PROJECT_DIR}/data/resources/WebQSP/fbwq_full/mapped_entities.txt"
+
+    if [[ ! -f "${ENTITY_MAP}" ]]; then
+        echo "[ERROR] 实体映射文件不存在: ${ENTITY_MAP}"
+        exit 1
+    fi
+
+    GROUPI_BASE_EXTRA="--path_format chain --entity_map ${ENTITY_MAP}"
+    GROUPI_STRIP_EXTRA="${GROUPI_BASE_EXTRA} --strip_question_special_tokens"
+
+    # I1: 保留原始问题 token，重跑 chain+name+v2 作为本组对照
+    run_experiment "groupI_chain_v2_name_rawq" "v2" \
+        "${GROUPI_BASE_EXTRA}" \
+        "${GROUPI_BASE_EXTRA}"
+
+    # I2: 去掉问题中的 [CLS]/[SEP]/##，其余设置与 I1 完全一致
+    run_experiment "groupI_chain_v2_name_stripq" "v2" \
+        "${GROUPI_STRIP_EXTRA}" \
+        "${GROUPI_STRIP_EXTRA}"
 fi
 
 # ── Group H: 无路径基线 ───────────────────────────────────────────────────────
