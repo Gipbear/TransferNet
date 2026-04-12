@@ -48,6 +48,7 @@ MODEL_DATASET="webqsp"
 # ── 运行参数 ──────────────────────────────────────────────────────────────────
 RUN_GROUP="ALL"
 RUN_PHASE="all"        # all | train | eval
+RUN_VARIANT="both"     # both | mid | name  （仅 Group A 生效）
 NUM_RUNS="${NUM_RUNS:-2}"
 EPOCHS="${EPOCHS:-2}"
 EVAL_LIMIT="${EVAL_LIMIT:-500}"
@@ -58,6 +59,10 @@ EXPLICIT_INPUTS=()
 BEAM_VALS=()
 LAM_VALS=()
 ALPHA_VALS=()
+# 网格批量指定（空格分隔，与 run_offline_path_search.sh 风格一致）
+GRID_BEAMS=""
+GRID_LAMS=""
+GRID_ALPHAS=""
 
 # GroupB/C/D 使用的固定路径文件（空=自动推导）
 DEFAULT_INPUT=""
@@ -66,6 +71,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --group)         RUN_GROUP="$2";              shift 2 ;;
         --phase)         RUN_PHASE="$2";              shift 2 ;;
+        --variant)       RUN_VARIANT="$2";           shift 2 ;;
         --input)         EXPLICIT_INPUTS+=("$2");     shift 2 ;;
         --paths_dir)     PATHS_DIR="$2";              shift 2 ;;
         --model_dataset) MODEL_DATASET="$2";          shift 2 ;;
@@ -75,6 +81,9 @@ while [[ $# -gt 0 ]]; do
         --beam)          BEAM_VALS+=("$2");           shift 2 ;;
         --lam)           LAM_VALS+=("$2");            shift 2 ;;
         --alpha)         ALPHA_VALS+=("$2");          shift 2 ;;
+        --grid_beams)    GRID_BEAMS="$2";             shift 2 ;;
+        --grid_lams)     GRID_LAMS="$2";              shift 2 ;;
+        --grid_alphas)   GRID_ALPHAS="$2";            shift 2 ;;
         --all)           SCAN_ALL=1;                  shift 1 ;;
         --default_input) DEFAULT_INPUT="$2";          shift 2 ;;
         *) echo "[ERROR] 未知参数: $1"; exit 1 ;;
@@ -296,12 +305,19 @@ build_group_a_inputs() {
         GROUP_A_INPUTS+=("$f")
     done
 
-    # --beam + --lam + --alpha 组合（文件名: tail_blend_beam{B}_alpha{A}_lam{L}.jsonl）
-    if [[ ${#BEAM_VALS[@]} -gt 0 && ${#LAM_VALS[@]} -gt 0 ]]; then
-        local alphas=("${ALPHA_VALS[@]+"${ALPHA_VALS[@]}"}")
-        [[ ${#alphas[@]} -eq 0 ]] && alphas=("1")   # 默认 alpha=1
-        for beam in "${BEAM_VALS[@]}"; do
-            for lam in "${LAM_VALS[@]}"; do
+    # --beam/--lam/--alpha 与 --grid_beams/--grid_lams/--grid_alphas 合并后做笛卡尔积
+    # 将 --grid_* 空格分隔值追加进对应数组
+    local beams=("${BEAM_VALS[@]+"${BEAM_VALS[@]}"}")
+    local lams=("${LAM_VALS[@]+"${LAM_VALS[@]}"}")
+    local alphas=("${ALPHA_VALS[@]+"${ALPHA_VALS[@]}"}")
+    [[ -n "${GRID_BEAMS}"  ]] && read -r -a _gb  <<< "${GRID_BEAMS}"  && beams+=("${_gb[@]}")
+    [[ -n "${GRID_LAMS}"   ]] && read -r -a _gl  <<< "${GRID_LAMS}"   && lams+=("${_gl[@]}")
+    [[ -n "${GRID_ALPHAS}" ]] && read -r -a _ga  <<< "${GRID_ALPHAS}" && alphas+=("${_ga[@]}")
+    [[ ${#alphas[@]} -eq 0 ]] && alphas=("1")   # 默认 alpha=1
+
+    if [[ ${#beams[@]} -gt 0 && ${#lams[@]} -gt 0 ]]; then
+        for beam in "${beams[@]}"; do
+            for lam in "${lams[@]}"; do
                 for alpha in "${alphas[@]}"; do
                     local alpha_fmt lam_fmt
                     alpha_fmt="$(fmt_num "${alpha}")"
@@ -342,23 +358,33 @@ echo "======================================================"
 # Group A: 检索参数扫描 (eval-only)
 # ─────────────────────────────────────────────────────────────────────────────
 if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "A" ]]; then
-    log_section "Group A: 检索参数扫描 (beam/lambda/alpha × MID, chain+v2, eval-only)"
+    log_section "Group A: 检索参数扫描 (beam/lambda/alpha × MID+name, chain+v2, eval-only)"
 
-    ADAPTER_A="$(try_resolve_adapter "groupAmid_v2")"
-    if [[ -z "${ADAPTER_A}" ]]; then
-        echo "[ERROR] Group A 需要 groupAmid_v2 adapter"; exit 1
-    fi
-    if [[ ! -d "${ADAPTER_A}" ]]; then
-        echo "[ERROR] adapter 不存在: ${ADAPTER_A}"; exit 1
+    ADAPTER_A_MID="$(try_resolve_adapter "groupAmid_v2")"
+    ADAPTER_A_NAME="$(try_resolve_adapter "groupAname_v2")"
+
+    if [[ -z "${ADAPTER_A_MID}" && -z "${ADAPTER_A_NAME}" ]]; then
+        echo "[ERROR] Group A 需要 groupAmid_v2 或 groupAname_v2 adapter"; exit 1
     fi
 
     build_group_a_inputs
-    echo "  adapter: ${ADAPTER_A}"
-    echo "  文件数 : ${#GROUP_A_INPUTS[@]}"
+    echo "  adapter_mid : ${ADAPTER_A_MID:-（未找到）}"
+    echo "  adapter_name: ${ADAPTER_A_NAME:-（未找到）}"
+    echo "  文件数      : ${#GROUP_A_INPUTS[@]}"
+
+    if [[ ! -f "${ENTITY_MAP}" ]]; then
+        echo "[ERROR] 实体映射文件不存在: ${ENTITY_MAP}"; exit 1
+    fi
 
     WALL_A=$(date +%s)
     for input in "${GROUP_A_INPUTS[@]}"; do
-        eval_one "${input}" "groupA" "${ADAPTER_A}" "v2" "chain"
+        if [[ "${RUN_VARIANT}" != "name" ]]; then
+            [[ -n "${ADAPTER_A_MID}"  ]] && eval_one "${input}" "groupA/mid"  "${ADAPTER_A_MID}"  "v2" "chain"
+        fi
+        if [[ "${RUN_VARIANT}" != "mid" ]]; then
+            [[ -n "${ADAPTER_A_NAME}" ]] && eval_one "${input}" "groupA/name" "${ADAPTER_A_NAME}" "v2" "chain" \
+                --entity_map "${ENTITY_MAP}"
+        fi
     done
     echo ""
     echo "  [Group A 完成，耗时 $(($(date +%s) - WALL_A))s]"

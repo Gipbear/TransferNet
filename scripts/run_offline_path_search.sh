@@ -190,7 +190,7 @@ run_search_once() {
         --lambda_val  "$lambda_val" \
         --beam_size   "$beam_size" \
         "${output_args[@]}" \
-        2>&1 | tee -a "$log_file"
+        | tee -a "$log_file"
     echo "" >> "$log_file"
 }
 
