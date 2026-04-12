@@ -332,10 +332,14 @@ def compute_faithfulness(cited_indices: set, golden_indices: set,
         cit_rec = 0.0  # 无 Golden Path 的样本（path_hit=False），recall 定义为 0
 
     # Hallucination：预测实体不在路径中
-    if pred_answers:
-        hallu_entities = [e for e in pred_answers
+    effective_pred_answers = [
+        e for e in pred_answers
+        if norm_entity(e) != norm_entity(REJECTION_SENTINEL)
+    ]
+    if effective_pred_answers:
+        hallu_entities = [e for e in effective_pred_answers
                           if norm_entity(e) not in path_entities]
-        hallu_rate = len(hallu_entities) / len(pred_answers)
+        hallu_rate = len(hallu_entities) / len(effective_pred_answers)
     else:
         hallu_entities = []
         hallu_rate     = 0.0
@@ -506,6 +510,39 @@ def log_metrics_with_std(log: logging.Logger, runs_agg: list):
     fc_mu, fc_sd = mean_std("format_compliance")
     log.info("    Hallucination Rate: %.4f ± %.4f", hl_mu, hl_sd)
     log.info("    Format Compliance : %.4f ± %.4f", fc_mu, fc_sd)
+
+
+def log_rejection_metrics_with_std(log: logging.Logger, runs_results: list):
+    """跨多轮输出拒答指标 mean±std。"""
+    import math
+
+    rejection_runs = [
+        compute_rejection_metrics(results)
+        for results in runs_results
+        if any(r.get("is_rejection", False) for r in results)
+        or any(not r.get("mmr_answer_path_hit", True) for r in results)
+    ]
+    if not rejection_runs:
+        return
+
+    def mean_std(key):
+        vals = [m[key] for m in rejection_runs]
+        mu = sum(vals) / len(vals)
+        var = sum((v - mu) ** 2 for v in vals) / len(vals)
+        return mu, math.sqrt(var)
+
+    log.info("")
+    log.info("  --- Rejection Analysis 多轮汇总 ---")
+    for key, label in [
+        ("correct_rejections", "Correct Rejections"),
+        ("missed_rejections",  "Missed  Rejections"),
+        ("false_rejections",   "False   Rejections"),
+        ("rejection_precision", "Rejection Precision"),
+        ("rejection_recall",    "Rejection Recall"),
+        ("rejection_f1",        "Rejection F1"),
+    ]:
+        mu, sd = mean_std(key)
+        log.info("    %-31s: %.4f ± %.4f", label, mu, sd)
 
 
 # ─── 主函数 ────────────────────────────────────────────────────────────────────
@@ -911,6 +948,7 @@ def main():
         log.info("")
         log.info("  --- 多轮汇总 (num_runs=%d) ---", args.num_runs)
         log_metrics_with_std(log, runs_agg)
+        log_rejection_metrics_with_std(log, results_per_run)
 
         # 分层统计基于最后一轮结果（代表性），不逐轮重复
         log.info("")

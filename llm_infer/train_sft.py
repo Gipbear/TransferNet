@@ -77,13 +77,15 @@ def parse_args():
     p.add_argument("--max_seq_len", type=int,  default=1024+256)
     p.add_argument("--warmup_ratio", type=float, default=0.05)
     p.add_argument("--seed",       type=int,   default=42)
+    p.add_argument("--val_ratio",  type=float, default=0.05,
+                   help="从训练集中划分验证集的比例（0=不使用验证集）")
     return p.parse_args()
 
 
-def build_training_args(args, torch_module):
-    from transformers import TrainingArguments
+def build_training_args(args, torch_module, has_eval: bool):
+    from trl import SFTConfig
 
-    return TrainingArguments(
+    return SFTConfig(
         output_dir=args.output_dir,
         num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch_size,
@@ -95,9 +97,14 @@ def build_training_args(args, torch_module):
         bf16=torch_module.cuda.is_bf16_supported(),
         logging_steps=10,
         save_strategy="no",
+        # 有验证集时每个 epoch 评估一次，记录 eval_loss 曲线
+        eval_strategy="epoch" if has_eval else "no",
+        per_device_eval_batch_size=args.batch_size,
         seed=args.seed,
         report_to="none",
         dataloader_num_workers=0,
+        max_length=args.max_seq_len,
+        dataset_kwargs={"skip_prepare_dataset": True},
     )
 
 
@@ -128,11 +135,13 @@ def load_dataset_from_jsonl(path: str, tokenizer, max_seq_len: int, log: logging
     log.info("加载 %d 条训练样本", len(records))
 
     _PATH_LINE_RE = _re.compile(r"^(\d+)[\s:\[]")
-    truncated_count = [0]
+
+    truncated_count      = 0
+    label_fallback_count = 0
 
     def _drop_distractors_until_fits(messages: list, golden_indices: set,
                                      budget: int):
-        """从 user 消息末尾逐条移除 distractor 路径行，直到 prompt_ids 满足 budget。"""
+        """从 user 消息中移除 distractor 路径行，尽量保留 golden path。"""
         user_text = messages[1]["content"]
         lines     = user_text.split("\n")
 
@@ -146,9 +155,10 @@ def load_dataset_from_jsonl(path: str, tokenizer, max_seq_len: int, log: logging
             pos for pos, num in path_line_positions
             if num not in golden_indices
         ]
+        random.shuffle(distractor_positions)
 
         removed = set()
-        for pos in reversed(distractor_positions):
+        for pos in distractor_positions:
             removed.add(pos)
             new_user = "\n".join(l for i, l in enumerate(lines) if i not in removed)
             new_msgs = [messages[0], {"role": "user", "content": new_user}]
@@ -159,7 +169,7 @@ def load_dataset_from_jsonl(path: str, tokenizer, max_seq_len: int, log: logging
             if len(pids) <= budget:
                 return pids
 
-        # 全部 distractor 移除后仍超长，返回当前最短版本（外层做 token 截断）
+        # 移除所有 distractor 后仍超长，返回当前版本供外层 token 截断。
         new_user = "\n".join(l for i, l in enumerate(lines) if i not in removed)
         new_msgs = [messages[0], {"role": "user", "content": new_user}]
         pt = tokenizer.apply_chat_template(
@@ -168,13 +178,15 @@ def load_dataset_from_jsonl(path: str, tokenizer, max_seq_len: int, log: logging
         return tokenizer(pt, add_special_tokens=False)["input_ids"]
 
     def tokenize(rec):
+        nonlocal truncated_count, label_fallback_count
+
         messages       = rec["messages"]
         meta           = rec.get("_meta", {})
         golden_indices = set(meta.get("golden_path_indices", []))
 
         asst_text    = messages[-1]["content"]
         asst_ids     = tokenizer(asst_text, add_special_tokens=False)["input_ids"]
-        asst_reserve = len(asst_ids) + 8
+        asst_reserve = len(asst_ids) + 1
         prompt_budget = max_seq_len - asst_reserve
 
         prompt_text = tokenizer.apply_chat_template(
@@ -183,13 +195,12 @@ def load_dataset_from_jsonl(path: str, tokenizer, max_seq_len: int, log: logging
         prompt_ids = tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
 
         if len(prompt_ids) > prompt_budget:
-            truncated_count[0] += 1
-            # 路径级截断：逐条丢弃 distractor，优先保留 golden paths
+            truncated_count += 1
+            prompt_budget = max(0, prompt_budget)
             prompt_ids = _drop_distractors_until_fits(
                 messages[:-1], golden_indices, prompt_budget
             )
             if len(prompt_ids) > prompt_budget:
-                # 兜底 token 截断
                 prompt_ids = prompt_ids[:prompt_budget]
 
         eot_id   = tokenizer.convert_tokens_to_ids("<|eot_id|>")
@@ -201,14 +212,16 @@ def load_dataset_from_jsonl(path: str, tokenizer, max_seq_len: int, log: logging
         labels = [-100] * prompt_len + full_ids[prompt_len:]
 
         if all(l == -100 for l in labels):
+            # prompt 占满 budget，强制保留末尾 asst_reserve 个 token 的 label
+            label_fallback_count += 1
             keep   = min(asst_reserve, len(full_ids))
             labels = [-100] * (len(full_ids) - keep) + full_ids[-keep:]
 
         if random.random() < 0.005:
             valid = sum(1 for l in labels if l != -100)
             total = len(full_ids)
-            print(f"[DEBUG] seq_len={total}, valid_labels={valid}, "
-                  f"ratio={valid/total:.2%}, prompt_len={prompt_len}")
+            log.debug("[sample] seq_len=%d valid_labels=%d ratio=%.2f%% prompt_len=%d",
+                      total, valid, valid / total * 100, prompt_len)
 
         return {
             "input_ids":      full_ids,
@@ -222,9 +235,14 @@ def load_dataset_from_jsonl(path: str, tokenizer, max_seq_len: int, log: logging
         for r in records
     ])
     tokenized = raw.map(tokenize, remove_columns=["messages", "_meta"])
-    log.info("截断样本数: %d / %d (%.1f%%)",
-             truncated_count[0], len(records),
-             100 * truncated_count[0] / len(records) if records else 0)
+    n = len(records)
+    tc = truncated_count
+    lf = label_fallback_count
+    log.info("截断样本数: %d / %d (%.1f%%)", tc, n, 100 * tc / n if n else 0)
+    fallback_pct = 100 * lf / n if n else 0
+    log.info("标签退化（全 -100 兜底）样本数: %d / %d (%.1f%%)%s",
+             lf, n, fallback_pct,
+             "  ⚠ 超过 5%，建议增大 --max_seq_len 或减少 distractor" if fallback_pct > 5 else "")
     return tokenized
 
 
@@ -278,28 +296,41 @@ def main():
     log.info("LoRA 注入完成")
 
     # ── 加载数据集（含 Prompt Masking）──────────────────────────────────────
-    train_dataset = load_dataset_from_jsonl(
+    full_dataset = load_dataset_from_jsonl(
         args.train, tokenizer, args.max_seq_len, log
     )
+
+    # 问题2：按 val_ratio 划分验证集，记录 eval_loss 曲线
+    eval_dataset = None
+    if args.val_ratio > 0:
+        split = full_dataset.train_test_split(
+            test_size=args.val_ratio, seed=args.seed
+        )
+        train_dataset = split["train"]
+        eval_dataset  = split["test"]
+        log.info("验证集划分: train=%d  val=%d (val_ratio=%.2f)",
+                 len(train_dataset), len(eval_dataset), args.val_ratio)
+    else:
+        train_dataset = full_dataset
+        log.info("未启用验证集（--val_ratio=0）")
+
     # 按序列长度升序排列，使同批次内长度相近，减少 padding 浪费
     train_dataset = train_dataset.sort("length")
-    log.info("数据集已按长度排序（共 %d 条）", len(train_dataset))
+    log.info("训练集已按长度排序（共 %d 条）", len(train_dataset))
 
     # ── 训练配置 ─────────────────────────────────────────────────────────────
     from trl import SFTTrainer
 
-    training_args = build_training_args(args, torch)
+    training_args = build_training_args(args, torch, has_eval=eval_dataset is not None)
 
     # SFTTrainer：直接传入已经 tokenize（含 labels）的数据集
     # dataset_kwargs skip_prepare_dataset=True 确保 SFTTrainer 不重新处理 labels
     trainer = SFTTrainer(
         model=model,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
         args=training_args,
-        dataset_text_field=None,   # 已手动 tokenize，跳过内部处理
-        max_seq_length=args.max_seq_len,
-        dataset_kwargs={"skip_prepare_dataset": True},
     )
 
     log.info("开始训练...")

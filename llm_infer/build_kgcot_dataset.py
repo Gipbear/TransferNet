@@ -36,6 +36,7 @@ import os
 import random
 import sys
 from collections import Counter
+from math import ceil
 from typing import Optional
 
 # kg_format 与本脚本同目录（llm_infer/），直接导入
@@ -192,7 +193,8 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
                 rng: random.Random,
                 path_format: str = "arrow",
                 entity_map: dict = None,
-                include_rejection: bool = False) -> Optional[dict]:
+                include_rejection: bool = False,
+                synthetic_rejection: bool = False) -> Optional[dict]:
     """
     从一条 predict JSONL 记录构造训练样本。
     返回 None 表示样本无效（无问题/无答案），或 Hit@K 未命中且未启用拒答。
@@ -200,6 +202,8 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
     show_score:        路径字符串中是否包含 [score=S]（False 用于消融实验）
     path_format:       路径表示方式 'arrow'（符号）或 'nl'（自然语言，V9 使用）
     include_rejection: True 时，Hit@K=0 样本不丢弃，而是生成拒答训练样本（Group F）
+    synthetic_rejection: True 时，显式移除 answerable 样本中的 golden paths，
+                         仅保留 distractor 生成 hard-negative 拒答样本。
     """
     question = record.get("question", "")
     mmr_paths = record.get("mmr_reason_paths", [])
@@ -211,6 +215,50 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
     labeled = label_paths(mmr_paths, golden)
 
     has_golden_path = any(is_g for _, _, is_g in labeled)
+
+    if synthetic_rejection:
+        if not include_rejection or not has_golden_path:
+            return None
+        distractor_only = [p for p in labeled if not p[2]]
+        if not distractor_only:
+            return None
+
+        labeled = augment(distractor_only, shuffle, distractor_ratio, rng)
+        paths_with_meta = [
+            (edges, score, i + 1)
+            for i, (edges, score, _) in enumerate(labeled)
+        ]
+        user_content = build_user_content(
+            paths_with_meta, question,
+            show_score=show_score, path_format=path_format,
+            entity_map=entity_map,
+        )
+        system_prompt = (
+            FORMAT_PROMPTS["v2_name_reject"] if entity_map
+            else FORMAT_PROMPTS["v2_reject"]
+        )
+        return {
+            "messages": [
+                {"role": "system",    "content": system_prompt},
+                {"role": "user",      "content": user_content},
+                {"role": "assistant", "content": output_v2_reject()},
+            ],
+            "_meta": {
+                "question":            question,
+                "golden":              golden,
+                "path_answers":        [],
+                "golden_path_indices": [],
+                "n_golden":            0,
+                "n_distractor":        len(labeled),
+                "format":              "v2",
+                "show_score":          show_score,
+                "path_format":         path_format,
+                "entity_map_used":     bool(entity_map),
+                "hop":                 record.get("hop"),
+                "is_rejection":        True,
+                "synthetic_rejection": True,
+            },
+        }
 
     # Hit@K=0：路径中无正确答案
     if not has_golden_path:
@@ -339,11 +387,13 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
           path_format: str = "arrow",
           entity_map: dict = None,
           include_rejection: bool = False,
-          rejection_oversample: int = 1) -> dict:
+          rejection_oversample: int = 1,
+          synthetic_rejection_ratio: float = 0.0) -> dict:
     with open(input_path, encoding="utf-8") as f:
         records = [json.loads(l) for l in f if l.strip()]
-    log.info("读入 %d 条记录  格式=%s  show_score=%s  path_format=%s  entity_map=%s  include_rejection=%s  rejection_oversample=%d",
-             len(records), fmt, show_score, path_format, bool(entity_map), include_rejection, rejection_oversample)
+    log.info("读入 %d 条记录  格式=%s  show_score=%s  path_format=%s  entity_map=%s  include_rejection=%s  rejection_oversample=%d  synthetic_rejection_ratio=%.3f",
+             len(records), fmt, show_score, path_format, bool(entity_map),
+             include_rejection, rejection_oversample, synthetic_rejection_ratio)
 
     if sample_n > 0 and len(records) > sample_n:
         records = rng.sample(records, sample_n)
@@ -351,6 +401,7 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
 
     samples, skipped, n_rejection = [], 0, 0
     rejection_records = []  # 保存 Hit@K=0 原始记录，用于上采样
+    synthetic_candidates = []  # 保存 answerable 原始记录，用于构造 hard-negative
 
     for rec in records:
         s = make_sample(rec, fmt, shuffle, distractor_ratio, show_score, rng,
@@ -362,6 +413,8 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
             if s.get("_meta", {}).get("is_rejection"):
                 n_rejection += 1
                 rejection_records.append(rec)
+            else:
+                synthetic_candidates.append(rec)
             samples.append(s)
 
     # 拒答样本上采样：对 Hit@K=0 记录重复 make_sample（每次 shuffle 产生不同路径顺序）
@@ -377,10 +430,32 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
                     n_oversampled += 1
         rng.shuffle(samples)  # 打乱避免拒答样本聚集在末尾
 
+    n_synthetic = 0
+    if include_rejection and synthetic_rejection_ratio > 0 and synthetic_candidates:
+        if not 0 < synthetic_rejection_ratio < 1:
+            raise ValueError("--synthetic_rejection_ratio 必须在 0 到 1 之间")
+        current_rej = n_rejection + n_oversampled
+        target_extra = max(
+            0,
+            ceil((synthetic_rejection_ratio * len(samples) - current_rej)
+                 / (1 - synthetic_rejection_ratio)),
+        )
+        for i in range(target_extra):
+            rec = synthetic_candidates[i % len(synthetic_candidates)]
+            s = make_sample(rec, fmt, shuffle, distractor_ratio, show_score, rng,
+                            path_format=path_format, entity_map=entity_map,
+                            include_rejection=True,
+                            synthetic_rejection=True)
+            if s is not None:
+                samples.append(s)
+                n_synthetic += 1
+        if n_synthetic:
+            rng.shuffle(samples)
+
     if include_rejection:
-        log.info("有效样本 %d（原始拒答 %d + 上采样 %d = 拒答共 %d）  丢弃(无问题/无答案) %d",
-                 len(samples), n_rejection, n_oversampled,
-                 n_rejection + n_oversampled, skipped)
+        log.info("有效样本 %d（原始拒答 %d + 上采样 %d + 合成拒答 %d = 拒答共 %d）  丢弃(无问题/无答案) %d",
+                 len(samples), n_rejection, n_oversampled, n_synthetic,
+                 n_rejection + n_oversampled + n_synthetic, skipped)
     else:
         log.info("有效样本 %d  丢弃(Hit@K=0) %d", len(samples), skipped)
 
@@ -422,7 +497,8 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
         "format":         fmt,
         "total":          n,
         "skipped":        skipped,
-        "n_rejection":    n_rejection + n_oversampled,
+        "n_rejection":    n_rejection + n_oversampled + n_synthetic,
+        "n_synthetic_rejection": n_synthetic,
         "avg_golden":     avg_golden,
         "avg_distractor": avg_distractor,
         "seq_len_avg":    sum(seq_lens) // n,
@@ -460,6 +536,8 @@ def parse_args():
                    help="包含 Hit@K=0 样本并生成拒答训练样本（Group F）")
     p.add_argument("--rejection_oversample", type=int, default=1,
                    help="拒答样本上采样倍数（默认 1=不上采样）；每次重复 make_sample 以获得不同 shuffle 顺序")
+    p.add_argument("--synthetic_rejection_ratio", type=float, default=0.0,
+                   help="合成 hard-negative 拒答样本目标占比（0=关闭；建议 0.10~0.15 起步）")
     return p.parse_args()
 
 
@@ -503,7 +581,8 @@ def main():
                          show_score, rng, log, path_format=pf,
                          entity_map=entity_map,
                          include_rejection=args.include_rejection,
-                         rejection_oversample=args.rejection_oversample)
+                         rejection_oversample=args.rejection_oversample,
+                         synthetic_rejection_ratio=args.synthetic_rejection_ratio)
             stats_list.append(stat)
         log.info("=" * 50)
         for st in stats_list:
@@ -522,11 +601,13 @@ def main():
                    show_score, rng, log, path_format=path_format,
                    entity_map=entity_map,
                    include_rejection=args.include_rejection,
-                   rejection_oversample=args.rejection_oversample)
+                   rejection_oversample=args.rejection_oversample,
+                   synthetic_rejection_ratio=args.synthetic_rejection_ratio)
         if args.include_rejection:
-            log.info("total=%d (rejection=%d) skip=%d avg_golden=%.2f avg_distractor=%.2f"
+            log.info("total=%d (rejection=%d synthetic=%d) skip=%d avg_golden=%.2f avg_distractor=%.2f"
                      " seq_len_avg=%d seq_len_p90=%d",
-                     st["total"], st.get("n_rejection", 0), st["skipped"],
+                     st["total"], st.get("n_rejection", 0),
+                     st.get("n_synthetic_rejection", 0), st["skipped"],
                      st["avg_golden"], st["avg_distractor"],
                      st.get("seq_len_avg", 0), st.get("seq_len_p90", 0))
         else:
