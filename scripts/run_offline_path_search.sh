@@ -15,32 +15,32 @@
 #   # 单次运行（先 dump，再用默认参数 search）
 #   bash scripts/run_offline_path_search.sh \
 #       --ckpt data/ckpt/WebQSP/model.pt \
-#       --input_dir data/WebQSP
+#       --input_dir data/input/WebQSP
 #
 #   # 只做 dump（不运行 search）
 #   bash scripts/run_offline_path_search.sh \
 #       --ckpt data/ckpt/WebQSP/model.pt \
-#       --input_dir data/WebQSP \
+#       --input_dir data/input/WebQSP \
 #       --phase dump
 #
 #   # 只做 search（缓存已存在）
 #   bash scripts/run_offline_path_search.sh \
-#       --input_dir data/WebQSP \
+#       --input_dir data/input/WebQSP \
 #       --phase search \
-#       --cache output/score_cache/webqsp_val.pt
+#       --cache data/output/WebQSP/offline_search/score_cache/webqsp_val.pt
 #
 #   # 运行 baseline 方法
 #   bash scripts/run_offline_path_search.sh \
-#       --input_dir data/WebQSP \
+#       --input_dir data/input/WebQSP \
 #       --phase search \
-#       --cache output/score_cache/webqsp_val.pt \
+#       --cache data/output/WebQSP/offline_search/score_cache/webqsp_val.pt \
 #       --method baseline
 #
 #   # 对 tail_blend 实验做超参数网格搜索
 #   bash scripts/run_offline_path_search.sh \
-#       --input_dir data/WebQSP \
+#       --input_dir data/input/WebQSP \
 #       --phase search \
-#       --cache output/score_cache/webqsp_val.pt \
+#       --cache data/output/WebQSP/offline_search/score_cache/webqsp_val.pt \
 #       --grid
 #
 # ─────────────────────────────────────────────────────────────────────────────
@@ -71,15 +71,14 @@ BEAM_SIZE="20"
 
 # tail_blend 实验网格搜索。只搜索正式实验超参，不恢复旧 scoring/selector 搜索空间。
 GRID=0
-GRID_ALPHAS="1.0 2.0"
+GRID_ALPHAS="0.0 1.0 2.0"
 GRID_LAMBDAS="0 0.2 0.5 0.7 1.0"
 GRID_THRESHOLDS="0.01"
 GRID_BEAMS="3 5 10 15 20 30 40 50"
 
-# 输出目录
-OUTPUT_DIR="${PROJ_DIR}/output/score_cache"
-# 日志与路径结果放在同一父目录下
+# 缓存、日志与路径结果放在同一父目录下
 OFFLINE_DIR="${PROJ_DIR}/data/output/WebQSP/offline_search"
+OUTPUT_DIR="${OFFLINE_DIR}/score_cache"
 LOG_DIR="${OFFLINE_DIR}/logs"
 PATHS_DIR="${OFFLINE_DIR}/paths"
 

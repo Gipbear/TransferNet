@@ -112,6 +112,15 @@ class OfflinePathMethodTest(unittest.TestCase):
         self.assertNotIn("--scoring", wrapper)
         self.assertNotIn("--diversity", wrapper)
 
+    def test_wrapper_defaults_keep_webqsp_artifacts_under_data_output(self):
+        wrapper = (ROOT / "scripts" / "run_offline_path_search.sh").read_text(encoding="utf-8")
+
+        self.assertIn('OFFLINE_DIR="${PROJ_DIR}/data/output/WebQSP/offline_search"', wrapper)
+        self.assertIn('OUTPUT_DIR="${OFFLINE_DIR}/score_cache"', wrapper)
+        self.assertIn('LOG_DIR="${OFFLINE_DIR}/logs"', wrapper)
+        self.assertIn('PATHS_DIR="${OFFLINE_DIR}/paths"', wrapper)
+        self.assertNotIn('OUTPUT_DIR="${PROJ_DIR}/output/score_cache"', wrapper)
+
 
 if __name__ == "__main__":
     unittest.main()
