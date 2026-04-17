@@ -1,5 +1,122 @@
 # pathfinder_agent/tools/dynamic_retriever.py
+import json
+import os
+
 from pathfinder_agent.config import BEAM_SIZE_PRIMARY, LAMBDA_PRIMARY, BEAM_SIZE_FALLBACK, LAMBDA_FALLBACK, MAX_PATHS_RETURNED, MAX_DUPLICATE_TAIL_NODES
+
+
+def _load_entity_name_map(data_dir: str) -> dict:
+    """从 data_dir 下合并加载 entities_names.json 与 mapped_entities.txt。
+
+    两个来源互补：
+      - entities_names.json: JSON 格式，键为 MID，值为名称
+      - fbwq_full/mapped_entities.txt: TSV 格式，per-line "MID\tName"
+
+    优先级：entities_names.json > mapped_entities.txt（前者更精确）。
+    找不到文件时静默跳过，返回空 dict（不影响 MID 格式路径的正常工作）。
+    """
+    name_map: dict = {}
+
+    # 1. mapped_entities.txt（覆盖面更广）
+    for candidate in [
+        os.path.join(data_dir, "mapped_entities.txt"),
+        os.path.join(data_dir, "fbwq_full", "mapped_entities.txt"),
+        os.path.join(os.path.dirname(data_dir), "fbwq_full", "mapped_entities.txt"),
+    ]:
+        if os.path.exists(candidate):
+            with open(candidate, encoding="utf-8") as f:
+                for line in f:
+                    parts = line.strip().split("\t", 1)
+                    if len(parts) == 2:
+                        name_map[parts[0]] = parts[1]
+            break
+
+    # 2. entities_names.json（优先级更高，覆盖已有条目）
+    for candidate in [
+        os.path.join(data_dir, "entities_names.json"),
+        os.path.join(data_dir, "fbwq_full", "entities_names.json"),
+        os.path.join(os.path.dirname(data_dir), "fbwq_full", "entities_names.json"),
+    ]:
+        if os.path.exists(candidate):
+            with open(candidate, encoding="utf-8") as f:
+                name_map.update(json.load(f))
+            break
+
+    return name_map
+
+
+def _resolve_path_names(paths: list, entity_name_map: dict) -> list:
+    """将路径中的实体 MID 替换为人类可读名称（best-effort）。
+
+    设计原则：
+      - 有名称的实体 → 替换为名称（帮助 LLM 理解语义、识别噪声路径）
+      - CVT 节点 / 无名称 MID → 保留原始 MID
+        ∵ CVT 节点天然无名称，保留 MID 形式可让 LLM 将其识别为中间占位节点
+
+    返回新列表，不修改原始 paths（每条路径新增 "mid_path" 字段保存原始 MID 列表）。
+    """
+    if not entity_name_map:
+        return paths
+
+    resolved = []
+    for p in paths:
+        mid_edges = p.get("path", [])
+        name_edges = [
+            [
+                entity_name_map.get(e[0], e[0]),
+                e[1],
+                entity_name_map.get(e[2], e[2]),
+            ]
+            for e in mid_edges
+        ]
+        resolved.append({
+            "path": name_edges,       # LLM 看到名称版本
+            "mid_path": mid_edges,    # 保留原始 MID，供评测/调试使用
+            "log_score": p.get("log_score", 0.0),
+        })
+    return resolved
+
+
+def _needs_high_recall_fallback(question: str) -> bool:
+    lowered = f" {question.lower()} "
+    return any(
+        token in lowered
+        for token in (
+            " first ",
+            " second ",
+            " third ",
+            " when ",
+            " before ",
+            " after ",
+            " during ",
+            " 19",
+            " 20",
+            " governor ",
+            " vice president ",
+            " representatives ",
+            " team ",
+            " play for",
+            " played for",
+        )
+    )
+
+
+def get_retrieval_policy(question: str, fallback: bool = False) -> dict:
+    high_recall = _needs_high_recall_fallback(question)
+    if fallback:
+        return {
+            "beam_size": BEAM_SIZE_FALLBACK,
+            "lambda_val": LAMBDA_FALLBACK,
+            "max_paths_returned": MAX_PATHS_RETURNED + (10 if high_recall else 0),
+            "max_duplicate_tail_nodes": MAX_DUPLICATE_TAIL_NODES + (2 if high_recall else 0),
+        }
+    return {
+        "beam_size": BEAM_SIZE_PRIMARY,
+        "lambda_val": LAMBDA_PRIMARY,
+        "max_paths_returned": MAX_PATHS_RETURNED,
+        "max_duplicate_tail_nodes": MAX_DUPLICATE_TAIL_NODES,
+    }
+
 
 class TransferNetWrapper:
     def __init__(self, data_dir, ckpt_path):
@@ -31,10 +148,13 @@ class TransferNetWrapper:
         
         triples_list = [[int(s), int(r), int(o)] for s, r, o in self.triples.tolist()]
         self.valid_edges_dict = build_valid_edges_dict(triples_list)
-        
+
         from utils.misc import invert_dict
         self.id2ent = invert_dict(self.ent2id)
         self.id2rel = invert_dict(self.rel2id)
+
+        # 加载实体名称映射（best-effort，找不到文件时返回空 dict）
+        self.entity_name_map = _load_entity_name_map(data_dir)
 
     def retrieve(self, question: str, topic_entity: str, fallback=False):
         """
@@ -52,8 +172,9 @@ class TransferNetWrapper:
         import torch
         from utils.path_utils import mmr_diversity_beam_search, filter_tensor
 
-        beam_size = BEAM_SIZE_FALLBACK if fallback else BEAM_SIZE_PRIMARY
-        lam       = LAMBDA_FALLBACK   if fallback else LAMBDA_PRIMARY
+        policy = get_retrieval_policy(question, fallback=fallback)
+        beam_size = policy["beam_size"]
+        lam = policy["lambda_val"]
 
         # -- Build topic-entity one-hot vector --
         if topic_entity not in self.ent2id:
@@ -117,8 +238,11 @@ class TransferNetWrapper:
             })
 
         # Apply tail-node dedup + size cap
-        filtered = _filter_by_tail_node(reason_paths, MAX_DUPLICATE_TAIL_NODES)
-        return filtered[:MAX_PATHS_RETURNED]
+        filtered = _filter_by_tail_node(reason_paths, policy["max_duplicate_tail_nodes"])
+        filtered = filtered[:policy["max_paths_returned"]]
+
+        # 将实体 MID 替换为人类可读名称（CVT 节点无名称，保留 MID 作为自然标识）
+        return _resolve_path_names(filtered, self.entity_name_map)
 
 def retrieve_paths(wrapper: TransferNetWrapper, question: str, topic_entity: str, fallback=False):
     """

@@ -40,7 +40,6 @@ def _setup_agent_logging():
     log.setLevel(logging.INFO)
     _LOGGING_INITIALIZED = True
     return log
-
 class PathfinderAgent:
     def __init__(self,
                  model_name: str = "unsloth/meta-llama-3.1-8b-instruct-bnb-4bit",
@@ -82,6 +81,7 @@ class PathfinderAgent:
         # TransferNet wrapper (injected externally via agent.transfernet_wrapper = ...)
         self.transfernet_wrapper = None
         self.last_evidence_paths = []
+        self.last_run_metadata = {}
         log.info("PathfinderAgent initialized.")
 
 
@@ -91,6 +91,12 @@ class PathfinderAgent:
 
         question = normalize_question(question)
         self.last_evidence_paths = []
+        self.last_run_metadata = {
+            "agent_mode": "online_pipeline",
+            "selected_source": "online_pipeline",
+            "fallback_used": False,
+            "final_evidence_source": "online_primary",
+        }
         log.info(f"\n--- Starting PathfinderAgent for question: {question} ---")
 
         # 步骤1：问题重写
@@ -123,6 +129,7 @@ class PathfinderAgent:
                     log.warning(f"Fallback verification failed: {feedback}. Dropping candidate answer.")
                     continue
                 accepted_paths = fallback_paths
+                self.last_run_metadata["final_evidence_source"] = "online_fallback"
 
             all_answers.append(cand_ans)
             self.last_evidence_paths.extend(accepted_paths)

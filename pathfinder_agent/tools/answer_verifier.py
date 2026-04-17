@@ -11,6 +11,10 @@ Detects:
 import re
 import torch
 
+from pathfinder_agent.tools.chat_tokenization import apply_template_and_pad
+
+_MID_RE = re.compile(r"^[mg]\.[A-Za-z0-9_]+$")
+
 VERIFIER_SYSTEM_PROMPT = """\
 You are a quality-checking agent for a knowledge-graph question answering system.
 You will be given:
@@ -42,6 +46,24 @@ def _format_paths_for_verifier(paths, used_indices):
     return "\n".join(lines) if lines else "(no paths available)"
 
 
+def _normalize_value(value: str) -> str:
+    return re.sub(r"\s+", " ", (value or "").strip().lower())
+
+
+def _supported_by_paths(candidate_answers: list[str], paths: list, used_indices: set[int]) -> bool:
+    show_indices = used_indices if used_indices else set(range(1, len(paths) + 1))
+    supported = set()
+    for idx, path in enumerate(paths, start=1):
+        if idx not in show_indices:
+            continue
+        for head, _rel, tail in path.get("path", []):
+            supported.add(_normalize_value(str(head)))
+            supported.add(_normalize_value(str(tail)))
+    if not supported:
+        return False
+    return all(_normalize_value(answer) in supported for answer in candidate_answers)
+
+
 def verify_answer(model, tokenizer, question: str, candidate_answers: list,
                   used_path_indices: set, all_paths: list):
     """
@@ -50,6 +72,15 @@ def verify_answer(model, tokenizer, question: str, candidate_answers: list,
     """
     if not candidate_answers:
         return False, "No answer was generated."
+
+    if any(_MID_RE.match(str(answer).strip()) for answer in candidate_answers):
+        return False, "Candidate answer contains raw MID output."
+
+    if any(str(answer).strip() == "No English Label" for answer in candidate_answers):
+        return False, "Candidate answer contains No English Label."
+
+    if not _supported_by_paths(candidate_answers, all_paths, used_path_indices):
+        return False, "Candidate answer is not supported by the cited paths."
 
     path_text   = _format_paths_for_verifier(all_paths, used_path_indices)
     answer_text = " | ".join(candidate_answers)
@@ -63,17 +94,7 @@ def verify_answer(model, tokenizer, question: str, candidate_answers: list,
         {"role": "system", "content": VERIFIER_SYSTEM_PROMPT},
         {"role": "user",   "content": user_content},
     ]
-    # Use tokenizer.pad() pattern (same as eval_faithfulness.py) to avoid
-    # BatchEncoding-vs-tensor issues with unsloth's generate()
-    token_ids = tokenizer.apply_chat_template(
-        messages, tokenize=True, add_generation_prompt=True
-    )
-    inputs = tokenizer.pad(
-        [{"input_ids": token_ids}],
-        return_tensors="pt",
-        padding=True,
-        padding_side="left",
-    ).to(model.device)
+    inputs = apply_template_and_pad(tokenizer, messages, model.device)
 
     with torch.inference_mode():
         output_ids = model.generate(

@@ -9,7 +9,7 @@ LOG_DIR = os.path.join(BASE_DIR, "data", "output", "WebQSP", "pathfinder_logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
 # Lora Adapter path
-LORA_ADAPTER_PATH = os.path.join(BASE_DIR, "models", "webqsp", "ablation", "groupD_chain_name")
+LORA_ADAPTER_PATH = os.path.join(BASE_DIR, "models", "webqsp", "ablation", "groupAname_v2")
 
 # Retrieval setting configurations
 BEAM_SIZE_PRIMARY = 20

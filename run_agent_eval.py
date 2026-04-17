@@ -6,8 +6,20 @@ PathfinderAgent evaluation entry point.
 Processes a predict JSONL file through the PathfinderAgent pipeline and computes
 the same Hit@1, Hits, F1 metrics as llm_infer / eval_faithfulness.
 
-Usage:
-  # Evaluate on groupAname_v2 ablation errors (path_hit_but_wrong subset)
+两种运行模式：
+  1. 独立模式（默认）：在本进程内加载模型，每次启动都有加载开销（~3-4 分钟）。
+  2. 客户端模式（--server-url）：连接已运行的模型服务器，跳过模型加载开销。
+
+     # 先在另一个终端启动模型服务器（只加载一次）：
+     conda run -n py312_t271_cuda python scripts/model_server.py \\
+         --ckpt data/ckpt/WebQSP/model-29-0.6411.pt \\
+         --input_dir data/input/WebQSP --port 8787
+
+     # 然后多次评测，均不需要重新加载模型：
+     python run_agent_eval.py --server-url http://localhost:8787 \\
+         --input ... --output ...
+
+Usage (独立模式):
   python run_agent_eval.py \\
       --input  data/output/WebQSP/ablation/groupAname_v2/beam20_lam0.2_v2_ft_eval_run0.jsonl \\
       --output data/output/WebQSP/pathfinder_logs/agent_eval_run0.jsonl \\
@@ -29,6 +41,9 @@ import logging
 import os
 import sys
 import time
+import urllib.error
+import urllib.request
+import warnings
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -36,6 +51,15 @@ from datetime import datetime, timedelta
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 os.environ.setdefault("UNSLOTH_DISABLE_STATS", "1")
+
+
+def _suppress_transformers_warning_noise():
+    warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
+    logging.getLogger("transformers").setLevel(logging.ERROR)
+    logging.getLogger("transformers.modeling_attn_mask_utils").setLevel(logging.ERROR)
+
+
+_suppress_transformers_warning_noise()
 
 # Ensure workspace root is importable
 _ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -163,16 +187,21 @@ def setup_logger(output_path: str) -> logging.Logger:
 
 def parse_args():
     p = argparse.ArgumentParser(description="PathfinderAgent Evaluation")
-    p.add_argument("--input",     required=True,  help="Input JSONL (predict or ablation)")
-    p.add_argument("--output",    required=True,  help="Output JSONL (per-sample results)")
-    p.add_argument("--ckpt",      required=True,  help="TransferNet checkpoint (.pt)")
-    p.add_argument("--input_dir", required=True,  help="TransferNet data dir (WebQSP input_dir)")
-    p.add_argument("--model",     default="unsloth/meta-llama-3.1-8b-instruct-bnb-4bit")
-    p.add_argument("--adapter",   default=LORA_ADAPTER_PATH, help="LoRA adapter path")
+    p.add_argument("--input",      required=True,  help="Input JSONL (predict or ablation)")
+    p.add_argument("--output",     required=True,  help="Output JSONL (per-sample results)")
+    # 独立模式需要；客户端模式（--server-url）时可省略
+    p.add_argument("--ckpt",       default=None,   help="TransferNet checkpoint (.pt) [独立模式必填]")
+    p.add_argument("--input_dir",  default=None,   help="TransferNet data dir [独立模式必填]")
+    p.add_argument("--model",      default="unsloth/meta-llama-3.1-8b-instruct-bnb-4bit")
+    p.add_argument("--adapter",    default=LORA_ADAPTER_PATH, help="LoRA adapter path")
     p.add_argument("--entity_map", default=None,
-                   help="Optional MID→name TSV used to score name-format predictions as MIDs")
-    p.add_argument("--limit",     type=int, default=0, help="Evaluate first N samples (0=all)")
-    p.add_argument("--device",    default="cuda")
+                   help="MID→name TSV for scoring name-format predictions as MIDs. "
+                        "若未指定且 --input_dir 已设置，自动从 <input_dir>/fbwq_full/mapped_entities.txt 加载。")
+    p.add_argument("--limit",      type=int, default=0, help="Evaluate first N samples (0=all)")
+    p.add_argument("--device",     default="cuda")
+    p.add_argument("--server-url", default=None,
+                   help="模型服务器地址（如 http://localhost:8787）。"
+                        "设置后跳过本地模型加载，通过 HTTP 调用推理。")
     return p.parse_args()
 
 
@@ -187,6 +216,85 @@ def _eta(elapsed, done, total):
 
 
 # ---------------------------------------------------------------------------
+# 客户端模式：通过 HTTP 调用模型服务器
+# ---------------------------------------------------------------------------
+
+def _check_server_health(server_url: str, log: logging.Logger):
+    """检查服务器是否可达，失败则 sys.exit。"""
+    url = f"{server_url.rstrip('/')}/health"
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.loads(resp.read())
+        log.info("Server health OK: %s", data)
+    except (urllib.error.URLError, OSError) as e:
+        log.error("Cannot reach model server at %s: %s", server_url, e)
+        log.error("请先启动：conda run -n py312_t271_cuda python scripts/model_server.py "
+                  "--ckpt <CKPT> --input_dir <DIR> --port 8787")
+        sys.exit(1)
+
+def _run_sample_remote(server_url: str, question: str, topic_entity: str,
+                        timeout: int = 120) -> tuple[list, list, dict]:
+    """向模型服务器发送单条推理请求，返回 (pred_answer, evidence_paths)。
+
+    异常策略：
+    - HTTPError（4xx/5xx）：读取响应体后重新抛出，便于诊断服务端错误
+    - URLError / OSError：直接抛出（连接失败）
+    - JSON 解析失败 / 字段缺失：返回空结果，不中断整体评测
+    """
+    url = f"{server_url.rstrip('/')}/run"
+    payload = json.dumps(
+        {
+            "question": question,
+            "topic_entity": topic_entity,
+        },
+                          ensure_ascii=False).encode()
+    req = urllib.request.Request(
+        url, data=payload,
+        headers={"Content-Type": "application/json; charset=utf-8"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")
+        raise RuntimeError(
+            f"Server returned HTTP {e.code} for question={question!r}: {body}"
+        ) from e
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(
+            f"Server returned non-JSON response: {raw[:200]!r}"
+        ) from e
+
+    debug = {
+        "agent_mode": data.get("agent_mode"),
+        "selected_source": data.get("selected_source"),
+        "fallback_used": data.get("fallback_used"),
+        "final_evidence_source": data.get("final_evidence_source"),
+    }
+    return data.get("pred_answer", []), data.get("evidence_paths", []), debug
+
+
+def _predict_online(
+    *,
+    use_server: bool,
+    server_url: str | None,
+    question: str,
+    topic_entity: str,
+    agent,
+) -> tuple[list, list, dict]:
+    if use_server:
+        return _run_sample_remote(server_url, question, topic_entity)
+
+    pred_answers = agent.run(question, topic_entity)
+    evidence_paths = agent.last_evidence_paths
+    debug_meta = dict(agent.last_run_metadata)
+    return pred_answers, evidence_paths, debug_meta
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -195,16 +303,33 @@ def main():
     log = setup_logger(args.output)
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
 
+    server_url = getattr(args, "server_url", None)  # argparse 将 --server-url 转为 server_url
+    use_server = bool(server_url)
+
     log.info("=" * 60)
     log.info("PathfinderAgent Evaluation")
-    log.info("  input    : %s", args.input)
-    log.info("  output   : %s", args.output)
-    log.info("  ckpt     : %s", args.ckpt)
-    log.info("  adapter  : %s", args.adapter)
-    log.info("  entity_map: %s", args.entity_map)
+    log.info("  mode      : %s", "客户端（server=%s）" % server_url if use_server else "独立")
+    log.info("  input     : %s", args.input)
+    log.info("  output    : %s", args.output)
+    if not use_server:
+        log.info("  ckpt      : %s", args.ckpt)
+        log.info("  adapter   : %s", args.adapter)
+    # 若未显式指定 entity_map，尝试从 input_dir 自动推断
+    entity_map_path = args.entity_map
+    if not entity_map_path and args.input_dir:
+        _candidates = [
+            os.path.join(args.input_dir, "fbwq_full", "mapped_entities.txt"),
+            os.path.join(args.input_dir, "mapped_entities.txt"),
+        ]
+        for _c in _candidates:
+            if os.path.exists(_c):
+                entity_map_path = _c
+                break
+
+    log.info("  entity_map: %s", entity_map_path or "(none)")
     log.info("=" * 60)
 
-    entity_map, rev_entity_map = load_eval_entity_map(args.entity_map)
+    entity_map, rev_entity_map = load_eval_entity_map(entity_map_path)
     if entity_map:
         log.info("Loaded entity map: %d MID labels, %d reverse labels",
                  len(entity_map), len(rev_entity_map))
@@ -216,18 +341,25 @@ def main():
         records = records[:args.limit]
     log.info("Samples to evaluate: %d", len(records))
 
-    # -- Initialize agent (model + adapter loaded inside __init__) --
-    agent = PathfinderAgent(
-        model_name=args.model,
-        adapter_path=args.adapter,
-        device=args.device,
-    )
-
-    # -- Build TransferNet wrapper --
-    log.info("Loading TransferNet from %s ...", args.ckpt)
-    transfernet = TransferNetWrapper(data_dir=args.input_dir, ckpt_path=args.ckpt)
-    agent.transfernet_wrapper = transfernet
-    log.info("TransferNet ready.")
+    # -- 初始化推理后端 --
+    if use_server:
+        _check_server_health(server_url, log)
+        agent = None
+    else:
+        if not args.ckpt or not args.input_dir:
+            log.error("独立模式下 --ckpt 和 --input_dir 为必填项。"
+                      "如需跳过模型加载请使用 --server-url。")
+            sys.exit(1)
+        agent = PathfinderAgent(
+            model_name=args.model,
+            adapter_path=args.adapter,
+            device=args.device,
+        )
+        _suppress_transformers_warning_noise()
+        log.info("Loading TransferNet from %s ...", args.ckpt)
+        transfernet = TransferNetWrapper(data_dir=args.input_dir, ckpt_path=args.ckpt)
+        agent.transfernet_wrapper = transfernet
+        log.info("TransferNet ready.")
 
     # -- Evaluation loop --
     results = []
@@ -238,7 +370,6 @@ def main():
         golden       = record.get("golden", [])
         topics_field = record.get("topics", [])
         topic_entity = topics_field[0] if topics_field else ""
-
         if i > 0 and i % 20 == 0:
             elapsed = time.time() - start_time
             log.info("Progress: %d/%d (%.1f%%)  %s",
@@ -246,8 +377,14 @@ def main():
                      _eta(elapsed, i, len(records)))
 
         try:
-            pred_answers = agent.run(question, topic_entity)
-            evidence_paths = agent.last_evidence_paths
+            pred_answers, evidence_paths, debug_meta = _predict_online(
+                use_server=use_server,
+                server_url=server_url,
+                question=question,
+                topic_entity=topic_entity,
+                agent=agent,
+            )
+
             pred_scored, pred_expanded, m = resolve_scored_answers(
                 pred_answers=pred_answers,
                 golden=golden,
@@ -260,6 +397,10 @@ def main():
                 "golden":       golden,
                 "pred_answer":  pred_scored,
                 "pred_answer_raw": pred_answers,
+                "agent_mode": debug_meta.get("agent_mode"),
+                "selected_source": debug_meta.get("selected_source"),
+                "fallback_used": debug_meta.get("fallback_used"),
+                "final_evidence_source": debug_meta.get("final_evidence_source"),
                 **m,
             }
             if pred_expanded is not None:
@@ -273,6 +414,10 @@ def main():
                 "pred_answer": [],
                 "hit1": 0, "hit_any": 0, "f1": 0.0,
                 "precision": 0.0, "recall": 0.0,
+                "agent_mode": None,
+                "selected_source": None,
+                "fallback_used": False,
+                "final_evidence_source": None,
                 "error": str(e),
             }
 
