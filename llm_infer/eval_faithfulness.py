@@ -172,7 +172,7 @@ def parse_output(raw: str, fmt: str) -> dict:
 
     def _parse_answers(ans_raw: str) -> list:
         return _dedup(
-            e.strip().strip('"\'[]') for e in re.split(r"[|,]", ans_raw)
+            e.strip().strip('"\'[]') for e in ans_raw.split("|")
             if e.strip() and not _PLACEHOLDER_RE.match(e.strip().strip('"\'[]'))
         )
 
@@ -183,7 +183,7 @@ def parse_output(raw: str, fmt: str) -> dict:
             return {"answers": _parse_answers(ans_raw), "cited_indices": set(), "format_ok": True}
         # fallback
         lines = [l.strip() for l in raw.splitlines() if l.strip()]
-        answers = _dedup(e.strip() for e in re.split(r"[|,]", lines[-1]) if e.strip()) if lines else []
+        answers = _parse_answers(lines[-1]) if lines else []
         return {"answers": answers, "cited_indices": set(), "format_ok": False}
 
     elif fmt == "v2":

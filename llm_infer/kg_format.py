@@ -238,24 +238,24 @@ def format_path_str_schema(path_edges: list, log_score: float, idx: int,
     """将路径序列化为 schema-aware 连续链式格式。
 
     关系字典中的关系语义按 subject -> object 定义。普通边显示为
-    '(s) -[relation]-> (o)'；反向边 '*_reverse' 保持路径遍历顺序，
-    但用 '<-[relation]-' 表明基础关系的语义方向与遍历方向相反。
+    's - [relation] -> o'；反向边 '*_reverse' 保持路径遍历顺序，
+    但用 '<- [relation] -' 表明基础关系的语义方向与遍历方向相反。
 
-    单跳: 'N: (Person A) -[place of birth]-> (City)'
-    多跳: 'N: (Person A) -[place of birth]-> (City) <-[contained by]- (Country)'
+    单跳: 'N: Person A - [place of birth] -> City'
+    多跳: 'N: Person A - [place of birth] -> City <- [contained by] - Country'
     """
     if not path_edges:
         return f"{idx}:"
 
-    parts = [f"({path_edges[0][0]})"]
+    parts = [path_edges[0][0]]
     for head, rel, tail in path_edges:
-        current_head = f"({head})"
+        current_head = head
         if parts[-1] != current_head:
             parts.append(current_head)
         label = _rel_to_schema_label(rel)
         _, is_reverse = _split_reverse_relation(rel)
-        arrow = f"<-[{label}]-" if is_reverse else f"-[{label}]->"
-        parts.extend([arrow, f"({tail})"])
+        arrow = f"<- [{label}] -" if is_reverse else f"- [{label}] ->"
+        parts.extend([arrow, tail])
 
     chain = " ".join(parts)
     if show_score:
