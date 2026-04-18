@@ -13,6 +13,7 @@ from .data import load_data
 from .model import TransferNet
 from .predict import validate
 from transformers import AdamW
+from torch.amp import autocast, GradScaler
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)-8s %(message)s')
 logFormatter = logging.Formatter('%(asctime)s %(levelname)-8s %(message)s')
@@ -63,6 +64,7 @@ def train(args):
         raise NotImplementedError
     args.warmup_steps = int(t_total * args.warmup_proportion)
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=t_total)
+    scaler = GradScaler('cuda', enabled=torch.cuda.is_available())
     meters = MetricLogger(delimiter="  ")
     # validate(args, model, val_loader, device)
     logging.info("Start training........")
@@ -71,8 +73,9 @@ def train(args):
         model.train()
         for iteration, batch in enumerate(train_loader):
             iteration = iteration + 1
-            loss = model(*batch_device(batch, device))
             optimizer.zero_grad()
+            with autocast('cuda', enabled=torch.cuda.is_available()):
+                loss = model(*batch_device(batch, device))
             if isinstance(loss, dict):
                 if len(loss) > 1:
                     total_loss = sum(loss.values())
@@ -82,10 +85,11 @@ def train(args):
             else:
                 total_loss = loss
                 meters.update(loss=loss.item())
-            total_loss.backward()
-            nn.utils.clip_grad_value_(model.parameters(), 0.5)
+            scaler.scale(total_loss).backward()
+            scaler.unscale_(optimizer)
             nn.utils.clip_grad_norm_(model.parameters(), 2)
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
             scheduler.step()
 
             if iteration % (len(train_loader) // 10) == 0:

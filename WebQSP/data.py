@@ -5,6 +5,11 @@ from collections import defaultdict
 from transformers import AutoTokenizer
 from utils.misc import invert_dict
 
+
+def normalize_answers(answer_text):
+    return [answer.strip() for answer in answer_text.split('|') if answer.strip()]
+
+
 def collate(batch):
     batch = list(zip(*batch))
     topic_entity, question, answer, entity_range = batch
@@ -52,59 +57,84 @@ class DataLoader(torch.utils.data.DataLoader):
 
         sub_map = defaultdict(list)
         so_map = defaultdict(list)
-        for line in open(os.path.join(input_dir, 'fbwq_full/train.txt')):
-            l = line.strip().split('\t')
-            s = l[0].strip()
-            p = l[1].strip()
-            o = l[2].strip()
-            sub_map[s].append((p, o))
-            so_map[(s, o)].append(p)
+        with open(os.path.join(input_dir, 'fbwq_full/train.txt')) as fp:
+            for line in fp:
+                l = line.strip().split('\t')
+                s = l[0].strip()
+                p = l[1].strip()
+                o = l[2].strip()
+                sub_map[s].append((p, o))
+                so_map[(s, o)].append(p)
 
 
         data = []
-        for line in open(fn):
-            line = line.strip()
-            if line == '':
-                continue
-            line = line.split('\t')
-            # if no answer
-            if len(line) != 2:
-                continue
-            question = line[0].split('[')
-            question_1 = question[0]
-            question_2 = question[1].split(']')
-            head = question_2[0].strip()
-            question_2 = question_2[1]
-            # question = question_1 + 'NE' + question_2
-            question = question_1.strip()
-            ans = line[1].split('|')
+        missing_answer_count = 0
+        skipped_missing_answer_count = 0
+        missing_answer_examples = []
+        with open(fn) as fp:
+            for line_no, line in enumerate(fp, 1):
+                line = line.strip()
+                if line == '':
+                    continue
+                line = line.split('\t')
+                # if no answer
+                if len(line) != 2:
+                    continue
+                question = line[0].split('[')
+                question_1 = question[0]
+                question_2 = question[1].split(']')
+                head = question_2[0].strip()
+                question_2 = question_2[1]
+                # question = question_1 + 'NE' + question_2
+                question = question_1.strip()
+                ans = normalize_answers(line[1])
 
+                # if (head, ans[0]) not in so_map:
+                #     continue
 
-            # if (head, ans[0]) not in so_map:
-            #     continue
+                valid_ans = []
+                for a in ans:
+                    if a in ent2id:
+                        valid_ans.append(ent2id[a])
+                    else:
+                        missing_answer_count += 1
+                        if len(missing_answer_examples) < 5:
+                            missing_answer_examples.append((line_no, a))
+                if not valid_ans:
+                    skipped_missing_answer_count += 1
+                    continue
 
-            entity_range = set()
-            for p, o in sub_map[head]:
-                entity_range.add(o)
-                for p2, o2 in sub_map[o]:
-                    entity_range.add(o2)
-            entity_range = [ent2id[o] for o in entity_range]
+                entity_range = set()
+                for p, o in sub_map[head]:
+                    entity_range.add(o)
+                    for p2, o2 in sub_map[o]:
+                        entity_range.add(o2)
+                entity_range = [ent2id[o] for o in entity_range]
 
-            head = [ent2id[head]]
-            question = self.tokenizer(question.strip(), max_length=64, padding='max_length', return_tensors="pt")
-            ans = [ent2id[a] for a in ans]
-            data.append([head, question, ans, entity_range])
+                head = [ent2id[head]]
+                question = self.tokenizer(question.strip(), max_length=64, padding='max_length', return_tensors="pt")
+                data.append([head, question, valid_ans, entity_range])
 
         print('data number: {}'.format(len(data)))
+        if missing_answer_count:
+            print(
+                'Warning: skipped {} unknown answer entities and dropped {} questions with no valid answers while reading {}. Examples: {}'.format(
+                    missing_answer_count,
+                    skipped_missing_answer_count,
+                    fn,
+                    missing_answer_examples,
+                )
+            )
         
         dataset = Dataset(data, ent2id)
 
         super().__init__(
-            dataset, 
+            dataset,
             batch_size=batch_size,
             shuffle=training,
-            collate_fn=collate, 
-            )
+            collate_fn=collate,
+            pin_memory=torch.cuda.is_available(),
+        )
 
 
 def load_data(input_dir, bert_name, batch_size):
@@ -139,7 +169,7 @@ def load_data(input_dir, bert_name, batch_size):
         triples = torch.LongTensor(triples)
 
         train_data = DataLoader(input_dir, os.path.join(input_dir, 'QA_data/WebQuestionsSP/qa_train_webqsp.txt'), bert_name, ent2id, rel2id, batch_size, training=True)
-        test_data = DataLoader(input_dir, os.path.join(input_dir, 'QA_data/WebQuestionsSP/qa_test_webqsp.txt'), bert_name, ent2id, rel2id, batch_size)
+        test_data = DataLoader(input_dir, os.path.join(input_dir, 'QA_data/WebQuestionsSP/qa_test_webqsp_fixed.txt'), bert_name, ent2id, rel2id, batch_size)
     
         with open(cache_fn, 'wb') as fp:
             pickle.dump((ent2id, rel2id, triples, train_data, test_data), fp)

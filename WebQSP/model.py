@@ -41,7 +41,8 @@ class TransferNet(nn.Module):
 
 
     def follow(self, e, r):
-        x = torch.sparse.mm(self.Msubj, e.t()) * torch.sparse.mm(self.Mrel, r.t())
+        # cast r to float32: sparse mm doesn't support float16 (AMP compat)
+        x = torch.sparse.mm(self.Msubj, e.t()) * torch.sparse.mm(self.Mrel, r.float().t())
         return torch.sparse.mm(self.Mobj.t(), x).t() # [bsz, Esize]
 
     def forward(self, heads, questions, answers=None, entity_range=None):
