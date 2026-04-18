@@ -13,6 +13,7 @@
 #   Group F: 拒答能力训练 (chain+v2, 含 Hit@K=0 拒答样本)
 #   Group G: 训练轮数消融 (epochs 1-5, chain+name+v2, limit=500)
 #   Group H: 无路径基线 (base model 直接回答，无检索路径输入)
+#   Group J: Schema-aware 路径格式 (schema × MID/name，含微调与 base model 零样本)
 #
 # 特性：
 #   - 三步流程：build_kgcot_dataset → train_sft → eval_faithfulness
@@ -33,6 +34,7 @@
 #   BEST_ADAPTER=models/my_adapter bash scripts/run_ablation.sh --group C
 #   bash scripts/run_ablation.sh --group G                  # 只跑 Group G（训练轮数消融）
 #   bash scripts/run_ablation.sh --group H                  # 只跑 Group H（无路径基线）
+#   bash scripts/run_ablation.sh --group J                  # 只跑 Group J（schema 路径格式）
 #
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -82,11 +84,11 @@ PATHS_DIR="${DATASET_PATHS_DIR}"
 ABLATION_DATA="${DATASET_ABLATION_DATA}"
 ABLATION_MODELS="${DATASET_ABLATION_MODELS}"
 TEST_BEAM20_LAM02="${DATASET_TEST_BEAM20_LAM02}"
-BASELINE_ADAPTER="$(resolve_baseline_adapter "${PROJECT_DIR}" "${MODEL_DATASET}")"
 EVAL_LIMIT="${EVAL_LIMIT:-$(resolve_eval_limit "${RUN_DATASET}")}"
 # Group C 使用的 adapter，可通过环境变量覆盖
 # 默认使用 groupAname_v2（chain+name+v2，消融最优配置）
-BEST_ADAPTER="${BEST_ADAPTER:-$(resolve_slot_adapter "${PROJECT_DIR}" "${MODEL_DATASET}" "groupAname_v2")}"
+DEFAULT_BEST_ADAPTER="$(resolve_slot_adapter "${PROJECT_DIR}" "${MODEL_DATASET}" "groupAname_v2" 2>/dev/null || true)"
+BEST_ADAPTER="${BEST_ADAPTER:-${DEFAULT_BEST_ADAPTER}}"
 
 # ── 辅助函数 ──────────────────────────────────────────────────────────────────
 
@@ -264,6 +266,28 @@ run_base_eval() {
     echo "[INFO] 评估完成，耗时 $(($(date +%s) - T0))s"
 }
 
+# run_schema_experiment CONFIG_NAME BUILD_EXTRA_FLAGS EVAL_EXTRA_FLAGS
+#   用于 Group J：all/train 时正常构建+训练；eval 时若 adapter 不存在则跳过微调项，
+#   让 base model 零样本 schema 评测仍可直接运行。
+run_schema_experiment() {
+    local config_name="$1"
+    local build_extra="${2:-}"
+    local eval_extra="${3:-}"
+
+    if [[ "${RUN_PHASE}" == "eval" ]]; then
+        local eval_adapter
+        local expected_adapter="${ABLATION_MODELS}/${config_name}"
+        eval_adapter="$(resolve_slot_adapter "${PROJECT_DIR}" "${MODEL_DATASET}" "${config_name}" 2>/dev/null || true)"
+        if [[ -n "${eval_adapter}" && -d "${eval_adapter}" ]]; then
+            run_eval_only "${config_name}" "${eval_adapter}" "${TEST_BEAM20_LAM02}" "v2" "${eval_extra}"
+        else
+            echo "[WARN] ${config_name} adapter 不存在，跳过微调评测，继续 base model 评测: ${expected_adapter}"
+        fi
+    else
+        run_experiment "${config_name}" "v2" "${build_extra}" "${eval_extra}"
+    fi
+}
+
 # ── 入口检查 ──────────────────────────────────────────────────────────────────
 echo "======================================================"
 echo "  消融实验编排脚本"
@@ -274,8 +298,7 @@ echo "  TRAIN_INPUT   : ${TRAIN_INPUT}"
 echo "  PATHS_DIR     : ${PATHS_DIR}"
 echo "  ABLATION_DATA : ${ABLATION_DATA}"
 echo "  ABLATION_MODELS: ${ABLATION_MODELS}"
-echo "  BASELINE_ADAPTER: ${BASELINE_ADAPTER}"
-echo "  BEST_ADAPTER  : ${BEST_ADAPTER}"
+echo "  BEST_ADAPTER  : ${BEST_ADAPTER:-None}"
 echo "  EVAL_LIMIT    : ${EVAL_LIMIT}"
 echo "  RUN_GROUP     : ${RUN_GROUP}"
 echo "  RUN_PHASE     : ${RUN_PHASE}"
@@ -292,11 +315,6 @@ if [[ ! -f "${TEST_BEAM20_LAM02}" ]]; then
     echo "[ERROR] 测试集不存在: ${TEST_BEAM20_LAM02}"
     exit 1
 fi
-if [[ ! -d "${BASELINE_ADAPTER}" ]]; then
-    echo "[ERROR] 基线 adapter 不存在: ${BASELINE_ADAPTER}"
-    exit 1
-fi
-
 WALL_START=$(date +%s)
 
 # ── Group A: 输出格式消融 ─────────────────────────────────────────────────────
@@ -306,9 +324,8 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "A" ]]; then
     # v1: answer-only，无 citation
     run_experiment "groupA_v1" "v1" "" ""
 
-    # v2: 基线，直接复用已有 adapter 做 eval
-    log_section "实验: groupA_v2 (baseline, format=v2)"
-    run_eval_only "groupA_v2" "${BASELINE_ADAPTER}" "${TEST_BEAM20_LAM02}" "v2" ""
+    # v2: 基线格式，同样由本脚本构建、训练、评测，不依赖外部 adapter
+    run_experiment "groupA_v2" "v2" "" ""
 
     # v3: JSON 格式
     run_experiment "groupA_v3" "v3" "" ""
@@ -423,9 +440,9 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "D" ]]; then
         exit 1
     fi
 
-    # D-arrow-mid: 复用基线 adapter（与 GroupA v2 完全相同）
-    log_section "实验: groupD_arrow_mid (arrow+MID, baseline eval)"
-    run_eval_only "groupD_arrow_mid" "${BASELINE_ADAPTER}" "${TEST_BEAM20_LAM02}" "v2" \
+    # D-arrow-mid: arrow 格式 + MID
+    run_experiment "groupD_arrow_mid" "v2" \
+        "--path_format arrow" \
         "--path_format arrow"
 
     # D-arrow-name: arrow 格式 + 实体名称
@@ -542,6 +559,34 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "H" ]]; then
             echo "[WARN] BEST_ADAPTER 不存在，跳过 H2: ${BEST_ADAPTER}"
         fi
     fi
+fi
+
+# ── Group J: Schema-aware 路径格式 ─────────────────────────────────────────────
+if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "J" ]]; then
+    log_section "Group J: Schema-aware 路径格式 (schema × MID/name, v2 输出)"
+
+    ENTITY_MAP="${PROJECT_DIR}/data/resources/WebQSP/fbwq_full/mapped_entities.txt"
+
+    if [[ ! -f "${ENTITY_MAP}" ]]; then
+        echo "[ERROR] 实体映射文件不存在: ${ENTITY_MAP}"
+        exit 1
+    fi
+
+    # J1: schema + MID，训练 adapter 并做 v2 评测
+    run_schema_experiment "groupJ_schema_mid" \
+        "--path_format schema" \
+        "--path_format schema"
+
+    # J2: schema + name，训练 adapter 并做 v2 评测
+    run_schema_experiment "groupJ_schema_name" \
+        "--path_format schema --entity_map ${ENTITY_MAP}" \
+        "--path_format schema --entity_map ${ENTITY_MAP}"
+
+    # J3/J4: base model 零样本，直接使用 schema 路径输入做 v2 评测
+    run_base_eval "groupJ_schema_base_mid" "${TEST_BEAM20_LAM02}" "v2" \
+        "--path_format schema"
+    run_base_eval "groupJ_schema_base_name" "${TEST_BEAM20_LAM02}" "v2" \
+        "--path_format schema --entity_map ${ENTITY_MAP}"
 fi
 
 # ── 完成 ──────────────────────────────────────────────────────────────────────

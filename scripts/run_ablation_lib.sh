@@ -48,30 +48,6 @@ resolve_eval_limit() {
     esac
 }
 
-resolve_baseline_adapter() {
-    local project_dir="$1"
-    local model_dataset="$2"
-    local primary="${project_dir}/models/${model_dataset}/${model_dataset}_v2"
-    local fallback="${project_dir}/models/webqsp/webqsp_v2"
-    local legacy_fallback="${project_dir}/models/webqsp_v2_best"
-
-    if [[ -d "${primary}" ]]; then
-        printf '%s\n' "${primary}"
-        return 0
-    fi
-    if [[ -d "${fallback}" ]]; then
-        printf '%s\n' "${fallback}"
-        return 0
-    fi
-    if [[ -d "${legacy_fallback}" ]]; then
-        printf '%s\n' "${legacy_fallback}"
-        return 0
-    fi
-
-    echo "[ERROR] baseline adapter 不存在: ${primary} 或 ${fallback} 或 ${legacy_fallback}" >&2
-    return 1
-}
-
 resolve_slot_adapter() {
     local project_dir="$1"
     local model_dataset="$2"

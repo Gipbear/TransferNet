@@ -375,10 +375,10 @@ class ReasonAndCiteTool(BaseTool):
             if _llm_infer_dir not in sys.path:
                 sys.path.insert(0, _llm_infer_dir)
 
-            from kg_format import FORMAT_PROMPTS, build_user_content
+            from kg_format import FORMAT_PROMPTS, build_user_content, clean_question_text
             from eval_faithfulness import parse_output
 
-            question = self._ctx.question
+            question = clean_question_text(self._ctx.question)
             paths = self._ctx.current_paths
 
             if not question:

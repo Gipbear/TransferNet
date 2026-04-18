@@ -58,7 +58,8 @@ logging.getLogger("transformers").setLevel(logging.ERROR)
 
 # kg_format 与本脚本同目录（llm_infer/）
 from kg_format import (FORMAT_PROMPTS, build_user_content, build_user_content_no_paths,
-                       load_entity_map, apply_entity_map, build_reverse_entity_map)
+                       clean_question_text, load_entity_map, apply_entity_map,
+                       build_reverse_entity_map)
 
 
 # ─── 日志 ─────────────────────────────────────────────────────────────────────
@@ -565,8 +566,8 @@ def parse_args():
     p.add_argument("--show_score",      action="store_true",
                    help="路径字符串中包含 [score=S]（默认不含；需与训练时对齐）")
     p.add_argument("--path_format",    default="arrow",
-                   choices=["arrow", "nl", "tuple", "chain"],
-                   help="路径表示方式: arrow=符号格式(默认) nl=自然语言格式 tuple=三元组 chain=连续链式")
+                   choices=["arrow", "nl", "tuple", "chain", "schema"],
+                   help="路径表示方式: arrow=符号格式(默认) nl=自然语言格式 tuple=三元组 chain=连续链式 schema=语义方向感知链式")
     p.add_argument("--entity_map", default=None,
                    help="实体映射文件路径 (MID→Name, tab-separated)")
     p.add_argument("--num_runs",       type=int, default=1,
@@ -632,7 +633,7 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
         path_format = "nl"
 
     def prepare_sample(sample):
-        question  = sample.get("question", "")
+        question  = clean_question_text(sample.get("question", ""))
         mmr_paths = list(sample.get("mmr_reason_paths", []))
         golden    = sample.get("golden", [])
 

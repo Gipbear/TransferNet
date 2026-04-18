@@ -9,3 +9,4 @@ models
 .worktrees/
 MetaQA_KB/predict_result*.json
 MetaQA_KB/predict_result*.jsonl
+.omx/

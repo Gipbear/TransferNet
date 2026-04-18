@@ -5,6 +5,8 @@ KG 路径格式化工具函数（共享模块）
 确保训练与评估时路径字符串格式、System Prompt 完全一致。
 """
 
+import re
+
 
 # ─── System Prompts ───────────────────────────────────────────────────────────
 
@@ -164,6 +166,29 @@ def _rel_to_text(rel: str) -> str:
     return rel.replace(".", " ").replace("_", " ")
 
 
+_REL_LABEL_OVERRIDES = {
+    "containedby": "contained by",
+}
+
+
+def _split_reverse_relation(rel: str) -> tuple[str, bool]:
+    """返回去掉 _reverse 的基础关系名，以及该边是否为反向边。"""
+    if rel.endswith("_reverse"):
+        return rel[: -len("_reverse")], True
+    return rel, False
+
+
+def _rel_to_schema_label(rel: str) -> str:
+    """将 Freebase 关系转成 schema 格式使用的短标签。
+
+    关系的语义由 subject -> object 定义，因此 schema 格式只展示属性名
+    的最后一段，并由箭头方向表达是否使用了反向边。
+    """
+    base_rel, _ = _split_reverse_relation(rel)
+    leaf = base_rel.rsplit(".", 1)[-1]
+    return _REL_LABEL_OVERRIDES.get(leaf, leaf.replace("_", " "))
+
+
 def format_path_str_nl(path_edges: list, log_score: float, idx: int,
                        show_score: bool = False) -> str:
     """将路径序列化为自然语言句子（供 V5 使用）。
@@ -203,6 +228,36 @@ def format_path_str_chain(path_edges: list, log_score: float, idx: int,
     for e in path_edges:
         parts.extend([e[1], e[2]])
     chain = " -> ".join(parts)
+    if show_score:
+        return f"{idx} [score={log_score:.4f}]: {chain}"
+    return f"{idx}: {chain}"
+
+
+def format_path_str_schema(path_edges: list, log_score: float, idx: int,
+                           show_score: bool = False) -> str:
+    """将路径序列化为 schema-aware 连续链式格式。
+
+    关系字典中的关系语义按 subject -> object 定义。普通边显示为
+    '(s) -[relation]-> (o)'；反向边 '*_reverse' 保持路径遍历顺序，
+    但用 '<-[relation]-' 表明基础关系的语义方向与遍历方向相反。
+
+    单跳: 'N: (Person A) -[place of birth]-> (City)'
+    多跳: 'N: (Person A) -[place of birth]-> (City) <-[contained by]- (Country)'
+    """
+    if not path_edges:
+        return f"{idx}:"
+
+    parts = [f"({path_edges[0][0]})"]
+    for head, rel, tail in path_edges:
+        current_head = f"({head})"
+        if parts[-1] != current_head:
+            parts.append(current_head)
+        label = _rel_to_schema_label(rel)
+        _, is_reverse = _split_reverse_relation(rel)
+        arrow = f"<-[{label}]-" if is_reverse else f"-[{label}]->"
+        parts.extend([arrow, f"({tail})"])
+
+    chain = " ".join(parts)
     if show_score:
         return f"{idx} [score={log_score:.4f}]: {chain}"
     return f"{idx}: {chain}"
@@ -251,11 +306,23 @@ def build_reverse_entity_map(emap: dict) -> dict:
 
 # ─── User 消息构建 ────────────────────────────────────────────────────────────
 
+_QUESTION_BOUNDARY_TOKEN_RE = re.compile(r"\s*(?:\[CLS\]|\[SEP\])\s*")
+_WORDPIECE_MARKER_RE = re.compile(r"\s*##\s*")
+
+
+def clean_question_text(question: str) -> str:
+    """去掉 WebQSP 问题中的 BERT 特殊 token 和 wordpiece 标记。"""
+    question = _QUESTION_BOUNDARY_TOKEN_RE.sub(" ", question or "")
+    question = _WORDPIECE_MARKER_RE.sub("", question)
+    return " ".join(question.split()).strip()
+
+
 _FORMAT_FN_MAP = {
     "arrow":  format_path_str,
     "nl":     format_path_str_nl,
     "tuple":  format_path_str_tuple,
     "chain":  format_path_str_chain,
+    "schema": format_path_str_schema,
 }
 
 
@@ -266,7 +333,7 @@ def build_user_content(paths_with_meta: list, question: str,
     """构建 User 消息：问题前置，路径列表随后。
 
     paths_with_meta: [(path_edges, log_score, display_idx), ...]
-    path_format: 'arrow'（默认）/ 'nl'（自然语言）/ 'tuple'（三元组）/ 'chain'（连续链式）
+    path_format: 'arrow'（默认）/ 'nl'（自然语言）/ 'tuple'（三元组）/ 'chain'（连续链式）/ 'schema'（语义方向感知）
     entity_map: MID→Name 映射表（可选），提供时对路径实体做替换
     """
     fmt_fn = _FORMAT_FN_MAP.get(path_format)

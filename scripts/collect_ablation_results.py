@@ -162,12 +162,19 @@ def discover_logs(ablation_dir: str) -> list[dict]:
         group = classify_group(config_name)
 
         # 从文件名解析 test_stem 和 format
-        # 命名规则: {test_stem}_{fmt}_ft_eval.log
-        # 例: beam20_lam0.2_v2_ft_eval.log
+        # 命名规则:
+        #   {test_stem}_{fmt}_ft_eval.log  微调/adapter 评测
+        #   {test_stem}_{fmt}_eval.log     base model 零样本评测
+        # 例: beam20_lam0.2_v2_ft_eval.log / beam20_lam0.2_v2_eval.log
         stem = log_file.stem  # beam20_lam0.2_v2_ft_eval
-        if not stem.endswith("_ft_eval"):
+        if stem.endswith("_ft_eval"):
+            inner = stem[: -len("_ft_eval")]  # beam20_lam0.2_v2
+            eval_type = "ft"
+        elif stem.endswith("_eval"):
+            inner = stem[: -len("_eval")]  # beam20_lam0.2_v2
+            eval_type = "base"
+        else:
             continue
-        inner = stem[: -len("_ft_eval")]  # beam20_lam0.2_v2
         # 最后一个 _ 前为 test_stem，后为 fmt
         parts = inner.rsplit("_", 1)
         if len(parts) != 2:
@@ -180,6 +187,7 @@ def discover_logs(ablation_dir: str) -> list[dict]:
             "log_path":  str(log_file),
             "test_stem": test_stem,
             "fmt":       fmt,
+            "eval_type": eval_type,
         })
 
     return records
@@ -194,6 +202,8 @@ def classify_group(config_name: str) -> str:
         return "C"
     if config_name.startswith("groupF"):
         return "F"
+    if config_name.startswith("groupJ"):
+        return "J"
     return "X"
 
 
@@ -353,6 +363,48 @@ def print_group_f(rows: list[dict]):
           + ("  [±std = 多轮汇总]" if std else ""))
 
 
+def print_group_j(rows: list[dict]):
+    """Group J: schema-aware 路径格式对照表。"""
+    std = _has_std(rows)
+    cw = 14 if std else 7
+    total = 30 + 7 + 1 + (cw + 1) * 6 + 8
+    print("\n" + "=" * total)
+    print("  Group J: Schema-aware 路径格式 (v2 输出)")
+    print("=" * total)
+    header = (f"{'Config':<30}"
+              f" {'Type':<7}"
+              f" {'Hit@1':>{cw}}"
+              f" {'MacroF1':>{cw+1}}"
+              f" {'EM':>{cw}}"
+              f" {'CitAcc':>{cw}}"
+              f" {'CitRec':>{cw}}"
+              f" {'Hallu':>{cw}}"
+              f" {'n':>6}")
+    print(header)
+    print("-" * total)
+    order = {
+        "groupJ_schema_mid": 0,
+        "groupJ_schema_name": 1,
+        "groupJ_schema_base_mid": 2,
+        "groupJ_schema_base_name": 3,
+    }
+    for r in sorted(rows, key=lambda x: order.get(x.get("config", ""), 99)):
+        m = r.get("metrics") or {}
+        eval_type = r.get("eval_type", "ft")
+        print(
+            f"{r.get('config', '?'):<30}"
+            f" {eval_type:<7}"
+            f" {fmt_val(m.get('hit1'),             m.get('hit1_std')):>{cw}}"
+            f" {fmt_val(m.get('macro_f1'),          m.get('macro_f1_std')):>{cw+1}}"
+            f" {fmt_val(m.get('exact_match'),       m.get('exact_match_std')):>{cw}}"
+            f" {fmt_val(m.get('citation_accuracy'), m.get('citation_accuracy_std')):>{cw}}"
+            f" {fmt_val(m.get('citation_recall'),   m.get('citation_recall_std')):>{cw}}"
+            f" {fmt_val(m.get('hallucination_rate'),m.get('hallucination_rate_std')):>{cw}}"
+            f" {m.get('n') or '--':>6}"
+        )
+    print(("  [±std = 多轮汇总]" if std else ""))
+
+
 # ─── CSV 写出 ─────────────────────────────────────────────────────────────────
 
 _METRIC_KEYS = [
@@ -364,7 +416,7 @@ _METRIC_KEYS = [
 ]
 
 CSV_FIELDS = (
-    ["group", "config", "test_stem", "fmt", "n"]
+    ["group", "config", "test_stem", "fmt", "eval_type", "n"]
     + _METRIC_KEYS
     + [f"{k}_std" for k in _METRIC_KEYS]
     + ["log_path"]
@@ -383,6 +435,7 @@ def write_csv(all_rows: list[dict], csv_path: str):
                 "config":    r.get("config"),
                 "test_stem": r.get("test_stem"),
                 "fmt":       r.get("fmt"),
+                "eval_type": r.get("eval_type"),
                 "log_path":  r.get("log_path"),
                 "n":         m.get("n"),
             }
@@ -796,6 +849,7 @@ def main():
             "log_path":  baseline_path,
             "test_stem": test_stem,
             "fmt":       fmt,
+            "eval_type": "ft" if stem.endswith("_ft_eval") else "base",
         })
         print(f"[INFO] 外部基线 log 已加入: {baseline_path}")
 
@@ -814,6 +868,7 @@ def main():
     group_b = [r for r in records if r["group"] == "B"]
     group_c = [r for r in records if r["group"] == "C"]
     group_f = [r for r in records if r["group"] == "F"]
+    group_j = [r for r in records if r["group"] == "J"]
 
     # 打印表格
     if group_a:
@@ -830,6 +885,9 @@ def main():
 
     if group_f:
         print_group_f(group_f)
+
+    if group_j:
+        print_group_j(group_j)
 
     # 写 CSV
     write_csv(records, csv_path)

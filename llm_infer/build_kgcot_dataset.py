@@ -43,6 +43,7 @@ from typing import Optional
 from kg_format import (
     FORMAT_PROMPTS,
     build_user_content,
+    clean_question_text,
     load_entity_map,
     map_answers,
 )
@@ -200,12 +201,12 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
     返回 None 表示样本无效（无问题/无答案），或 Hit@K 未命中且未启用拒答。
 
     show_score:        路径字符串中是否包含 [score=S]（False 用于消融实验）
-    path_format:       路径表示方式 'arrow'（符号）或 'nl'（自然语言，V9 使用）
+    path_format:       路径表示方式 'arrow'/'nl'/'tuple'/'chain'/'schema'
     include_rejection: True 时，Hit@K=0 样本不丢弃，而是生成拒答训练样本（Group F）
     synthetic_rejection: True 时，显式移除 answerable 样本中的 golden paths，
                          仅保留 distractor 生成 hard-negative 拒答样本。
     """
-    question = record.get("question", "")
+    question = clean_question_text(record.get("question", ""))
     mmr_paths = record.get("mmr_reason_paths", [])
     golden    = record.get("golden", [])
 
@@ -525,8 +526,8 @@ def parse_args():
     p.add_argument("--distractor_ratio", type=float, default=None,
                    help="干扰路径占比上限 0~1，None=不调整")
     p.add_argument("--path_format", default="arrow",
-                   choices=["arrow", "nl", "tuple", "chain"],
-                   help="路径表示方式: arrow=符号格式(默认) nl=自然语言格式 tuple=三元组 chain=连续链式")
+                   choices=["arrow", "nl", "tuple", "chain", "schema"],
+                   help="路径表示方式: arrow=符号格式(默认) nl=自然语言格式 tuple=三元组 chain=连续链式 schema=语义方向感知链式")
     p.add_argument("--entity_map", default=None,
                    help="实体映射文件路径 (MID→Name, tab-separated)，提供时输入路径和输出答案均使用实体名称")
     p.add_argument("--sample", type=int, default=0,
@@ -559,7 +560,8 @@ def main():
         log.info("加载实体映射: %s (%d 条)", args.entity_map, len(entity_map))
 
     log.info("shuffle=%s  show_score=%s  path_format=%s  entity_map=%s  include_rejection=%s",
-             shuffle, show_score, path_format, args.entity_map, args.include_rejection)
+             shuffle, show_score, path_format, args.entity_map,
+             args.include_rejection)
 
     # all 模式：生成 v1-v5 全部格式（不含 v0/v11）
     ALL_FORMATS = ["v1", "v2", "v3", "v4", "v5"]
