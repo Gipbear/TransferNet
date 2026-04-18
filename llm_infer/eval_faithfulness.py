@@ -684,105 +684,145 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
     bs = args.batch_size
     desc = f"Run {run_idx} / Inference (batch={bs})"
 
-    for batch_start in tqdm(range(0, len(indexed), bs), desc=desc,
-                            total=(len(indexed) + bs - 1) // bs):
-        batch          = indexed[batch_start: batch_start + bs]
-        orig_indices   = [b[0] for b in batch]
-        input_ids_list = [b[1][0] for b in batch]
-        mmr_batch      = [b[1][1] for b in batch]
-        gold_batch     = [b[1][2] for b in batch]
-        orig_batch     = [b[1][3] for b in batch]
-
-        inputs = tokenizer.pad(
-            [{"input_ids": ids} for ids in input_ids_list],
-            return_tensors="pt",
-            padding=True,
-            padding_side="left",
-        ).to(model.device)
-
-        with torch.inference_mode():
-            output_ids = model.generate(
-                **inputs,
-                max_new_tokens=args.max_new_tokens,
-                use_cache=True,
-                pad_token_id=tokenizer.eos_token_id,
-            )
-
-        prompt_len = inputs["input_ids"].shape[1]
-        raw_texts  = tokenizer.batch_decode(
-            output_ids[:, prompt_len:], skip_special_tokens=True
-        )
-
-        for orig_idx, raw_text, mmr_paths, golden, orig_sample in zip(
-                orig_indices, raw_texts, mmr_batch, gold_batch, orig_batch):
-
-            parsed         = parse_output(raw_text, args.output_format)
-            model_rejected = is_rejection_response(parsed)
-            golden_indices = label_golden_indices(mmr_paths, golden)
-            path_mid_entities = get_all_path_entities(mmr_paths)
-
-            # For hallucination: collect path entities in the format used during inference
-            if entity_map_dict:
-                path_entities = set()
-                for p in mmr_paths:
-                    for edge in apply_entity_map(p.get("path", []), entity_map_dict):
-                        path_entities.add(edge[0].lower().strip())
-                        path_entities.add(edge[2].lower().strip())
-            else:
-                path_entities = get_all_path_entities(mmr_paths)
-
-            # For answer metrics: expand predicted names to MIDs when entity_map active
-            expanded_pred = None
-            constrained_pred = None
-            if entity_map_dict:
-                expanded_pred, constrained_pred = expand_pred_answers_with_path_constraint(
-                    pred_answers=parsed["answers"],
-                    rev_entity_map=rev_entity_map,
-                    path_mid_entities=path_mid_entities,
-                )
-                answer_m = compute_answer_metrics(constrained_pred, golden)
-            else:
-                answer_m = compute_answer_metrics(parsed["answers"], golden)
-
-            faith_m        = compute_faithfulness(
-                parsed["cited_indices"], golden_indices,
-                parsed["answers"], path_entities,
-            )
-
-            rec = {
-                **orig_sample,
-                "mmr_reason_paths":      mmr_paths,
-                "llm_raw_output":        raw_text,
-                "llm_pred":              parsed["answers"],
-                "is_rejection":          model_rejected,
-                # 当 entity_map 启用时，保留原始全量展开与路径约束消歧后的 MID 列表
-                "llm_pred_expanded_mids": expanded_pred if entity_map_dict else None,
-                "llm_pred_disambiguated_mids": constrained_pred if entity_map_dict else None,
-                "cited_indices":         sorted(parsed["cited_indices"]),
-                "golden_path_indices":   sorted(golden_indices),
-                "format_ok":             parsed["format_ok"],
-                "hit1":                  answer_m["hit1"],
-                "hit_any":               answer_m["hit_any"],
-                "precision":             round(answer_m["precision"], 4),
-                "recall":                round(answer_m["recall"],    4),
-                "f1":                    round(answer_m["f1"],        4),
-                "exact_match":           answer_m["exact_match"],
-                "tp":                    answer_m["tp"],
-                "pred_n":                answer_m["pred_n"],
-                "gold_n":                answer_m["gold_n"],
-                "citation_accuracy":     faith_m["citation_accuracy"],
-                "citation_recall":       faith_m["citation_recall"],
-                "hallucination_rate":    faith_m["hallucination_rate"],
-                "hallucinated_entities": faith_m["hallucinated_entities"],
-            }
-            results[orig_idx] = rec
-
-    # 每轮结果写入独立文件（num_runs=1 时写 output_path 本身，保持原有行为）
     stem, ext = os.path.splitext(output_path)
     run_path = output_path if args.num_runs == 1 else f"{stem}_run{run_idx}{ext}"
-    with open(run_path, "w", encoding="utf-8") as f:
-        for r in results:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    # 断点续跑：读取已有输出，跳过已处理样本
+    def _sample_key(s: dict) -> str:
+        return str(s.get("id") or s.get("question_id") or s.get("question", ""))
+
+    done_keys: set = set()
+    if os.path.exists(run_path):
+        with open(run_path, encoding="utf-8") as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line:
+                    try:
+                        done_keys.add(_sample_key(json.loads(_line)))
+                    except json.JSONDecodeError:
+                        pass
+        if done_keys:
+            log.info("断点续跑: %s 已有 %d 条，跳过已处理样本", run_path, len(done_keys))
+
+    # 过滤掉已完成的样本（indexed 中的 orig_idx 对应 prepared 列表位置）
+    indexed = [item for item in indexed
+               if _sample_key(item[1][3]) not in done_keys]
+
+    # 已完成的样本从原文件预加载到 results（供返回值使用）
+    if done_keys and os.path.exists(run_path):
+        key_to_orig_idx = {_sample_key(prep[3]): i for i, prep in enumerate(prepared)}
+        with open(run_path, encoding="utf-8") as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if not _line:
+                    continue
+                try:
+                    _rec = json.loads(_line)
+                    _orig_idx = key_to_orig_idx.get(_sample_key(_rec))
+                    if _orig_idx is not None:
+                        results[_orig_idx] = _rec
+                except json.JSONDecodeError:
+                    pass
+
+    file_mode = "a" if done_keys else "w"
+    with open(run_path, file_mode, encoding="utf-8") as out_f:
+        for batch_start in tqdm(range(0, len(indexed), bs), desc=desc,
+                                total=(len(indexed) + bs - 1) // bs):
+            batch          = indexed[batch_start: batch_start + bs]
+            orig_indices   = [b[0] for b in batch]
+            input_ids_list = [b[1][0] for b in batch]
+            mmr_batch      = [b[1][1] for b in batch]
+            gold_batch     = [b[1][2] for b in batch]
+            orig_batch     = [b[1][3] for b in batch]
+
+            inputs = tokenizer.pad(
+                [{"input_ids": ids} for ids in input_ids_list],
+                return_tensors="pt",
+                padding=True,
+                padding_side="left",
+            ).to(model.device)
+
+            with torch.inference_mode():
+                output_ids = model.generate(
+                    **inputs,
+                    max_new_tokens=args.max_new_tokens,
+                    use_cache=True,
+                    pad_token_id=tokenizer.eos_token_id,
+                )
+
+            prompt_len = inputs["input_ids"].shape[1]
+            raw_texts  = tokenizer.batch_decode(
+                output_ids[:, prompt_len:], skip_special_tokens=True
+            )
+            prompt_texts = tokenizer.batch_decode(input_ids_list, skip_special_tokens=False)
+
+            for orig_idx, raw_text, prompt_text, mmr_paths, golden, orig_sample in zip(
+                    orig_indices, raw_texts, prompt_texts, mmr_batch, gold_batch, orig_batch):
+
+                parsed         = parse_output(raw_text, args.output_format)
+                model_rejected = is_rejection_response(parsed)
+                golden_indices = label_golden_indices(mmr_paths, golden)
+                path_mid_entities = get_all_path_entities(mmr_paths)
+
+                # For hallucination: collect path entities in the format used during inference
+                if entity_map_dict:
+                    path_entities = set()
+                    for p in mmr_paths:
+                        for edge in apply_entity_map(p.get("path", []), entity_map_dict):
+                            path_entities.add(edge[0].lower().strip())
+                            path_entities.add(edge[2].lower().strip())
+                else:
+                    path_entities = get_all_path_entities(mmr_paths)
+
+                # For answer metrics: expand predicted names to MIDs when entity_map active
+                expanded_pred = None
+                constrained_pred = None
+                if entity_map_dict:
+                    expanded_pred, constrained_pred = expand_pred_answers_with_path_constraint(
+                        pred_answers=parsed["answers"],
+                        rev_entity_map=rev_entity_map,
+                        path_mid_entities=path_mid_entities,
+                    )
+                    answer_m = compute_answer_metrics(constrained_pred, golden)
+                else:
+                    answer_m = compute_answer_metrics(parsed["answers"], golden)
+
+                faith_m = compute_faithfulness(
+                    parsed["cited_indices"], golden_indices,
+                    parsed["answers"], path_entities,
+                )
+
+                rec = {
+                    **orig_sample,
+                    "mmr_reason_paths":      mmr_paths,
+                    "llm_raw_input":         prompt_text,
+                    "llm_raw_output":        raw_text,
+                    "llm_pred":              parsed["answers"],
+                    "is_rejection":          model_rejected,
+                    # 当 entity_map 启用时，保留原始全量展开与路径约束消歧后的 MID 列表
+                    "llm_pred_expanded_mids": expanded_pred if entity_map_dict else None,
+                    "llm_pred_disambiguated_mids": constrained_pred if entity_map_dict else None,
+                    "cited_indices":         sorted(parsed["cited_indices"]),
+                    "golden_path_indices":   sorted(golden_indices),
+                    "format_ok":             parsed["format_ok"],
+                    "hit1":                  answer_m["hit1"],
+                    "hit_any":               answer_m["hit_any"],
+                    "precision":             round(answer_m["precision"], 4),
+                    "recall":                round(answer_m["recall"],    4),
+                    "f1":                    round(answer_m["f1"],        4),
+                    "exact_match":           answer_m["exact_match"],
+                    "tp":                    answer_m["tp"],
+                    "pred_n":                answer_m["pred_n"],
+                    "gold_n":                answer_m["gold_n"],
+                    "citation_accuracy":     faith_m["citation_accuracy"],
+                    "citation_recall":       faith_m["citation_recall"],
+                    "hallucination_rate":    faith_m["hallucination_rate"],
+                    "hallucinated_entities": faith_m["hallucinated_entities"],
+                }
+                results[orig_idx] = rec
+                out_f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                out_f.flush()
+
     if args.num_runs > 1:
         log.info("Run %d 结果: %s", run_idx, run_path)
 
