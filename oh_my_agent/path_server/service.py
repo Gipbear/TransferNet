@@ -30,6 +30,9 @@ class RetrievalResult:
     mmr_reason_paths: list[dict[str, Any]]
     prediction: dict[str, float]
     elapsed_ms: float
+    raw_topics: list[str]
+    raw_mmr_reason_paths: list[dict[str, Any]]
+    raw_prediction: dict[str, float]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -39,6 +42,9 @@ class RetrievalResult:
             "mmr_reason_paths": self.mmr_reason_paths,
             "prediction": self.prediction,
             "elapsed_ms": self.elapsed_ms,
+            "raw_topics": self.raw_topics,
+            "raw_mmr_reason_paths": self.raw_mmr_reason_paths,
+            "raw_prediction": self.raw_prediction,
         }
 
 
@@ -307,6 +313,9 @@ class TransferNetPathRetriever:
             mmr_reason_paths=self._serialize_paths(mmr_paths),
             prediction=self._serialize_prediction(e_score, prediction_threshold),
             elapsed_ms=round(elapsed_ms, 1),
+            raw_topics=[self.id2ent[topic_id] for topic_id in topic_ids],
+            raw_mmr_reason_paths=self._serialize_paths_raw(mmr_paths),
+            raw_prediction=self._serialize_prediction_raw(e_score, prediction_threshold),
         )
 
     def _serialize_paths(
@@ -329,11 +338,39 @@ class TransferNetPathRetriever:
             )
         return rows
 
+    def _serialize_paths_raw(
+        self, paths: list[tuple[list[int], list[int], float]]
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for nodes, rels, score in paths:
+            rows.append(
+                {
+                    "path": [
+                        [
+                            self.id2ent[nodes[k]],
+                            self.id2rel[rels[k]],
+                            self.id2ent[nodes[k + 1]],
+                        ]
+                        for k in range(len(rels))
+                    ],
+                    "log_score": round(float(score), 6),
+                }
+            )
+        return rows
+
     def _serialize_prediction(
         self, e_score: torch.Tensor, threshold: float
     ) -> dict[str, float]:
         return {
             self._resolve(self.id2ent[entity_id]): float(f"{score:.3f}")
+            for entity_id, score in filter_tensor(e_score, threshold)
+        }
+
+    def _serialize_prediction_raw(
+        self, e_score: torch.Tensor, threshold: float
+    ) -> dict[str, float]:
+        return {
+            self.id2ent[entity_id]: float(f"{score:.3f}")
             for entity_id, score in filter_tensor(e_score, threshold)
         }
 

@@ -40,8 +40,8 @@ from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
 
+from .schema import RetrieveRequest, RetrieveResponse
 from .service import TransferNetPathRetriever
 
 log = logging.getLogger(__name__)
@@ -53,26 +53,6 @@ logging.basicConfig(
 _retriever: Optional[TransferNetPathRetriever] = None
 
 app = FastAPI(title="TransferNet MMR Path Server", version="1.0")
-
-
-class RetrieveRequest(BaseModel):
-    question: str = Field(..., min_length=1)
-    topic_entities: list[str] = Field(..., min_items=1)
-    hop: Optional[int] = Field(None, ge=1)
-    beam_size: int = Field(20, ge=1, le=200)
-    lambda_val: float = Field(0.2, ge=0.0, le=10.0)
-    prediction_threshold: float = Field(0.9, ge=0.0, le=1.0)
-
-
-class RetrieveResponse(BaseModel):
-    question: str
-    topics: list[str]
-    hop: int
-    mmr_reason_paths: list[dict]
-    prediction: dict[str, float]
-    elapsed_ms: float
-
-
 @app.post("/retrieve", response_model=RetrieveResponse)
 def retrieve(req: RetrieveRequest):
     if _retriever is None:

@@ -16,20 +16,11 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 import requests
 
-
-@dataclass
-class PathRetrievalResponse:
-    question: str
-    topics: list[str]
-    hop: int
-    mmr_reason_paths: list[dict[str, Any]]
-    prediction: dict[str, float]
-    elapsed_ms: float
+from .schema import RetrieveResponse as PathRetrievalResponse
 
 
 class PathRetrievalClient:
