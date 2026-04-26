@@ -156,7 +156,13 @@ def build_summary(*, seed: int, full: bool, results: list[dict]) -> dict:
     }
 
 
-def run_eval(sample_size: int, seed: int, output: str | None, full: bool) -> dict:
+def run_eval(
+    sample_size: int,
+    seed: int,
+    output: str | None,
+    full: bool,
+    max_new_tokens: int | None = None,
+) -> dict:
     records = load_records(JSONL_PATH)
     if full:
         sampled = records
@@ -168,11 +174,13 @@ def run_eval(sample_size: int, seed: int, output: str | None, full: bool) -> dic
     checker = AnswerCheckTool(
         client=client,
         default_use_adapter=False,
+        default_max_new_tokens=max_new_tokens,
     )
     print("health:", client.health(), flush=True)
     print(
         f"run_mode={ANSWER_CHECK_MODE} sample_mode={'full' if full else 'sample'} "
-        f"seed={seed} sample_n={len(sampled)} total_records={len(records)}",
+        f"seed={seed} sample_n={len(sampled)} total_records={len(records)} "
+        f"max_new_tokens={checker.default_max_new_tokens}",
         flush=True,
     )
 
@@ -220,12 +228,14 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--full", action="store_true")
     parser.add_argument("--output", type=str, default="")
+    parser.add_argument("--max-new-tokens", type=int, default=None)
     args = parser.parse_args()
     run_eval(
         sample_size=args.sample_size,
         seed=args.seed,
         output=args.output or None,
         full=args.full,
+        max_new_tokens=args.max_new_tokens,
     )
 
 

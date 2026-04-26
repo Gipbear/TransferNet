@@ -1,6 +1,35 @@
-ipython
-nltk
-numpy
-torch
-tqdm
-transformers
+# Core ML
+torch>=2.2.2
+numpy>=1.26.4
+scipy>=1.14.0
+tqdm>=4.65.0
+
+# Transformers & Training
+transformers>=4.42.4
+accelerate>=0.27.0
+bitsandbytes>=0.43.0
+datasets>=2.19.0
+trl>=0.8.6
+# unsloth requires separate install: pip install unsloth
+# pip install "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git"
+
+# Web / API server
+fastapi>=0.110.0
+uvicorn>=0.29.0
+pydantic>=2.6.0
+requests>=2.31.0
+
+# Retrieval
+faiss-cpu>=1.8.0
+sentence-transformers>=2.7.0
+
+# NLP utilities
+nltk>=3.8.1
+
+# Data & Visualization
+pandas>=2.2.0
+matplotlib>=3.9.0
+
+# Dev utilities
+ipython>=8.20.0
+packaging>=23.2

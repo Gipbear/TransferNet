@@ -4,6 +4,12 @@
 
 - 默认使用 Conda 环境 `py312_t271_cuda` 运行本项目的 Python、测试和实验命令；除非用户明确指定其他环境，不要反复询问环境选择。
 
+## Response Language
+
+- 默认使用中文与用户沟通，除非用户明确要求英文或其他语言。
+- 该要求适用于完整交互过程，包括需求澄清、plan、进度更新、测试反馈、代码评审意见和最终总结。
+- 代码、命令、报错信息、日志片段、配置键名、API 名称和文件路径保持原文，必要时在中文语境中补充解释。
+
 ## Local HTTP Services
 
 - 如果本地 LLM server 已经启动，调用大模型时优先使用 `oh_my_agent.llm_server.client.LLMClient` 访问 HTTP 接口，不要在测试或对比脚本中重新加载 base model / adapter。

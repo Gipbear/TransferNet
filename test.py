@@ -34,9 +34,9 @@ def main():
     client = LLMClient(SERVER_URL)
     checker = AnswerCheckTool(
         client=client,
-        mode="strict",
+        mode="verify",
         default_use_adapter=False,
-        default_max_new_tokens=96,
+        default_max_new_tokens=256,
     )
     print("health:", client.health())
     print("info  :", client.info())
@@ -68,12 +68,12 @@ def main():
             "gold_mids": rec.get("gold_mids", []),
             "user_prompt": result.prompt,
             "llm_raw_output": result.raw_output,
-            "relation": result.relation,
-            "relevant_edge": result.relevant_edge,
-            "support_coverage": result.support_coverage,
-            "answer_entity_matches": result.answer_entity_matches,
-            "judgment": result.judgment,
             "verdict": result.verdict,
+            "path_verdicts": result.path_verdicts,
+            "path_reasons": result.path_reasons,
+            "any_valid_path": result.any_valid_path,
+            "match": result.match,
+            "match_detail": result.match_detail,
             "hit1": rec.get("hit1"),
             "hit_any": rec.get("hit_any"),
             "f1": rec.get("f1"),
