@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import random
 import re
 import statistics
 import sys
+import threading
 import time
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,6 +53,16 @@ QUALIFIER_HINTS = (
     "after",
     "when did",
 )
+
+
+@dataclass(frozen=True)
+class EvalJob:
+    index: int
+    rec: dict
+    question: str
+    pred_answers: list[str]
+    paths_text: str
+    required_max_new_tokens: int
 
 
 def load_records(path: str) -> list[dict]:
@@ -175,6 +188,26 @@ def summarize_metric(values: list[float]) -> dict[str, float]:
     }
 
 
+def format_progress_bar(completed: int, total: int, width: int = 24) -> str:
+    if total <= 0:
+        return f"[{'-' * width}] 0/0 (0.0%)"
+    ratio = min(1.0, max(0.0, completed / total))
+    filled = min(width, int(ratio * width))
+    bar = "#" * filled + "-" * (width - filled)
+    return f"[{bar}] {completed}/{total} ({ratio * 100:.1f}%)"
+
+
+def format_duration(seconds: float) -> str:
+    seconds = max(0, int(round(seconds)))
+    hours, rem = divmod(seconds, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours:d}h{minutes:02d}m{secs:02d}s"
+    if minutes:
+        return f"{minutes:d}m{secs:02d}s"
+    return f"{secs:d}s"
+
+
 def build_summary(
     *,
     seed: int,
@@ -240,16 +273,45 @@ def build_error_result(question: str, pred_answers: list[str], error_text: str) 
     )
 
 
+def infer_required_max_new_tokens(default_max_new_tokens: int, paths_text: str) -> int:
+    n_paths = len(re.findall(r"^\s*P\d+:", paths_text, re.MULTILINE))
+    if n_paths > 1:
+        return max(default_max_new_tokens, n_paths * 30 + 80)
+    return default_max_new_tokens
+
+
+def build_eval_jobs(sampled: list[dict]) -> list[EvalJob]:
+    jobs = []
+    for idx, rec in enumerate(sampled, start=1):
+        paths_text = build_paths_text(rec)
+        jobs.append(EvalJob(
+            index=idx,
+            rec=rec,
+            question=rec.get("question", ""),
+            pred_answers=rec.get("pred_answer_names", []),
+            paths_text=paths_text,
+            required_max_new_tokens=0,
+        ))
+    return jobs
+
+
 def run_checker_with_retry(
     checker: AnswerCheckTool,
     question: str,
     pred_answers: list[str],
     paths_text: str,
+    *,
+    max_new_tokens: int | None = None,
 ) -> tuple[AnswerCheckToolResult, bool]:
     last_error: Exception | None = None
     for attempt in range(MAX_RETRIES + 1):
         try:
-            return checker(question, pred_answers, paths_text), False
+            return checker(
+                question,
+                pred_answers,
+                paths_text,
+                max_new_tokens=max_new_tokens,
+            ), False
         except Exception as exc:  # pragma: no cover - exercised via integration runs
             last_error = exc
             if attempt == MAX_RETRIES:
@@ -264,6 +326,45 @@ def run_checker_with_retry(
     return build_error_result(question, pred_answers, f"{type(last_error).__name__}: {last_error}"), True
 
 
+def run_jobs_with_concurrency(
+    jobs: list[EvalJob],
+    concurrent_requests: int,
+    worker,
+) -> list:
+    if concurrent_requests <= 1:
+        return [worker(job, None, [job]) for job in jobs]
+
+    results = []
+    for start in range(0, len(jobs), concurrent_requests):
+        batch = jobs[start:start + concurrent_requests]
+        barrier = threading.Barrier(len(batch)) if len(batch) > 1 else None
+        with ThreadPoolExecutor(max_workers=len(batch)) as executor:
+            futures = [
+                executor.submit(worker, job, barrier, batch)
+                for job in batch
+            ]
+            results.extend(future.result() for future in futures)
+    return results
+
+
+def run_eval_job(
+    checker: AnswerCheckTool,
+    job: EvalJob,
+    barrier: threading.Barrier | None,
+    batch_max_new_tokens: int,
+) -> tuple[EvalJob, AnswerCheckToolResult, bool]:
+    if barrier is not None:
+        barrier.wait()
+    result, tool_error = run_checker_with_retry(
+        checker,
+        job.question,
+        job.pred_answers,
+        job.paths_text,
+        max_new_tokens=batch_max_new_tokens,
+    )
+    return job, result, tool_error
+
+
 def run_eval(
     sample_size: int,
     seed: int,
@@ -272,6 +373,7 @@ def run_eval(
     *,
     prompt_variant: str,
     client_timeout: int,
+    concurrent_requests: int,
     max_new_tokens: int | None = None,
 ) -> dict:
     records = load_records(JSONL_PATH)
@@ -280,6 +382,7 @@ def run_eval(
     else:
         random.seed(seed)
         sampled = random.sample(records, sample_size)
+    jobs = build_eval_jobs(sampled)
 
     client = LLMClient(SERVER_URL, timeout=client_timeout)
     checker = AnswerCheckTool(
@@ -288,38 +391,81 @@ def run_eval(
         default_max_new_tokens=max_new_tokens,
         system_prompt=PROMPT_VARIANTS[prompt_variant],
     )
+    jobs = [
+        EvalJob(
+            index=job.index,
+            rec=job.rec,
+            question=job.question,
+            pred_answers=job.pred_answers,
+            paths_text=job.paths_text,
+            required_max_new_tokens=infer_required_max_new_tokens(
+                checker.default_max_new_tokens,
+                job.paths_text,
+            ),
+        )
+        for job in jobs
+    ]
     print("health:", client.health(), flush=True)
     print(
         f"run_mode={ANSWER_CHECK_MODE} sample_mode={'full' if full else 'sample'} "
         f"prompt_variant={prompt_variant} timeout={client_timeout} "
         f"seed={seed} sample_n={len(sampled)} total_records={len(records)} "
-        f"max_new_tokens={checker.default_max_new_tokens}",
+        f"max_new_tokens={checker.default_max_new_tokens} concurrent_requests={concurrent_requests}",
         flush=True,
     )
 
     results = []
-    for idx, rec in enumerate(sampled, start=1):
-        question = rec.get("question", "")
-        pred_answers = rec.get("pred_answer_names", [])
-        paths_text = build_paths_text(rec)
-        result, tool_error = run_checker_with_retry(checker, question, pred_answers, paths_text)
-        hit1 = rec.get("hit1") == 1
-        hit_any = rec.get("hit_any") == 1
-        row = build_result_row(
-            rec,
-            question,
-            pred_answers,
-            result,
-            hit1,
-            hit_any,
-            tool_error=tool_error,
-        )
-        results.append(row)
-        marker = "✓" if result.verdict == "CORRECT" else "✗"
+    completed_jobs = 0
+    started_at = time.perf_counter()
+    batch_size = max(1, concurrent_requests)
+    total_batches = (len(jobs) + batch_size - 1) // batch_size
+    for batch_idx, start in enumerate(range(0, len(jobs), batch_size), start=1):
+        batch = jobs[start:start + batch_size]
+        batch_max_new_tokens = max(item.required_max_new_tokens for item in batch)
         print(
-            f"[{idx:04d}/{len(sampled)}] {marker} hit1={rec.get('hit1')} hit_any={rec.get('hit_any')} "
-            f"f1={rec.get('f1')} match={result.match} tok={row['tokens_generated']} "
-            f"ms={row['elapsed_ms']} tool_error={tool_error} :: {question[:80]}",
+            f"[batch {batch_idx:04d}/{total_batches:04d}] dispatch size={len(batch)} "
+            f"shared_max_new_tokens={batch_max_new_tokens} sample_range="
+            f"{batch[0].index:04d}-{batch[-1].index:04d}",
+            flush=True,
+        )
+        batch_results = run_jobs_with_concurrency(
+            batch,
+            batch_size,
+            lambda job, barrier, inner_batch: run_eval_job(
+                checker,
+                job,
+                barrier,
+                batch_max_new_tokens,
+            ),
+        )
+        for job, result, tool_error in batch_results:
+            hit1 = job.rec.get("hit1") == 1
+            hit_any = job.rec.get("hit_any") == 1
+            row = build_result_row(
+                job.rec,
+                job.question,
+                job.pred_answers,
+                result,
+                hit1,
+                hit_any,
+                tool_error=tool_error,
+            )
+            results.append(row)
+            marker = "✓" if result.verdict == "CORRECT" else "✗"
+            print(
+                f"[{job.index:04d}/{len(sampled)}] {marker} hit1={job.rec.get('hit1')} hit_any={job.rec.get('hit_any')} "
+                f"f1={job.rec.get('f1')} match={result.match} tok={row['tokens_generated']} "
+                f"ms={row['elapsed_ms']} tool_error={tool_error} :: {job.question[:80]}",
+                flush=True,
+            )
+            completed_jobs += 1
+        elapsed_s = time.perf_counter() - started_at
+        avg_s = elapsed_s / completed_jobs if completed_jobs else 0.0
+        remaining_jobs = max(0, len(sampled) - completed_jobs)
+        eta_s = avg_s * remaining_jobs
+        print(
+            f"[progress] {format_progress_bar(completed_jobs, len(sampled))} "
+            f"elapsed={format_duration(elapsed_s)} avg={avg_s:.1f}s/sample eta={format_duration(eta_s)}",
             flush=True,
         )
 
@@ -350,15 +496,21 @@ def run_eval(
     return payload
 
 
-def main() -> None:
+def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--sample-size", type=int, default=50)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--full", action="store_true")
     parser.add_argument("--output", type=str, default="")
     parser.add_argument("--max-new-tokens", type=int, default=None)
+    parser.add_argument("--concurrent_requests", type=int, default=1)
     parser.add_argument("--prompt-variant", choices=sorted(PROMPT_VARIANTS), default="compact")
     parser.add_argument("--client-timeout", type=int, default=120)
+    return parser
+
+
+def main() -> None:
+    parser = build_arg_parser()
     args = parser.parse_args()
     run_eval(
         sample_size=args.sample_size,
@@ -368,6 +520,7 @@ def main() -> None:
         max_new_tokens=args.max_new_tokens,
         prompt_variant=args.prompt_variant,
         client_timeout=args.client_timeout,
+        concurrent_requests=max(1, args.concurrent_requests),
     )
 
 

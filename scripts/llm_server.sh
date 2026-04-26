@@ -2,12 +2,15 @@
 set -euo pipefail
 
 # Usage:
-#   ./scripts/start_llm_server_offline.sh start
-#   ./scripts/start_llm_server_offline.sh stop
-#   ./scripts/start_llm_server_offline.sh restart
-#   ./scripts/start_llm_server_offline.sh status
-#   PORT=8790 ./scripts/start_llm_server_offline.sh start
-#   PORT_BUSY_ACTION=kill ./scripts/start_llm_server_offline.sh start
+#   ./scripts/llm_server.sh start
+#   ./scripts/llm_server.sh stop
+#   ./scripts/llm_server.sh restart
+#   ./scripts/llm_server.sh status
+#   PORT=8790 ./scripts/llm_server.sh start
+#   PORT_BUSY_ACTION=kill ./scripts/llm_server.sh start
+#
+# Logs:
+#   默认写入 data/output/WebQSP/llm_server/<YYYYmmdd_HHMMSS>_port<PORT>_server.log
 #
 # PORT_BUSY_ACTION:
 #   ask    - 端口占用时交互选择 kill / cancel（默认）
@@ -23,10 +26,12 @@ MODEL_CACHE_ROOT="${MODEL_CACHE_ROOT:-$HOME/.cache/huggingface/hub}"
 MODEL_CACHE_KEY="${MODEL_ID//\//--}"
 MODEL_SNAPSHOT="${MODEL_SNAPSHOT:-}"
 ADAPTER_PATH="${ADAPTER_PATH:-${PROJECT_DIR}/models/webqsp/ablation/groupJ_schema_name}"
-HOST="${HOST:-0.0.0.0}"
+LLM_SERVER_HOST="${LLM_SERVER_HOST:-0.0.0.0}"
 PORT="${PORT:-8788}"
-LOG_PATH="${LOG_PATH:-/tmp/llm_server_${PORT}.log}"
+LOG_ROOT="${LOG_ROOT:-${PROJECT_DIR}/data/output/WebQSP/llm_server}"
+LOG_PATH="${LOG_PATH:-}"
 PID_FILE="${PID_FILE:-/tmp/llm_server_${PORT}.pid}"
+LOG_PATH_FILE="${LOG_PATH_FILE:-/tmp/llm_server_${PORT}.logpath}"
 WAIT_FOR_HEALTH="${WAIT_FOR_HEALTH:-1}"
 WAIT_SECONDS="${WAIT_SECONDS:-180}"
 PORT_BUSY_ACTION="${PORT_BUSY_ACTION:-ask}"
@@ -43,12 +48,15 @@ export TRANSFORMERS_OFFLINE
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/start_llm_server_offline.sh start
-  ./scripts/start_llm_server_offline.sh stop
-  ./scripts/start_llm_server_offline.sh restart
-  ./scripts/start_llm_server_offline.sh status
-  PORT=8790 ./scripts/start_llm_server_offline.sh start
-  PORT_BUSY_ACTION=kill ./scripts/start_llm_server_offline.sh start
+  ./scripts/llm_server.sh start
+  ./scripts/llm_server.sh stop
+  ./scripts/llm_server.sh restart
+  ./scripts/llm_server.sh status
+  PORT=8790 ./scripts/llm_server.sh start
+  PORT_BUSY_ACTION=kill ./scripts/llm_server.sh start
+
+Logs:
+  默认写入 data/output/WebQSP/llm_server/<YYYYmmdd_HHMMSS>_port<PORT>_server.log
 
 PORT_BUSY_ACTION:
   ask    - 端口占用时交互选择 kill / cancel（默认）
@@ -81,9 +89,14 @@ find_port_pids() {
   fi
 }
 
-wait_for_pids_exit() {
+stop_pids() {
   local pids="$1"
   local timeout="${2:-30}"
+
+  while read -r pid; do
+    [[ -z "${pid}" ]] && continue
+    kill "${pid}" 2>/dev/null || true
+  done <<< "${pids}"
 
   for _ in $(seq 1 "${timeout}"); do
     local alive=0
@@ -100,51 +113,57 @@ wait_for_pids_exit() {
     fi
     sleep 1
   done
-  return 1
 }
 
-stop_pids() {
-  local pids="$1"
-
-  while read -r pid; do
-    [[ -z "${pid}" ]] && continue
-    kill "${pid}" 2>/dev/null || true
-  done <<< "${pids}"
-
-  wait_for_pids_exit "${pids}" 30 || true
-}
-
-refresh_pid_file() {
+sync_pid_file() {
   local active_pid
   active_pid="$(find_server_pids | head -n 1)"
   if [[ -n "${active_pid}" ]]; then
-    echo "${active_pid}" > "${PID_FILE}"
+    printf '%s\n' "${active_pid}" > "${PID_FILE}"
   else
     rm -f "${PID_FILE}"
   fi
+  printf '%s' "${active_pid}"
 }
 
-resolve_model_snapshot() {
-  if [[ -n "${MODEL_SNAPSHOT}" ]]; then
+resolve_log_path() {
+  if [[ -n "${LOG_PATH}" ]]; then
+    mkdir -p "$(dirname "${LOG_PATH}")"
     return
   fi
 
-  local snapshot_dir
-  snapshot_dir="${MODEL_CACHE_ROOT}/models--${MODEL_CACHE_KEY}/snapshots"
-  if [[ ! -d "${snapshot_dir}" ]]; then
-    echo "[ERROR] Snapshot directory not found: ${snapshot_dir}" >&2
-    exit 1
-  fi
+  mkdir -p "${LOG_ROOT}"
 
-  MODEL_SNAPSHOT="$(find "${snapshot_dir}" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
-  if [[ -z "${MODEL_SNAPSHOT}" ]]; then
-    echo "[ERROR] No snapshot found under: ${snapshot_dir}" >&2
-    exit 1
-  fi
+  local timestamp
+  timestamp="$(date '+%Y%m%d_%H%M%S')"
+
+  local log_path
+  log_path="${LOG_ROOT}/${timestamp}_port${PORT}_server.log"
+
+  local suffix=1
+  while [[ -e "${log_path}" ]]; do
+    log_path="${LOG_ROOT}/${timestamp}_port${PORT}_server_${suffix}.log"
+    suffix=$((suffix + 1))
+  done
+
+  LOG_PATH="${log_path}"
 }
 
-ensure_start_inputs() {
-  resolve_model_snapshot
+resolve_start_inputs() {
+  if [[ -z "${MODEL_SNAPSHOT}" ]]; then
+    local snapshot_dir
+    snapshot_dir="${MODEL_CACHE_ROOT}/models--${MODEL_CACHE_KEY}/snapshots"
+    if [[ ! -d "${snapshot_dir}" ]]; then
+      echo "[ERROR] Snapshot directory not found: ${snapshot_dir}" >&2
+      exit 1
+    fi
+
+    MODEL_SNAPSHOT="$(find "${snapshot_dir}" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+    if [[ -z "${MODEL_SNAPSHOT}" ]]; then
+      echo "[ERROR] No snapshot found under: ${snapshot_dir}" >&2
+      exit 1
+    fi
+  fi
 
   if [[ ! -d "${MODEL_SNAPSHOT}" ]]; then
     echo "[ERROR] Model snapshot not found: ${MODEL_SNAPSHOT}" >&2
@@ -158,10 +177,12 @@ ensure_start_inputs() {
 }
 
 choose_port_busy_action() {
-  if [[ "${PORT_BUSY_ACTION}" == "kill" || "${PORT_BUSY_ACTION}" == "cancel" ]]; then
-    echo "${PORT_BUSY_ACTION}"
-    return
-  fi
+  case "${PORT_BUSY_ACTION}" in
+    kill|cancel)
+      echo "${PORT_BUSY_ACTION}"
+      return
+      ;;
+  esac
 
   if [[ -t 0 ]]; then
     while true; do
@@ -184,7 +205,9 @@ choose_port_busy_action() {
 }
 
 start_server() {
-  ensure_start_inputs
+  resolve_start_inputs
+  resolve_log_path
+  printf '%s\n' "${LOG_PATH}" > "${LOG_PATH_FILE}"
 
   local port_pids
   port_pids="$(find_port_pids)"
@@ -194,7 +217,7 @@ start_server() {
     action="$(choose_port_busy_action)"
     if [[ "${action}" == "cancel" ]]; then
       echo "[INFO] Start cancelled because port ${PORT} is busy." >&2
-      refresh_pid_file
+      sync_pid_file >/dev/null
       exit 1
     fi
     stop_pids "${port_pids}"
@@ -204,7 +227,7 @@ start_server() {
   nohup python -m oh_my_agent.llm_server.server \
     --model "${MODEL_SNAPSHOT}" \
     --adapter "${ADAPTER_PATH}" \
-    --host "${HOST}" \
+    --host "${LLM_SERVER_HOST}" \
     --port "${PORT}" \
     > "${LOG_PATH}" 2>&1 &
 
@@ -216,7 +239,7 @@ start_server() {
   echo "[INFO] Log path     : ${LOG_PATH}"
 
   if [[ "${WAIT_FOR_HEALTH}" != "1" ]]; then
-    refresh_pid_file
+    sync_pid_file >/dev/null
     return
   fi
 
@@ -224,7 +247,7 @@ start_server() {
   health_url="http://127.0.0.1:${PORT}/health"
   for _ in $(seq 1 "${WAIT_SECONDS}"); do
     if curl -sf "${health_url}" >/dev/null 2>&1; then
-      refresh_pid_file
+      sync_pid_file >/dev/null
       echo "[INFO] Health check passed: ${health_url}"
       return
     fi
@@ -252,27 +275,34 @@ stop_server() {
 
   echo "[INFO] Stopping llm_server PID(s): $(echo "${server_pids}" | tr '\n' ' ')"
   stop_pids "${server_pids}"
-  refresh_pid_file
+  sync_pid_file >/dev/null
 }
 
 status_server() {
-  refresh_pid_file
+  local active_pid
+  active_pid="$(sync_pid_file)"
+  local saved_log_path
+  saved_log_path=""
+  if [[ -f "${LOG_PATH_FILE}" ]]; then
+    saved_log_path="$(<"${LOG_PATH_FILE}")"
+  fi
 
-  local server_pids
-  server_pids="$(find_server_pids)"
-  if [[ -z "${server_pids}" ]]; then
+  if [[ -z "${active_pid}" ]]; then
     echo "[INFO] llm_server is not running on port ${PORT}."
     echo "PID_FILE=${PID_FILE} (absent)"
+    if [[ -n "${saved_log_path}" ]]; then
+      echo "LAST_LOG_PATH=${saved_log_path}"
+    fi
     echo "HEALTH_URL=http://127.0.0.1:${PORT}/health"
     return
   fi
 
-  local active_pid
-  active_pid="$(echo "${server_pids}" | head -n 1)"
   echo "[INFO] llm_server is running."
   echo "PID=${active_pid}"
   echo "PID_FILE=${PID_FILE}"
-  echo "LOG_PATH=${LOG_PATH}"
+  if [[ -n "${saved_log_path}" ]]; then
+    echo "LOG_PATH=${saved_log_path}"
+  fi
   echo "HEALTH_URL=http://127.0.0.1:${PORT}/health"
   ps -p "${active_pid}" -o pid,etime,stat,cmd
   curl -s "http://127.0.0.1:${PORT}/health" || true
