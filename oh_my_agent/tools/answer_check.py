@@ -10,7 +10,7 @@ from oh_my_agent.common.prompting import _format_schema_chain
 from oh_my_agent.llm_server import LLMClient
 
 
-VERIFY_ANSWER_CHECK_SYSTEM = (
+LEGACY_VERIFY_ANSWER_CHECK_SYSTEM = (
     "Verify a KGQA answer by checking path relations then answer match.\n\n"
     "For each cited path, label it VALID or INVALID:\n"
     "  VALID: the relation type directly answers the question's slot.\n"
@@ -79,6 +79,50 @@ VERIFY_ANSWER_CHECK_SYSTEM = (
     "P2: INVALID — country_of_origin is not the asked slot\n"
     "Match: yes — 'William Daniels' ≈ tail of P1\n"
     "Verdict: CORRECT"
+)
+
+VERIFY_ANSWER_CHECK_SYSTEM = (
+    "Verify a KGQA answer in two stages: relation fit, then answer match.\n\n"
+    "Path rule:\n"
+    "  VALID: relation answers the asked slot.\n"
+    "  INVALID: relation points to a different slot or concept.\n"
+    "  Loose near-miss rules still count as VALID:\n"
+    "    parents -> father/mother\n"
+    "    spouse/spouse_s -> wife/husband\n"
+    "    starring/regular_cast -> plays/voices\n"
+    "    government_positions_held -> control/govern\n"
+    "  For multi-hop paths, every hop must fit.\n\n"
+    "Match rule:\n"
+    "  Only check VALID paths.\n"
+    "  Compare predicted answers to the tail entity of the final edge.\n"
+    "  Forward A - [rel] -> B: tail is B.\n"
+    "  Reverse A <- [rel] - B: tail is B.\n"
+    "  Accept aliases and name variants.\n"
+    "  If no path is VALID, Match must be no and Verdict must be INCORRECT.\n\n"
+    "Output only these lines, with short reasons and no extra text:\n"
+    "P1: <VALID|INVALID> - <short reason>\n"
+    "P2: <VALID|INVALID> - <short reason>\n"
+    "Match: <yes|no> - <P ids or none>\n"
+    "Verdict: <CORRECT|INCORRECT>\n\n"
+    "Examples:\n\n"
+    "Q: What is Obama's father's name?\n"
+    "Paths:\n"
+    "  P1: Barack Obama - [people.person.parents] -> Barack Obama Sr.\n"
+    "  P2: Barack Obama - [people.person.sibling_s] -> Auma Obama\n"
+    "Predicted Answers:\n"
+    "  A1: Barack Obama Sr.\n"
+    "P1: VALID - parents covers father\n"
+    "P2: INVALID - sibling wrong slot\n"
+    "Match: yes - P1\n"
+    "Verdict: CORRECT\n\n"
+    "Q: Who directed Inception?\n"
+    "Paths:\n"
+    "  P1: Inception - [film.film.starring] -> Leonardo DiCaprio\n"
+    "Predicted Answers:\n"
+    "  A1: Steven Spielberg\n"
+    "P1: INVALID - starring not director\n"
+    "Match: no - none\n"
+    "Verdict: INCORRECT"
 )
 
 PLACEHOLDER_RE = re.compile(r"^(?:m|g)\.[A-Za-z0-9_]+$")
@@ -209,6 +253,7 @@ class AnswerCheckTool:
         mode: str = "verify",
         default_use_adapter: bool = False,
         default_max_new_tokens: int | None = None,
+        system_prompt: str | None = None,
     ) -> None:
         if mode != "verify":
             raise ValueError(f"Unsupported answer-check mode: {mode}; only 'verify' is supported")
@@ -216,6 +261,7 @@ class AnswerCheckTool:
         self.mode = mode
         self.default_use_adapter = default_use_adapter
         self.default_max_new_tokens = 256 if default_max_new_tokens is None else default_max_new_tokens
+        self.system_prompt = VERIFY_ANSWER_CHECK_SYSTEM if system_prompt is None else system_prompt
 
     def __call__(
         self,
@@ -239,7 +285,7 @@ class AnswerCheckTool:
             use_adapter=use_adapter,
             max_new_tokens=max_new_tokens,
             temperature=0.0,
-            system_prompt=VERIFY_ANSWER_CHECK_SYSTEM,
+            system_prompt=self.system_prompt,
         )
         parsed = parse_verify_output(response.text)
         parsed = apply_verify_guardrails(question, pred_answers, parsed)

@@ -36,6 +36,7 @@ class VerifyPromptTests(unittest.TestCase):
         from oh_my_agent.tools.answer_check import VERIFY_ANSWER_CHECK_SYSTEM
 
         self.assertIn("Examples:", VERIFY_ANSWER_CHECK_SYSTEM)
+        self.assertGreaterEqual(VERIFY_ANSWER_CHECK_SYSTEM.count("Q:"), 2)
         self.assertIn("Verdict: CORRECT", VERIFY_ANSWER_CHECK_SYSTEM)
         self.assertIn("Verdict: INCORRECT", VERIFY_ANSWER_CHECK_SYSTEM)
 
@@ -77,23 +78,25 @@ class VerifyModeTests(unittest.TestCase):
     def test_parse_verify_output_valid_path_correct(self):
         parsed = parse_verify_output(
             "P1: VALID — pro_athlete.teams matches 'what team'\n"
-            "Match: yes — 'Newcastle Jets FC' ≈ tail of P1\n"
+            "Match: yes - P1\n"
             "Verdict: CORRECT"
         )
         self.assertEqual(parsed["path_verdicts"], {"P1": "VALID"})
         self.assertTrue(parsed["any_valid_path"])
         self.assertEqual(parsed["match"], "yes")
+        self.assertEqual(parsed["match_detail"], "P1")
         self.assertEqual(parsed["verdict"], "CORRECT")
 
     def test_parse_verify_output_all_invalid(self):
         parsed = parse_verify_output(
             "P1: INVALID — starring is about cast, not director\n"
-            "Match: no — no valid path to check\n"
+            "Match: no - none\n"
             "Verdict: INCORRECT"
         )
         self.assertEqual(parsed["path_verdicts"], {"P1": "INVALID"})
         self.assertFalse(parsed["any_valid_path"])
         self.assertEqual(parsed["match"], "no")
+        self.assertEqual(parsed["match_detail"], "none")
         self.assertEqual(parsed["verdict"], "INCORRECT")
 
     def test_parse_verify_output_mixed_paths_no_match(self):
@@ -129,7 +132,7 @@ class VerifyModeTests(unittest.TestCase):
     def test_verify_mode_tool_returns_path_verdicts(self):
         client = FakeLLMClient(
             GenerateResponse(
-                text="P1: VALID — teams matches question\nMatch: yes — answer ≈ P1 tail\nVerdict: CORRECT",
+                text="P1: VALID - teams ok\nMatch: yes - P1\nVerdict: CORRECT",
                 used_adapter=False,
                 tokens_generated=15,
                 elapsed_ms=5.0,
@@ -141,6 +144,7 @@ class VerifyModeTests(unittest.TestCase):
         self.assertEqual(result.path_verdicts["P1"], "VALID")
         self.assertTrue(result.any_valid_path)
         self.assertEqual(result.match, "yes")
+        self.assertEqual(result.match_detail, "P1")
         self.assertEqual(result.verdict, "CORRECT")
 
     def test_verify_mode_prompt_has_paths_before_answers(self):
