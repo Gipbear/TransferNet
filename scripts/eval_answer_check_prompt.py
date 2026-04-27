@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from oh_my_agent.llm_server.client import LLMClient
+from oh_my_agent.llm_server.client import LLMClient, OpenAICompatibleLLMClient
 from oh_my_agent.tools import AnswerCheckTool
 from oh_my_agent.tools.answer_check import (
     AnswerCheckToolResult,
@@ -351,7 +351,6 @@ def run_eval_job(
     checker: AnswerCheckTool,
     job: EvalJob,
     barrier: threading.Barrier | None,
-    batch_max_new_tokens: int,
 ) -> tuple[EvalJob, AnswerCheckToolResult, bool]:
     if barrier is not None:
         barrier.wait()
@@ -360,7 +359,7 @@ def run_eval_job(
         job.question,
         job.pred_answers,
         job.paths_text,
-        max_new_tokens=batch_max_new_tokens,
+        max_new_tokens=job.required_max_new_tokens,
     )
     return job, result, tool_error
 
@@ -374,6 +373,11 @@ def run_eval(
     prompt_variant: str,
     client_timeout: int,
     concurrent_requests: int,
+    llm_backend: str,
+    server_url: str,
+    model: str,
+    adapter_model: str | None,
+    api_key: str,
     max_new_tokens: int | None = None,
 ) -> dict:
     records = load_records(JSONL_PATH)
@@ -384,7 +388,19 @@ def run_eval(
         sampled = random.sample(records, sample_size)
     jobs = build_eval_jobs(sampled)
 
-    client = LLMClient(SERVER_URL, timeout=client_timeout)
+    if llm_backend == "legacy":
+        client = LLMClient(server_url, timeout=client_timeout)
+    elif llm_backend == "openai":
+        client = OpenAICompatibleLLMClient(
+            server_url,
+            model=model,
+            timeout=client_timeout,
+            api_key=api_key,
+            adapter_model=adapter_model,
+        )
+    else:
+        raise ValueError(f"Unsupported llm_backend: {llm_backend}")
+
     checker = AnswerCheckTool(
         client=client,
         default_use_adapter=False,
@@ -410,7 +426,8 @@ def run_eval(
         f"run_mode={ANSWER_CHECK_MODE} sample_mode={'full' if full else 'sample'} "
         f"prompt_variant={prompt_variant} timeout={client_timeout} "
         f"seed={seed} sample_n={len(sampled)} total_records={len(records)} "
-        f"max_new_tokens={checker.default_max_new_tokens} concurrent_requests={concurrent_requests}",
+        f"max_new_tokens={checker.default_max_new_tokens} concurrent_requests={concurrent_requests} "
+        f"llm_backend={llm_backend} server_url={server_url} model={model or '(legacy)'}",
         flush=True,
     )
 
@@ -421,10 +438,10 @@ def run_eval(
     total_batches = (len(jobs) + batch_size - 1) // batch_size
     for batch_idx, start in enumerate(range(0, len(jobs), batch_size), start=1):
         batch = jobs[start:start + batch_size]
-        batch_max_new_tokens = max(item.required_max_new_tokens for item in batch)
+        max_required_tokens = max(item.required_max_new_tokens for item in batch)
         print(
             f"[batch {batch_idx:04d}/{total_batches:04d}] dispatch size={len(batch)} "
-            f"shared_max_new_tokens={batch_max_new_tokens} sample_range="
+            f"max_required_tokens={max_required_tokens} sample_range="
             f"{batch[0].index:04d}-{batch[-1].index:04d}",
             flush=True,
         )
@@ -435,7 +452,6 @@ def run_eval(
                 checker,
                 job,
                 barrier,
-                batch_max_new_tokens,
             ),
         )
         for job, result, tool_error in batch_results:
@@ -506,6 +522,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--concurrent_requests", type=int, default=1)
     parser.add_argument("--prompt-variant", choices=sorted(PROMPT_VARIANTS), default="compact")
     parser.add_argument("--client-timeout", type=int, default=120)
+    parser.add_argument("--llm-backend", choices=["legacy", "openai"], default="legacy")
+    parser.add_argument("--server-url", type=str, default=SERVER_URL)
+    parser.add_argument("--model", type=str, default="")
+    parser.add_argument("--adapter-model", type=str, default="")
+    parser.add_argument("--api-key", type=str, default="EMPTY")
     return parser
 
 
@@ -521,6 +542,11 @@ def main() -> None:
         prompt_variant=args.prompt_variant,
         client_timeout=args.client_timeout,
         concurrent_requests=max(1, args.concurrent_requests),
+        llm_backend=args.llm_backend,
+        server_url=args.server_url,
+        model=args.model,
+        adapter_model=args.adapter_model or None,
+        api_key=args.api_key,
     )
 
 
