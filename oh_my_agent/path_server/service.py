@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import re
 import time
@@ -18,6 +19,8 @@ from typing import Any, Optional
 
 import numpy as np
 import torch
+
+log = logging.getLogger(__name__)
 
 from utils.path_utils import build_valid_edges_dict, filter_tensor, mmr_diversity_beam_search
 
@@ -116,9 +119,9 @@ class TransferNetPathRetriever:
         state = _safe_torch_load(ckpt, self.device)
         missing, unexpected = self.model.load_state_dict(state, strict=False)
         if missing:
-            print("Missing keys: {}".format("; ".join(missing)), flush=True)
+            log.warning("Missing keys: %s", "; ".join(missing))
         if unexpected:
-            print("Unexpected keys: {}".format("; ".join(unexpected)), flush=True)
+            log.warning("Unexpected keys: %s", "; ".join(unexpected))
 
         self.model = self.model.to(self.device)
         self._move_sparse_matrices()
@@ -129,22 +132,52 @@ class TransferNetPathRetriever:
     # ------------------------------------------------------------------
 
     def _load_webqsp(self, bert_name: str) -> None:
-        from WebQSP.data import load_data
+        from collections import defaultdict
+
+        from transformers import AutoTokenizer
+
         from WebQSP.model import TransferNet
+        from utils.misc import invert_dict
+
+        kg_dir = os.path.join(self.input_dir, "fbwq_full")
+
+        ent2id: dict[str, int] = {}
+        with open(os.path.join(kg_dir, "entities.dict"), encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split("\t")
+                ent2id[parts[0].strip()] = len(ent2id)
+
+        rel2id: dict[str, int] = {}
+        with open(os.path.join(kg_dir, "relations.dict"), encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split("\t")
+                rel2id[parts[0].strip()] = int(parts[1])
+
+        # 读三元组的同时构建 valid_edges_dict，避免 triples.tolist() 二次遍历
+        valid_edges: dict = defaultdict(list)
+        triples_rows: list[tuple[int, int, int]] = []
+        with open(os.path.join(kg_dir, "train.txt"), encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split("\t")
+                s = ent2id[parts[0].strip()]
+                r = rel2id[parts[1].strip()]
+                o = ent2id[parts[2].strip()]
+                r_rev = rel2id[parts[1].strip() + "_reverse"]
+                triples_rows.append((s, r, o))
+                triples_rows.append((o, r_rev, s))
+                valid_edges[s].append((r, o))
+                valid_edges[o].append((r_rev, s))
+
+        triples = torch.LongTensor(triples_rows)
 
         args = argparse.Namespace(bert_name=bert_name)
-        ent2id, rel2id, triples, _train_loader, val_loader = load_data(
-            self.input_dir, bert_name, 16
-        )
         self.ent2id = ent2id
         self.rel2id = rel2id
-        self.id2ent = val_loader.id2ent
-        self.id2rel = val_loader.id2rel
-        self.tokenizer = val_loader.tokenizer
+        self.id2ent = invert_dict(ent2id)
+        self.id2rel = invert_dict(rel2id)
+        self.tokenizer = AutoTokenizer.from_pretrained(bert_name)
         self.model = TransferNet(args, ent2id, rel2id, triples)
-
-        triples_list = [[int(s), int(r), int(o)] for s, r, o in triples.tolist()]
-        self.valid_edges_dict = build_valid_edges_dict(triples_list)
+        self.valid_edges_dict = dict(valid_edges)
 
     def _load_metaqa(
         self,
@@ -265,6 +298,10 @@ class TransferNetPathRetriever:
         if hop is not None and hop < 1:
             raise ValueError("hop must be >= 1")
 
+        log.info(
+            "retrieve | question=%r topics=%s hop=%s beam=%d lambda=%.2f threshold=%.2f",
+            question, topic_entities, hop, beam_size, lambda_val, prediction_threshold,
+        )
         t0 = time.perf_counter()
         topic_ids = self._topic_ids(topic_entities)
 
@@ -306,12 +343,24 @@ class TransferNetPathRetriever:
         )
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
+        predictions = self._serialize_prediction(e_score, prediction_threshold)
+        serialized_paths = self._serialize_paths(mmr_paths)
+        log.info(
+            "retrieve done | hop=%d paths=%d answers=%s elapsed_ms=%.1f",
+            hop_count,
+            len(serialized_paths),
+            list(predictions.keys()),
+            elapsed_ms,
+        )
+        if serialized_paths:
+            for i, p in enumerate(serialized_paths[:3]):
+                log.debug("  path[%d] score=%.4f %s", i, p["log_score"], p["path"])
         return RetrievalResult(
             question=question,
             topics=[self._resolve(self.id2ent[topic_id]) for topic_id in topic_ids],
             hop=hop_count,
-            mmr_reason_paths=self._serialize_paths(mmr_paths),
-            prediction=self._serialize_prediction(e_score, prediction_threshold),
+            mmr_reason_paths=serialized_paths,
+            prediction=predictions,
             elapsed_ms=round(elapsed_ms, 1),
             raw_topics=[self.id2ent[topic_id] for topic_id in topic_ids],
             raw_mmr_reason_paths=self._serialize_paths_raw(mmr_paths),
