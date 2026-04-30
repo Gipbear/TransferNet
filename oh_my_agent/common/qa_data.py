@@ -23,7 +23,7 @@ def _dedupe_preserve_order(values: list[str]) -> list[str]:
 
 @dataclass(frozen=True)
 class WebQSPQASample:
-    """A single QA sample from qa_test_webqsp_fixed.txt."""
+    """A single QA sample from a WebQSP QA test file."""
 
     question_raw: str
     question: str

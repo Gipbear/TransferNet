@@ -17,7 +17,7 @@ from oh_my_agent.common import (
 
 class SimpleAgentCommonTests(unittest.TestCase):
     def test_load_webqsp_qa_samples_parses_topic_and_dedupes_gold(self):
-        qa_path = ROOT / "data" / "input" / "WebQSP" / "QA_data" / "WebQuestionsSP" / "qa_test_webqsp_fixed.txt"
+        qa_path = ROOT / "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1580.txt"
 
         samples = load_webqsp_qa_samples(str(qa_path), limit=1)
 

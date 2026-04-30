@@ -22,7 +22,15 @@
 
 - 如果本地 LLM server 已经启动，调用大模型时优先使用 `oh_my_agent.llm_server.client.LLMClient` 访问 HTTP 接口，不要在测试或对比脚本中重新加载 base model / adapter。
   - 默认地址：`http://localhost:8788`
-  - 启动示例：
+  - 推荐启动方式：
+    ```bash
+    conda run -n py312_t271_cuda ./scripts/llm_server.sh start
+    ```
+  - 状态检查：
+    ```bash
+    ./scripts/llm_server.sh status
+    ```
+  - 直接模块启动示例：
     ```bash
     conda run -n py312_t271_cuda python -m oh_my_agent.llm_server.server \
       --adapter models/webqsp/ablation/groupJ_schema_name \
@@ -38,7 +46,15 @@
 
 - 如果本地 TransferNet path server 已经启动，检索 MMR 路径时优先使用 `oh_my_agent.path_server.client.PathRetrievalClient` 访问 HTTP 接口，不要为了抽样验证、接口测试或 JSONL 对比而重新实例化 `TransferNetPathRetriever`。
   - 默认地址：`http://localhost:8787`
-  - 启动示例：
+  - 推荐启动方式：
+    ```bash
+    conda run -n py312_t271_cuda ./scripts/path_server.sh start
+    ```
+  - 状态检查：
+    ```bash
+    ./scripts/path_server.sh status
+    ```
+  - 直接模块启动示例：
     ```bash
     conda run -n py312_t271_cuda python -m oh_my_agent.path_server.server \
       --dataset webqsp \
@@ -61,3 +77,46 @@
     ```
 
 - 做路径检索一致性检查时，直接调用 path server 接口，并把 `data/output/.../beam*.jsonl` 中的 `topics`、`hop`、`beam_size`、`lambda_val` 原样传入。比较结果时允许 `log_score` 存在 `1e-6` 量级浮点差异，重点检查路径三元组序列和 prediction 是否一致。
+
+## oh_my_agent Evaluation
+
+- 当前 `oh_my_agent` 的评测不是单独的 HTTP eval service，而是 `python -m oh_my_agent.cli.eval_webqsp` 批量调用两个常驻服务：
+  - `path_server`：`http://localhost:8787`，负责 TransferNet MMR 路径检索。
+  - `llm_server`：`http://localhost:8788`，负责 base model + LoRA adapter 生成答案。
+- 评测前优先确认两个服务已启动：
+  ```bash
+  ./scripts/path_server.sh status
+  ./scripts/llm_server.sh status
+  ```
+- 如果需要从当前默认配置启动两个服务：
+  ```bash
+  conda run -n py312_t271_cuda ./scripts/path_server.sh start
+  conda run -n py312_t271_cuda ./scripts/llm_server.sh start
+  ```
+- 如果端口被旧进程占用且明确要替换旧服务，可使用：
+  ```bash
+  PORT_BUSY_ACTION=kill conda run -n py312_t271_cuda ./scripts/path_server.sh start
+  PORT_BUSY_ACTION=kill conda run -n py312_t271_cuda ./scripts/llm_server.sh start
+  ```
+- 快速小样本评测：
+  ```bash
+  conda run -n py312_t271_cuda python -m oh_my_agent.cli.eval_webqsp \
+    --input data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1580.txt \
+    --output data/output/WebQSP/simple_agent_eval_20.jsonl \
+    --limit 20 \
+    --beam_size 20 \
+    --lambda_val 0.2 \
+    --path_server_url http://localhost:8787 \
+    --llm_server_url http://localhost:8788
+  ```
+- 完整评测：
+  ```bash
+  conda run -n py312_t271_cuda python -m oh_my_agent.cli.eval_webqsp \
+    --input data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1580.txt \
+    --output data/output/WebQSP/simple_agent_eval_full.jsonl \
+    --beam_size 20 \
+    --lambda_val 0.2 \
+    --path_server_url http://localhost:8787 \
+    --llm_server_url http://localhost:8788
+  ```
+- 输出包括逐样本 JSONL 和同名前缀的 summary，例如 `simple_agent_eval_full.jsonl` 与 `simple_agent_eval_full_summary.json`。
