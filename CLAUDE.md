@@ -206,17 +206,21 @@ git log --oneline -10  # 参考本仓库的提交风格
 ```
 type(scope): 中文简述（≤50 字）
 
-可选正文：说明 WHY，而非 WHAT（读者能从 diff 里看 what）。
+- 变更项一（文件/模块：做了什么）
+- 变更项二
+- ...
 
-Co-Authored-By: 当前用户姓名 <当前用户邮箱>
+Co-Authored-By: <git config user.name> <<git config user.email>>
 Co-Authored-By: 当前协作模型/助手名称 <对应 noreply 邮箱>
 ```
 
-`Co-Authored-By` 可写多行，每行一个协作者。若提交由当前用户和当前 Codex 会话共同完成，使用：
+正文使用 `-` 列表，每项一行，简述该文件/模块发生了什么变更。变更项较少（1 项）时可省略正文。
+
+**`Co-Authored-By` 用户信息必须执行 `git config user.name` / `git config user.email` 读取，禁止使用 memory、对话历史或硬编码值。** 可写多行，每行一个协作者。完整示例（Claude 会话）：
 
 ```
 Co-Authored-By: jsh-smi-wsl <1099048889@qq.com>
-Co-Authored-By: OpenAI Codex <codex@openai.com>
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
 ```
 
 **type 选词规则（精确，不要混用）：**
@@ -241,8 +245,11 @@ Co-Authored-By: OpenAI Codex <codex@openai.com>
    git commit -m "$(cat <<'EOF'
    feat(eval): 新增 citation accuracy 指标计算
 
+   - eval_faithfulness.py: 新增 citation_accuracy / hallucination_rate 指标
+   - tests/test_eval.py: 补充对应单测
+
    Co-Authored-By: jsh-smi-wsl <1099048889@qq.com>
-   Co-Authored-By: OpenAI Codex <codex@openai.com>
+   Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
    EOF
    )"
    ```
