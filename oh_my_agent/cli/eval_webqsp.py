@@ -19,7 +19,7 @@ from oh_my_agent.common import (
 from oh_my_agent.tools import AnswerWithPathsTool, PathRetrievalTool
 
 
-DEFAULT_INPUT_PATH = "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1580.txt"
+DEFAULT_INPUT_PATH = "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"
 DEFAULT_OUTPUT_PATH = "data/output/WebQSP/simple_agent_eval.jsonl"
 
 

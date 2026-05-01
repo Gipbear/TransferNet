@@ -105,7 +105,7 @@ PORT_BUSY_ACTION=kill conda run -n py312_t271_cuda ./scripts/llm_server.sh start
 快速小样本评测：
 ```bash
 conda run -n py312_t271_cuda python -m oh_my_agent.cli.eval_webqsp \
-    --input data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1580.txt \
+    --input data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt \
     --output data/output/WebQSP/simple_agent_eval_20.jsonl \
     --limit 20 \
     --beam_size 20 \
@@ -117,7 +117,7 @@ conda run -n py312_t271_cuda python -m oh_my_agent.cli.eval_webqsp \
 完整评测：
 ```bash
 conda run -n py312_t271_cuda python -m oh_my_agent.cli.eval_webqsp \
-    --input data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1580.txt \
+    --input data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt \
     --output data/output/WebQSP/simple_agent_eval_full.jsonl \
     --beam_size 20 \
     --lambda_val 0.2 \
@@ -186,3 +186,72 @@ The `follow(e, r)` operation: `Mobj^T @ (Msubj @ e^T * Mrel @ r^T)` — differen
 - Data directory (`data/`) and model checkpoints (`models/`) are gitignored
 - GloVe embeddings must be pre-pickled via `python pickle_glove.py`
 - The project uses Chinese mirror sources in Docker (Tsinghua PyPI, USTC APT)
+
+## Git Commit Conventions
+
+### 提交前三步（并行执行）
+
+提交前必须同时运行以下命令，再起草 commit message：
+
+```bash
+git status          # 查看未追踪文件（不要加 -uall，会导致大仓库内存问题）
+git diff            # 查看已暂存 + 未暂存的变更
+git log --oneline -10  # 参考本仓库的提交风格
+```
+
+### Commit Message 格式
+
+遵循 Conventional Commits，消息使用中文（scope 和 type 保持英文）：
+
+```
+type(scope): 中文简述（≤50 字）
+
+可选正文：说明 WHY，而非 WHAT（读者能从 diff 里看 what）。
+
+Co-Authored-By: 当前用户姓名 <当前用户邮箱>
+Co-Authored-By: 当前协作模型/助手名称 <对应 noreply 邮箱>
+```
+
+`Co-Authored-By` 可写多行，每行一个协作者。若提交由当前用户和当前 Codex 会话共同完成，使用：
+
+```
+Co-Authored-By: jsh-smi-wsl <1099048889@qq.com>
+Co-Authored-By: OpenAI Codex <codex@openai.com>
+```
+
+**type 选词规则（精确，不要混用）：**
+
+| type | 含义 |
+|------|------|
+| `feat` | 完全新增的功能或文件 |
+| `fix` | 修复已有功能的 bug |
+| `refactor` | 重构，不新增功能也不修 bug |
+| `test` | 新增或修改测试 |
+| `docs` | 仅文档变更 |
+| `chore` | 构建脚本、依赖、配置等维护性变更 |
+| `perf` | 性能优化 |
+
+**scope** 取模块简称，例如 `path-server`、`llm-server`、`eval`、`llm-infer`、`agent`。
+
+### 暂存与提交操作规范
+
+1. **按文件名暂存**，不要用 `git add -A` 或 `git add .`，避免把 `.env`、大二进制文件等意外纳入。
+2. **用 HEREDOC 传入消息**，防止引号和换行格式出错：
+   ```bash
+   git commit -m "$(cat <<'EOF'
+   feat(eval): 新增 citation accuracy 指标计算
+
+   Co-Authored-By: jsh-smi-wsl <1099048889@qq.com>
+   Co-Authored-By: OpenAI Codex <codex@openai.com>
+   EOF
+   )"
+   ```
+3. **提交后运行 `git status`** 确认成功，无残留变更。
+
+### 安全红线
+
+- **只有用户明确要求时才创建提交**，不主动提交。
+- 不跳过 hook（`--no-verify`）；hook 报错时定位根因并修复，再重新暂存提交（新建 commit，不用 `--amend`）。
+- 不提交含密钥的文件（`.env`、凭据 JSON 等），发现时主动告知用户。
+- 不对 `main` / `master` 执行 `push --force`；有此需求时先确认。
+- `--amend` 仅在用户明确要求时使用；hook 失败后的修复一律新建 commit，防止覆盖历史。
