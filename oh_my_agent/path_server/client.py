@@ -42,7 +42,6 @@ class PathRetrievalClient:
         hop: Optional[int] = None,
         beam_size: int = 20,
         lambda_val: float = 0.2,
-        prediction_threshold: float = 0.9,
     ) -> PathRetrievalResponse:
         return self._post(
             "/retrieve",
@@ -52,7 +51,6 @@ class PathRetrievalClient:
                 "hop": hop,
                 "beam_size": beam_size,
                 "lambda_val": lambda_val,
-                "prediction_threshold": prediction_threshold,
             },
         )
 

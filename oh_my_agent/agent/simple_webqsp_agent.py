@@ -64,7 +64,6 @@ class SimpleWebQAgent:
         hop: int | None = None,
         beam_size: int = 20,
         lambda_val: float = 0.2,
-        prediction_threshold: float = 0.9,
         use_adapter: bool | None = None,
         max_new_tokens: int | None = None,
     ) -> SimpleWebQAgentResult:
@@ -74,7 +73,6 @@ class SimpleWebQAgent:
             hop=hop,
             beam_size=beam_size,
             lambda_val=lambda_val,
-            prediction_threshold=prediction_threshold,
         )
         answer = self.answer_tool(
             question,

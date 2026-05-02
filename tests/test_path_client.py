@@ -51,7 +51,6 @@ class PathRetrievalClientTests(unittest.TestCase):
                 hop=2,
                 beam_size=20,
                 lambda_val=0.2,
-                prediction_threshold=0.8,
             )
 
         self.assertEqual(resp.hop, 2)
@@ -63,7 +62,6 @@ class PathRetrievalClientTests(unittest.TestCase):
                 "hop": 2,
                 "beam_size": 20,
                 "lambda_val": 0.2,
-                "prediction_threshold": 0.8,
             },
             timeout=120,
         )

@@ -16,7 +16,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hop", type=int, default=None)
     parser.add_argument("--beam_size", type=int, default=20)
     parser.add_argument("--lambda_val", type=float, default=0.2)
-    parser.add_argument("--prediction_threshold", type=float, default=0.9)
     parser.add_argument("--max_new_tokens", type=int, default=256)
     parser.add_argument("--path_server_url", default="http://localhost:8787")
     parser.add_argument("--llm_server_url", default="http://localhost:8788")
@@ -44,7 +43,6 @@ def main(argv: list[str] | None = None) -> int:
         hop=args.hop,
         beam_size=args.beam_size,
         lambda_val=args.lambda_val,
-        prediction_threshold=args.prediction_threshold,
     )
     print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
     return 0

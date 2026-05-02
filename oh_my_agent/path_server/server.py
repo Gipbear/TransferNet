@@ -15,8 +15,7 @@ API:
           "topic_entities": ["m.0d3k14"],
           "hop": null,
           "beam_size": 20,
-          "lambda_val": 0.2,
-          "prediction_threshold": 0.9
+          "lambda_val": 0.2
         }
         response: {
           "question": "...",
@@ -64,7 +63,6 @@ def retrieve(req: RetrieveRequest):
             hop=req.hop,
             beam_size=req.beam_size,
             lambda_val=req.lambda_val,
-            prediction_threshold=req.prediction_threshold,
         ).to_dict()
     except KeyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -13,7 +13,6 @@ class RetrieveRequest(BaseModel):
     hop: Optional[int] = Field(None, ge=1)
     beam_size: int = Field(20, ge=1, le=200)
     lambda_val: float = Field(0.2, ge=0.0, le=10.0)
-    prediction_threshold: float = Field(0.9, ge=0.0, le=1.0)
 
 
 class RetrieveResponse(BaseModel):

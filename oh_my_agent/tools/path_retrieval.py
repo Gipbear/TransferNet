@@ -62,7 +62,6 @@ class PathRetrievalTool:
         hop: int | None = None,
         beam_size: int = 20,
         lambda_val: float = 0.2,
-        prediction_threshold: float = 0.9,
     ) -> PathRetrievalToolResult:
         response = self.client.retrieve(
             question,
@@ -70,7 +69,6 @@ class PathRetrievalTool:
             hop=hop,
             beam_size=beam_size,
             lambda_val=lambda_val,
-            prediction_threshold=prediction_threshold,
         )
 
         raw_paths = self._get_raw_paths(response)

@@ -291,7 +291,6 @@ class TransferNetPathRetriever:
         hop: Optional[int] = None,
         beam_size: int = 20,
         lambda_val: float = 0.2,
-        prediction_threshold: float = 0.9,
     ) -> RetrievalResult:
         if beam_size < 1:
             raise ValueError("beam_size must be >= 1")
@@ -299,8 +298,8 @@ class TransferNetPathRetriever:
             raise ValueError("hop must be >= 1")
 
         log.info(
-            "retrieve | question=%r topics=%s hop=%s beam=%d lambda=%.2f threshold=%.2f",
-            question, topic_entities, hop, beam_size, lambda_val, prediction_threshold,
+            "retrieve | question=%r topics=%s hop=%s beam=%d lambda=%.2f",
+            question, topic_entities, hop, beam_size, lambda_val,
         )
         t0 = time.perf_counter()
         topic_ids = self._topic_ids(topic_entities)
@@ -343,7 +342,7 @@ class TransferNetPathRetriever:
         )
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        predictions = self._serialize_prediction(e_score, prediction_threshold)
+        predictions = self._serialize_prediction(e_score)
         serialized_paths = self._serialize_paths(mmr_paths)
         log.info(
             "retrieve done | hop=%d paths=%d answers=%s elapsed_ms=%.1f",
@@ -364,7 +363,7 @@ class TransferNetPathRetriever:
             elapsed_ms=round(elapsed_ms, 1),
             raw_topics=[self.id2ent[topic_id] for topic_id in topic_ids],
             raw_mmr_reason_paths=self._serialize_paths_raw(mmr_paths),
-            raw_prediction=self._serialize_prediction_raw(e_score, prediction_threshold),
+            raw_prediction=self._serialize_prediction_raw(e_score),
         )
 
     def _serialize_paths(
@@ -407,20 +406,16 @@ class TransferNetPathRetriever:
             )
         return rows
 
-    def _serialize_prediction(
-        self, e_score: torch.Tensor, threshold: float
-    ) -> dict[str, float]:
+    def _serialize_prediction(self, e_score: torch.Tensor) -> dict[str, float]:
         return {
             self._resolve(self.id2ent[entity_id]): float(f"{score:.3f}")
-            for entity_id, score in filter_tensor(e_score, threshold)
+            for entity_id, score in filter_tensor(e_score, 0.9)
         }
 
-    def _serialize_prediction_raw(
-        self, e_score: torch.Tensor, threshold: float
-    ) -> dict[str, float]:
+    def _serialize_prediction_raw(self, e_score: torch.Tensor) -> dict[str, float]:
         return {
             self.id2ent[entity_id]: float(f"{score:.3f}")
-            for entity_id, score in filter_tensor(e_score, threshold)
+            for entity_id, score in filter_tensor(e_score, 0.9)
         }
 
     def info(self) -> dict[str, Any]:

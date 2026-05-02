@@ -31,6 +31,7 @@ from scripts.offline_path_search import (
 def normalize_question(question: str) -> str:
     text = question.strip().lower()
     text = re.sub(r"\[(cls|sep|pad)\]", " ", text)
+    text = re.sub(r"\s+##", "", text)   # merge BERT WordPiece subword tokens
     return re.sub(r"\s+", " ", text).strip()
 
 
@@ -183,7 +184,7 @@ class CachedPathRetriever:
     def _prediction(self, sample: dict) -> dict[str, float]:
         prediction = {}
         for idx, val in zip(sample["e_score_indices"].tolist(), sample["e_score_values"].tolist()):
-            if float(val) >= 0.5:
+            if float(val) >= 0.9:
                 prediction[self.id2ent.get(int(idx), str(idx))] = round(float(val), 4)
         return prediction
 
