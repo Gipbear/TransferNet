@@ -486,7 +486,7 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "C" || "${RUN_GROUP}" == "CJT
     GROUPCJT_ALPHA="${GROUPCJT_ALPHA:-1}"
 
     # 固定 alpha=1、lambda=0.2，扫 beam；默认网格与 Group CJ 保持一致。
-    for beam in ${GROUPCJT_BEAMS:-5 10 15 20 30}; do
+    for beam in ${GROUPCJT_BEAMS:-3 5 10 20 30}; do
         test_file="${OFFLINE_PATHS_DIR}/tail_blend_beam${beam}_alpha${GROUPCJT_ALPHA}_lam0.2.jsonl"
         if [[ ! -f "${test_file}" ]]; then
             echo "[WARN] 测试集不存在，跳过: ${test_file}"
@@ -496,7 +496,7 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "C" || "${RUN_GROUP}" == "CJT
     done
 
     # 固定 alpha=1、beam=20，扫 lambda（跳过 lam0.2 已处理）。
-    for lam in ${GROUPCJT_LAMS:-0 0.5 0.7 1}; do
+    for lam in ${GROUPCJT_LAMS:-0 0.2 0.5 0.7 1}; do
         test_file="${OFFLINE_PATHS_DIR}/tail_blend_beam20_alpha${GROUPCJT_ALPHA}_lam${lam}.jsonl"
         if [[ ! -f "${test_file}" ]]; then
             echo "[WARN] 测试集不存在，跳过: ${test_file}"

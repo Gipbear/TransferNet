@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 from oh_my_agent.agent import SimpleWebQAgent
 from oh_my_agent.cli import eval_webqsp, run_simple_agent
 from oh_my_agent.llm_server.client import GenerateResponse, LLMClient
+from oh_my_agent.path_retrieve_server.client import PathRetrieveClient, PathRetrieveResponse
 from oh_my_agent.path_server.client import PathRetrievalClient, PathRetrievalResponse
 from oh_my_agent.tools import AnswerWithPathsTool, PathRetrievalTool
 
@@ -143,6 +144,85 @@ class SimpleAgentFlowTests(unittest.TestCase):
             self.assertEqual(summary["n"], 1)
             self.assertEqual(summary["hit1"], 1.0)
             self.assertEqual(summary["format_compliance"], 1.0)
+
+    def test_eval_cli_passes_cached_retrieval_options(self):
+        path_response = PathRetrieveResponse(
+            question="where is jamarcus russell from",
+            sample_index=0,
+            topics=["m.0cjcdj"],
+            hop=1,
+            mmr_reason_paths=[
+                {"path": [["m.0cjcdj", "people.person.place_of_birth", "m.058cm"]], "log_score": -1.0}
+            ],
+            prediction={"m.058cm": 0.99},
+            elapsed_ms=10.0,
+            method="tail_blend",
+            alpha_final=2.0,
+            threshold=0.02,
+            beam_size=20,
+            lambda_val=0.2,
+            cache_path="cache.pt",
+        )
+        llm_response = GenerateResponse(
+            text="Supporting Paths: 1\nAnswer: Mobile",
+            used_adapter=True,
+            tokens_generated=5,
+            elapsed_ms=4.0,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            qa_path = tmp_path / "qa.txt"
+            qa_path.write_text(
+                "where is jamarcus russell from [m.0cjcdj]\tm.058cm\n",
+                encoding="utf-8",
+            )
+            entity_map_path = tmp_path / "mapped_entities.txt"
+            entity_map_path.write_text(
+                "m.0cjcdj\tJaMarcus Russell\nm.058cm\tMobile\n",
+                encoding="utf-8",
+            )
+            output_path = tmp_path / "cached_results.jsonl"
+
+            with patch.object(PathRetrieveClient, "retrieve", return_value=path_response) as retrieve_mock, patch.object(
+                LLMClient, "generate", return_value=llm_response
+            ):
+                exit_code = eval_webqsp.main(
+                    [
+                        "--input",
+                        str(qa_path),
+                        "--output",
+                        str(output_path),
+                        "--entity_map",
+                        str(entity_map_path),
+                        "--use_cached",
+                        "--path_method",
+                        "tail_blend",
+                        "--alpha_final",
+                        "2.0",
+                        "--path_threshold",
+                        "0.02",
+                        "--beam_size",
+                        "20",
+                        "--lambda_val",
+                        "0.2",
+                    ]
+                )
+
+            summary = json.loads(
+                output_path.with_name("cached_results_summary.json").read_text(encoding="utf-8")
+            )
+
+        self.assertEqual(exit_code, 0)
+        retrieve_kwargs = retrieve_mock.call_args.kwargs
+        self.assertEqual(retrieve_kwargs["method"], "tail_blend")
+        self.assertEqual(retrieve_kwargs["alpha_final"], 2.0)
+        self.assertEqual(retrieve_kwargs["threshold"], 0.02)
+        self.assertEqual(retrieve_kwargs["beam_size"], 20)
+        self.assertEqual(retrieve_kwargs["lambda_val"], 0.2)
+        self.assertEqual(summary["path_method"], "tail_blend")
+        self.assertEqual(summary["alpha_final"], 2.0)
+        self.assertEqual(summary["path_threshold"], 0.02)
 
     def test_run_simple_agent_cli_prints_json_result(self):
         path_response = PathRetrievalResponse(

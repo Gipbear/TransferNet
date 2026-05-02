@@ -120,6 +120,17 @@ if [[ -z "$QA_FILE" ]]; then
     QA_FILE="${INPUT_DIR}/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"
 fi
 
+# 将路径归一成绝对路径，避免 dump_scores 对相对 qa_file 再拼 input_dir，
+# 产生 data/input/WebQSP/data/input/WebQSP/... 这种双重前缀。
+INPUT_DIR="$(cd "$INPUT_DIR" && pwd)"
+if [[ "$QA_FILE" != /* ]]; then
+    if [[ -f "$QA_FILE" ]]; then
+        QA_FILE="$(cd "$(dirname "$QA_FILE")" && pwd)/$(basename "$QA_FILE")"
+    else
+        QA_FILE="${INPUT_DIR}/${QA_FILE}"
+    fi
+fi
+
 # ── 工具函数 ──────────────────────────────────────────────────────────────────
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
 

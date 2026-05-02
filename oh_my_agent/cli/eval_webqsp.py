@@ -38,6 +38,24 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Cached path-retrieve server URL (used with --use_cached)")
     parser.add_argument("--use_cached", action="store_true",
                         help="Use cached path-retrieve server (SimpleWebQAgentV2) instead of live path server")
+    parser.add_argument(
+        "--path_method",
+        choices=["tail_blend", "baseline"],
+        default="tail_blend",
+        help="Cached path retrieval method (used with --use_cached)",
+    )
+    parser.add_argument(
+        "--alpha_final",
+        type=float,
+        default=1.0,
+        help="Final entity score blend weight for cached tail_blend retrieval",
+    )
+    parser.add_argument(
+        "--path_threshold",
+        type=float,
+        default=0.01,
+        help="Score threshold for cached path retrieval reconstruction",
+    )
     parser.add_argument("--llm_server_url", default="http://localhost:8788")
     parser.add_argument(
         "--entity_map",
@@ -107,6 +125,9 @@ def main(argv: list[str] | None = None) -> int:
                     sample.topic_mid,
                     beam_size=args.beam_size,
                     lambda_val=args.lambda_val,
+                    method=args.path_method,
+                    alpha_final=args.alpha_final,
+                    threshold=args.path_threshold,
                 )
             else:
                 result = agent.run(
@@ -147,6 +168,10 @@ def main(argv: list[str] | None = None) -> int:
     summary = aggregate_metrics(records)
     summary["input_path"] = args.input
     summary["output_path"] = args.output
+    if args.use_cached:
+        summary["path_method"] = args.path_method
+        summary["alpha_final"] = args.alpha_final
+        summary["path_threshold"] = args.path_threshold
     summary_path = os.path.splitext(args.output)[0] + "_summary.json"
     with open(summary_path, "w", encoding="utf-8") as summary_handle:
         json.dump(summary, summary_handle, ensure_ascii=False, indent=2)
