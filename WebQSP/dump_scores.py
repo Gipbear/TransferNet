@@ -25,6 +25,21 @@ from .data import DataLoader, load_data
 from .model import TransferNet
 
 
+def _load_raw_questions(qa_file: str) -> list[str]:
+    """从 WebQSP QA 文件按顺序提取原始问题文本（去掉末尾的 [topic_mid] 和答案列）。"""
+    questions = []
+    with open(qa_file, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            q_part = line.split("\t")[0]
+            if " [" in q_part and q_part.endswith("]"):
+                q_part = q_part.rsplit(" [", 1)[0]
+            questions.append(q_part.strip())
+    return questions
+
+
 def dump_scores(model, data, device, output_path, topk=500, mode="val",
                 input_dir=None, qa_file=None):
     """运行推理，将每个样本的中间得分矩阵写入 .pt 缓存文件。
@@ -45,10 +60,10 @@ def dump_scores(model, data, device, output_path, topk=500, mode="val",
         },
         "samples": [
             {
-                "question": str,           # BERT tokenizer 还原的问题文本
+                "question": str,           # 原始问题文本（从 QA 文件读取，保留原始标点）
                 "topic_ids": list[int],    # topic 实体 ID 列表
                 "gold_ids":  list[int],    # gold 答案实体 ID 列表
-                "hop_attn":  Tensor[num_steps],     # 模型对各跳的注意力权重
+                "hop_attn":  Tensor[num_steps],      # 模型对各跳的注意力权重
                 "rel_probs": list[Tensor[num_rel]],  # 每跳关系得分（密集，sigmoid 输出）
                 "ent_indices": list[Tensor[K']],     # 每跳实体 top-K 索引（稀疏）
                 "ent_scores":  list[Tensor[K']],     # 每跳实体 top-K 得分（稀疏）
@@ -65,38 +80,39 @@ def dump_scores(model, data, device, output_path, topk=500, mode="val",
     model.eval()
     samples = []
 
+    if not qa_file or not os.path.isfile(qa_file):
+        raise ValueError(f"qa_file 必须提供且存在，当前值: {qa_file!r}")
+    raw_questions = _load_raw_questions(qa_file)
+    sample_counter = 0
+
+    pbar = tqdm(data, total=len(data), desc="dump_scores", unit="batch", dynamic_ncols=True)
     with torch.no_grad():
-        for batch in tqdm(data, total=len(data), desc="dump_scores"):
+        for batch in pbar:
             outputs = model(*batch_device(batch, device))
 
-            e_score_cpu    = outputs['e_score'].cpu()          # [bsz, Esize]
-            hop_attn_cpu   = outputs['hop_attn'].cpu()         # [bsz, num_steps]
-            rel_probs_cpu  = [t.cpu() for t in outputs['rel_probs']]  # list of [bsz, num_rel]
-            ent_probs_cpu  = [t.cpu() for t in outputs['ent_probs']]  # list of [bsz, Esize]
+            e_score_cpu   = outputs['e_score'].cpu()                        # [bsz, Esize]
+            hop_attn_cpu  = outputs['hop_attn'].cpu()                       # [bsz, num_steps]
+            rel_probs_cpu = [t.cpu() for t in outputs['rel_probs']]         # list of [bsz, num_rel]
+            ent_probs_cpu = [t.cpu() for t in outputs['ent_probs']]         # list of [bsz, Esize]
             num_steps = len(rel_probs_cpu)
 
             bsz = e_score_cpu.shape[0]
             for i in range(bsz):
-                # ── topic / gold ──────────────────────────────────────────────
                 topic_ids = [x for (x, _) in filter_tensor(batch[0][i], 1)]
                 gold_ids  = [x for (x, _) in filter_tensor(batch[2][i], 1)]
 
-                # ── question text ─────────────────────────────────────────────
-                q_ids     = batch[1]['input_ids'][i].tolist()
-                q_tokens  = data.tokenizer.convert_ids_to_tokens(q_ids)
-                question  = ' '.join(q_tokens).replace(' [PAD]', '').strip()
+                question = raw_questions[sample_counter]
+                sample_counter += 1
 
-                # ── 每跳实体：稀疏 top-K ──────────────────────────────────────
                 ent_indices_per_hop, ent_scores_per_hop = [], []
                 for t in range(num_steps):
                     vec = ent_probs_cpu[t][i]
                     k   = min(topk, vec.shape[0])
                     top_vals, top_idxs = vec.topk(k)
-                    mask = top_vals > 0          # 过滤全零尾部，节省磁盘
+                    mask = top_vals > 0
                     ent_indices_per_hop.append(top_idxs[mask])
                     ent_scores_per_hop.append(top_vals[mask])
 
-                # ── 最终聚合实体得分：稀疏 top-K ──────────────────────────────
                 e_vec = e_score_cpu[i]
                 k     = min(topk, e_vec.shape[0])
                 e_top_vals, e_top_idxs = e_vec.topk(k)
@@ -107,7 +123,6 @@ def dump_scores(model, data, device, output_path, topk=500, mode="val",
                     "topic_ids":       topic_ids,
                     "gold_ids":        gold_ids,
                     "hop_attn":        hop_attn_cpu[i].clone(),
-                    # 关系得分密集保存（每hop仅 ~700 个float，开销极小）
                     "rel_probs":       [rel_probs_cpu[t][i].clone() for t in range(num_steps)],
                     "ent_indices":     ent_indices_per_hop,
                     "ent_scores":      ent_scores_per_hop,
@@ -115,22 +130,23 @@ def dump_scores(model, data, device, output_path, topk=500, mode="val",
                     "e_score_values":  e_top_vals[e_mask],
                 })
 
+            pbar.set_postfix(samples=sample_counter)
             del outputs, e_score_cpu, hop_attn_cpu, rel_probs_cpu, ent_probs_cpu
 
     cache = {
         "version": 1,
         "meta": {
-            "dataset":      "WebQSP",
-            "split":        mode,
-            "num_samples":  len(samples),
-            "num_entities": len(data.id2ent),
-            "num_relations":len(data.id2rel),
-            "num_steps":    model.num_steps,
-            "topk_entities":topk,
-            "input_dir":    input_dir,
-            "qa_file":      qa_file,
-            "id2ent":       data.id2ent,
-            "id2rel":       data.id2rel,
+            "dataset":       "WebQSP",
+            "split":         mode,
+            "num_samples":   len(samples),
+            "num_entities":  len(data.id2ent),
+            "num_relations": len(data.id2rel),
+            "num_steps":     model.num_steps,
+            "topk_entities": topk,
+            "input_dir":     input_dir,
+            "qa_file":       qa_file,
+            "id2ent":        data.id2ent,
+            "id2rel":        data.id2rel,
         },
         "samples": samples,
     }
@@ -157,8 +173,8 @@ def main():
     parser.add_argument("--topk",       type=int, default=500,
                         help="每跳保存的实体得分 top-K 数量（默认 500）")
     parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--qa_file",    default=None,
-                        help="可选 QA 文件路径；提供时用于生成非训练 cache，绕过 processed.pt 中的默认 test loader")
+    parser.add_argument("--qa_file",    required=True,
+                        help="QA 文件路径（用于读取原始问题文本并构建 test loader）")
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"

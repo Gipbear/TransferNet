@@ -5,9 +5,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 from typing import Any
 
-from oh_my_agent.agent import SimpleWebQAgent
+from oh_my_agent.agent import SimpleWebQAgent, SimpleWebQAgentV2
 from oh_my_agent.common import (
     aggregate_metrics,
     compute_answer_metrics,
@@ -16,7 +17,7 @@ from oh_my_agent.common import (
     label_golden_indices,
     load_webqsp_qa_samples,
 )
-from oh_my_agent.tools import AnswerWithPathsTool, PathRetrievalTool
+from oh_my_agent.tools import AnswerWithPathsTool, PathRetrievalTool, PathRetrieveTool
 
 
 DEFAULT_INPUT_PATH = "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"
@@ -33,6 +34,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lambda_val", type=float, default=0.2)
     parser.add_argument("--max_new_tokens", type=int, default=256)
     parser.add_argument("--path_server_url", default="http://localhost:8787")
+    parser.add_argument("--path_retrieve_url", default="http://localhost:8789",
+                        help="Cached path-retrieve server URL (used with --use_cached)")
+    parser.add_argument("--use_cached", action="store_true",
+                        help="Use cached path-retrieve server (SimpleWebQAgentV2) instead of live path server")
     parser.add_argument("--llm_server_url", default="http://localhost:8788")
     parser.add_argument(
         "--entity_map",
@@ -79,24 +84,38 @@ def main(argv: list[str] | None = None) -> int:
     samples = load_webqsp_qa_samples(args.input, limit=args.limit)
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
 
-    path_tool = PathRetrievalTool(base_url=args.path_server_url, entity_map_path=args.entity_map)
     answer_tool = AnswerWithPathsTool(
         base_url=args.llm_server_url,
         default_use_adapter=not args.no_adapter,
         default_max_new_tokens=args.max_new_tokens,
     )
-    agent = SimpleWebQAgent(path_tool=path_tool, answer_tool=answer_tool)
+    if args.use_cached:
+        path_tool = PathRetrieveTool(base_url=args.path_retrieve_url, entity_map_path=args.entity_map)
+        agent = SimpleWebQAgentV2(path_tool=path_tool, answer_tool=answer_tool)
+    else:
+        path_tool = PathRetrievalTool(base_url=args.path_server_url, entity_map_path=args.entity_map)
+        agent = SimpleWebQAgent(path_tool=path_tool, answer_tool=answer_tool)
 
+    total = len(samples)
     records: list[dict[str, Any]] = []
+    t_start = time.monotonic()
     with open(args.output, "w", encoding="utf-8") as output_handle:
         for sample_index, sample in enumerate(samples):
-            result = agent.run(
-                sample.question,
-                sample.topic_mid,
-                hop=args.hop,
-                beam_size=args.beam_size,
-                lambda_val=args.lambda_val,
-            )
+            if args.use_cached:
+                result = agent.run(
+                    sample.question,
+                    sample.topic_mid,
+                    beam_size=args.beam_size,
+                    lambda_val=args.lambda_val,
+                )
+            else:
+                result = agent.run(
+                    sample.question,
+                    sample.topic_mid,
+                    hop=args.hop,
+                    beam_size=args.beam_size,
+                    lambda_val=args.lambda_val,
+                )
             answer_metrics = compute_answer_metrics(
                 result.pred_answer_disambiguated_mids,
                 sample.gold_mids,
@@ -110,6 +129,17 @@ def main(argv: list[str] | None = None) -> int:
             record = _build_record(sample_index, sample, result, answer_metrics, faith_metrics)
             records.append(record)
             output_handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+            output_handle.flush()
+            if (sample_index + 1) % 10 == 0 or sample_index == 0:
+                hit1 = sum(r.get("hit1", 0) for r in records) / len(records)
+                elapsed = time.monotonic() - t_start
+                avg_s = elapsed / len(records)
+                eta_s = avg_s * (total - len(records))
+                eta_str = time.strftime("%H:%M:%S", time.gmtime(eta_s))
+                print(f"[{sample_index + 1}/{total}] hit1={hit1:.4f} "
+                      f"ret={result.retrieval_elapsed_ms:.0f}ms "
+                      f"llm={result.llm_elapsed_ms:.0f}ms "
+                      f"ETA={eta_str}", flush=True)
 
     summary = aggregate_metrics(records)
     summary["input_path"] = args.input
