@@ -27,8 +27,9 @@
 #   bash scripts/run_ablation.sh --model_dataset webqsp    # 优先使用 WebQSP 模型
 #   bash scripts/run_ablation.sh --group A                  # 只跑 Group A
 #   bash scripts/run_ablation.sh --group B                  # 只跑 Group B
-#   bash scripts/run_ablation.sh --group C                  # 只跑 Group C（仅 eval，含 groupC + groupCJ）
+#   bash scripts/run_ablation.sh --group C                  # 只跑 Group C（仅 eval，含 groupC + groupCJ + groupCJT）
 #   bash scripts/run_ablation.sh --group CJ                 # 只跑 groupCJ（groupJ_schema_name 模型检索消融）
+#   bash scripts/run_ablation.sh --group CJT                # 只跑 groupCJT（groupJ_schema_name + offline tail_blend alpha=1 检索消融）
 #   bash scripts/run_ablation.sh --group D                  # 只跑 Group D（路径格式消融）
 #   bash scripts/run_ablation.sh --group A --phase train    # 只做数据构建 + 训练
 #   bash scripts/run_ablation.sh --group A --phase eval     # 只做推理评估
@@ -82,6 +83,7 @@ init_dataset_context "${PROJECT_DIR}" "${RUN_DATASET}"
 # ── 路径配置（由 --dataset / --model_dataset 决定）───────────────────────────
 TRAIN_INPUT="${DATASET_TRAIN_INPUT}"
 PATHS_DIR="${DATASET_PATHS_DIR}"
+OFFLINE_PATHS_DIR="${OFFLINE_PATHS_DIR:-${PROJECT_DIR}/data/output/${DATASET_NAME}/offline_search/paths}"
 ABLATION_DATA="${DATASET_ABLATION_DATA}"
 ABLATION_MODELS="${DATASET_ABLATION_MODELS}"
 TEST_BEAM20_LAM02="${DATASET_TEST_BEAM20_LAM02}"
@@ -462,6 +464,45 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "C" || "${RUN_GROUP}" == "CJ"
             continue
         fi
         run_eval_only "groupCJ" "${GROUPCJ_ADAPTER}" "${test_file}" "v2" "${GROUPCJ_EVAL_EXTRA}"
+    done
+fi
+
+# ── Group CJT: offline tail_blend(alpha=1) 检索参数消融 × groupJ_schema_name adapter ──
+if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "C" || "${RUN_GROUP}" == "CJT" ]]; then
+    log_section "Group CJT: offline tail_blend(alpha=1) 检索参数消融 × groupJ_schema_name adapter"
+
+    ENTITY_MAP_C="${PROJECT_DIR}/data/resources/WebQSP/fbwq_full/mapped_entities.txt"
+    if [[ ! -f "${ENTITY_MAP_C}" ]]; then
+        echo "[ERROR] 实体映射文件不存在: ${ENTITY_MAP_C}"
+        exit 1
+    fi
+    if [[ ! -d "${OFFLINE_PATHS_DIR}" ]]; then
+        echo "[ERROR] offline paths 目录不存在: ${OFFLINE_PATHS_DIR}"
+        exit 1
+    fi
+
+    GROUPCJT_ADAPTER="$(resolve_slot_adapter "${PROJECT_DIR}" "${MODEL_DATASET}" "groupJ_schema_name")"
+    GROUPCJT_EVAL_EXTRA="--path_format schema --entity_map ${ENTITY_MAP_C}"
+    GROUPCJT_ALPHA="${GROUPCJT_ALPHA:-1}"
+
+    # 固定 alpha=1、lambda=0.2，扫 beam；默认网格与 Group CJ 保持一致。
+    for beam in ${GROUPCJT_BEAMS:-5 10 15 20 30}; do
+        test_file="${OFFLINE_PATHS_DIR}/tail_blend_beam${beam}_alpha${GROUPCJT_ALPHA}_lam0.2.jsonl"
+        if [[ ! -f "${test_file}" ]]; then
+            echo "[WARN] 测试集不存在，跳过: ${test_file}"
+            continue
+        fi
+        run_eval_only "groupCJT" "${GROUPCJT_ADAPTER}" "${test_file}" "v2" "${GROUPCJT_EVAL_EXTRA}"
+    done
+
+    # 固定 alpha=1、beam=20，扫 lambda（跳过 lam0.2 已处理）。
+    for lam in ${GROUPCJT_LAMS:-0 0.5 0.7 1}; do
+        test_file="${OFFLINE_PATHS_DIR}/tail_blend_beam20_alpha${GROUPCJT_ALPHA}_lam${lam}.jsonl"
+        if [[ ! -f "${test_file}" ]]; then
+            echo "[WARN] 测试集不存在，跳过: ${test_file}"
+            continue
+        fi
+        run_eval_only "groupCJT" "${GROUPCJT_ADAPTER}" "${test_file}" "v2" "${GROUPCJT_EVAL_EXTRA}"
     done
 fi
 

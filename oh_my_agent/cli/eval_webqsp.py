@@ -131,12 +131,15 @@ def main(argv: list[str] | None = None) -> int:
             output_handle.write(json.dumps(record, ensure_ascii=False) + "\n")
             output_handle.flush()
             if (sample_index + 1) % 10 == 0 or sample_index == 0:
-                hit1 = sum(r.get("hit1", 0) for r in records) / len(records)
+                n = len(records)
+                hit1     = sum(r.get("hit1", 0)    for r in records) / n
+                hit_any  = sum(r.get("hit_any", 0) for r in records) / n
+                macro_f1 = sum(r.get("f1", 0)      for r in records) / n
                 elapsed = time.monotonic() - t_start
-                avg_s = elapsed / len(records)
-                eta_s = avg_s * (total - len(records))
+                eta_s = elapsed / n * (total - n)
                 eta_str = time.strftime("%H:%M:%S", time.gmtime(eta_s))
-                print(f"[{sample_index + 1}/{total}] hit1={hit1:.4f} "
+                print(f"[{sample_index + 1}/{total}] "
+                      f"hit1={hit1:.4f} hit_any={hit_any:.4f} macro_f1={macro_f1:.4f} "
                       f"ret={result.retrieval_elapsed_ms:.0f}ms "
                       f"llm={result.llm_elapsed_ms:.0f}ms "
                       f"ETA={eta_str}", flush=True)

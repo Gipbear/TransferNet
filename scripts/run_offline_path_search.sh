@@ -54,6 +54,8 @@ PROJ_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CKPT="${PROJ_DIR}/data/ckpt/WebQSP/model-29-0.6411.pt"
 # WebQSP 数据目录
 INPUT_DIR="${PROJ_DIR}/data/input/WebQSP"
+# QA 文件；默认使用过滤掉无有效答案样本后的 1581 条测试集
+QA_FILE=""
 # 得分缓存路径（空 = 自动推导为 OUTPUT_DIR/webqsp_${MODE}.pt）
 CACHE=""
 MODE="val"
@@ -87,6 +89,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --ckpt)        CKPT="$2";        shift 2 ;;
         --input_dir)   INPUT_DIR="$2";   shift 2 ;;
+        --qa_file)     QA_FILE="$2";     shift 2 ;;
         --cache)       CACHE="$2";       shift 2 ;;
         --mode)        MODE="$2";        shift 2 ;;
         --bert_name)   BERT_NAME="$2";   shift 2 ;;
@@ -113,6 +116,9 @@ done
 if [[ -z "$CACHE" ]]; then
     CACHE="${OUTPUT_DIR}/webqsp_${MODE}.pt"
 fi
+if [[ -z "$QA_FILE" ]]; then
+    QA_FILE="${INPUT_DIR}/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"
+fi
 
 # ── 工具函数 ──────────────────────────────────────────────────────────────────
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
@@ -129,6 +135,7 @@ run_dump() {
     print_header "Step 1: 导出得分缓存"
     echo "  ckpt       : ${CKPT}"
     echo "  input_dir  : ${INPUT_DIR}"
+    echo "  qa_file    : ${QA_FILE}"
     echo "  mode       : ${MODE}"
     echo "  output     : ${CACHE}"
     echo "  topk       : ${TOPK}"
@@ -140,6 +147,11 @@ run_dump() {
     fi
     if [[ -z "$INPUT_DIR" ]]; then
         echo "[ERROR] --input_dir 未指定。"
+        exit 1
+    fi
+    if [[ ! -f "$QA_FILE" ]]; then
+        echo "[ERROR] QA 文件不存在: ${QA_FILE}"
+        echo "        可先运行: python scripts/build_webqsp_fixed_qa.py"
         exit 1
     fi
 
@@ -159,6 +171,7 @@ run_dump() {
         --bert_name  "$BERT_NAME" \
         --batch_size "$BATCH_SIZE" \
         --topk       "$TOPK" \
+        --qa_file    "$QA_FILE" \
         --output     "$CACHE"
     echo "[$(ts)] dump 完成，耗时 $((SECONDS - t0))s"
 }
