@@ -21,11 +21,12 @@ from tqdm import tqdm
 
 from utils.misc import batch_device
 from utils.path_utils import filter_tensor
-from .data import load_data
+from .data import DataLoader, load_data
 from .model import TransferNet
 
 
-def dump_scores(model, data, device, output_path, topk=500, mode="val"):
+def dump_scores(model, data, device, output_path, topk=500, mode="val",
+                input_dir=None, qa_file=None):
     """运行推理，将每个样本的中间得分矩阵写入 .pt 缓存文件。
 
     缓存格式：
@@ -126,6 +127,8 @@ def dump_scores(model, data, device, output_path, topk=500, mode="val"):
             "num_relations":len(data.id2rel),
             "num_steps":    model.num_steps,
             "topk_entities":topk,
+            "input_dir":    input_dir,
+            "qa_file":      qa_file,
             "id2ent":       data.id2ent,
             "id2rel":       data.id2rel,
         },
@@ -154,6 +157,8 @@ def main():
     parser.add_argument("--topk",       type=int, default=500,
                         help="每跳保存的实体得分 top-K 数量（默认 500）")
     parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--qa_file",    default=None,
+                        help="可选 QA 文件路径；提供时用于生成非训练 cache，绕过 processed.pt 中的默认 test loader")
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -163,6 +168,14 @@ def main():
     ent2id, rel2id, triples, train_loader, val_loader = load_data(
         args.input_dir, args.bert_name, args.batch_size
     )
+    if args.qa_file:
+        qa_file = args.qa_file
+        if not os.path.isabs(qa_file):
+            qa_file = os.path.join(args.input_dir, qa_file)
+        print(f"[INFO] 使用指定 QA 文件: {qa_file}", flush=True)
+        val_loader = DataLoader(
+            args.input_dir, qa_file, args.bert_name, ent2id, rel2id, args.batch_size
+        )
 
     print("[INFO] 加载模型 ...", flush=True)
     model = TransferNet(args, ent2id, rel2id, triples)
@@ -179,7 +192,13 @@ def main():
     model.Mrel  = model.Mrel.to(device)
 
     loader = train_loader if args.mode == "train" else val_loader
-    dump_scores(model, loader, device, args.output, topk=args.topk, mode=args.mode)
+    dump_scores(
+        model, loader, device, args.output,
+        topk=args.topk,
+        mode=args.mode,
+        input_dir=args.input_dir,
+        qa_file=args.qa_file,
+    )
 
 
 if __name__ == "__main__":
