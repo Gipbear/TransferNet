@@ -12,8 +12,10 @@ from typing import Any
 from oh_my_agent.agent import CheckedBatchWebQAgent
 from oh_my_agent.common import (
     aggregate_metrics,
+    build_reverse_entity_map,
     compute_answer_metrics,
     compute_faithfulness,
+    expand_pred_answers_with_path_constraint,
     get_all_path_entities,
     label_golden_indices,
     load_webqsp_qa_samples,
@@ -22,13 +24,21 @@ from oh_my_agent.tools import AnswerWithPathsTool, CitedPathCheckTool, PathRetri
 
 
 DEFAULT_INPUT_PATH = "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"
-DEFAULT_OUTPUT_PATH = "data/output/WebQSP/checked_batch_agent/checked_batch_eval.jsonl"
+DEFAULT_OUTPUT_DIR_PREFIX = "data/output/WebQSP/checked_batch_agent/checked_batch_eval"
+RESULT_FILENAME = "checked_batch_eval.jsonl"
+SUMMARY_FILENAME = "checked_batch_eval_summary.json"
+INITIAL_RETRIEVAL_FILENAME = "initial_retrieval.jsonl"
+INITIAL_ANSWER_FILENAME = "initial_answer.jsonl"
+
+
+def _default_output_dir() -> str:
+    return f"{DEFAULT_OUTPUT_DIR_PREFIX}_{time.strftime('%Y%m%d_%H%M')}"
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Evaluate the checked-batch WebQSP QA agent")
     parser.add_argument("--input", default=DEFAULT_INPUT_PATH)
-    parser.add_argument("--output", default=DEFAULT_OUTPUT_PATH)
+    parser.add_argument("--output", default=_default_output_dir(), help="Output directory")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--path_method", choices=["tail_blend", "baseline"], default="tail_blend")
     parser.add_argument("--alpha_final", type=float, default=1.0)
@@ -55,6 +65,79 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional explicit analysis archive directory",
     )
     return parser
+
+
+def _resolve_output_paths(output: str) -> dict[str, str]:
+    output_dir = os.path.splitext(output)[0] if output.endswith(".jsonl") else output
+    return {
+        "dir": output_dir,
+        "records": os.path.join(output_dir, RESULT_FILENAME),
+        "summary": os.path.join(output_dir, SUMMARY_FILENAME),
+        "initial_retrieval": os.path.join(output_dir, INITIAL_RETRIEVAL_FILENAME),
+        "initial_answer": os.path.join(output_dir, INITIAL_ANSWER_FILENAME),
+    }
+
+
+def _path_tail(path_dict: dict[str, Any]) -> str:
+    edges = path_dict.get("path", [])
+    return str(edges[-1][2]) if edges else ""
+
+
+def _path_mid_entities(paths: list[dict[str, Any]]) -> set[str]:
+    entities: set[str] = set()
+    for path_dict in paths:
+        for edge in path_dict.get("path", []):
+            if len(edge) >= 3:
+                entities.add(str(edge[0]))
+                entities.add(str(edge[2]))
+    return entities
+
+
+def _path_metrics(paths: list[dict[str, Any]], gold_mids: list[str]) -> dict[str, float | bool]:
+    gold_set = {str(mid).lower().strip() for mid in gold_mids}
+    tail_set = {tail.lower().strip() for tail in (_path_tail(path) for path in paths) if tail}
+    hit_count = len(tail_set & gold_set)
+    precision = hit_count / len(tail_set) if tail_set else 0.0
+    recall = hit_count / len(gold_set) if gold_set else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0.0
+    top1_tail = _path_tail(paths[0]).lower().strip() if paths else ""
+    return {
+        "mmr_answer_path_hit": bool(hit_count),
+        "mmr_top1_hit": bool(top1_tail and top1_tail in gold_set),
+        "mmr_answer_recall": round(recall, 4),
+        "mmr_precision": round(precision, 4),
+        "mmr_f1": round(f1, 4),
+        "hit": bool(hit_count),
+    }
+
+
+def _path_diversity(paths: list[dict[str, Any]]) -> dict[str, float]:
+    if len(paths) < 2:
+        return {
+            "jaccard_diversity": 0.0,
+            "tail_diversity": 0.0,
+            "edge_coverage": 0.0,
+        }
+
+    edge_sets = [
+        {tuple(edge[:3]) for edge in path_dict.get("path", []) if len(edge) >= 3}
+        for path_dict in paths
+    ]
+    pair_distances: list[float] = []
+    for left_index, left_edges in enumerate(edge_sets):
+        for right_edges in edge_sets[left_index + 1 :]:
+            union = left_edges | right_edges
+            similarity = len(left_edges & right_edges) / len(union) if union else 0.0
+            pair_distances.append(1.0 - similarity)
+
+    tails = [_path_tail(path) for path in paths if _path_tail(path)]
+    all_edges = set().union(*edge_sets) if edge_sets else set()
+    total_edges = sum(len(edge_set) for edge_set in edge_sets)
+    return {
+        "jaccard_diversity": round(sum(pair_distances) / len(pair_distances), 4),
+        "tail_diversity": round(len(set(tails)) / len(paths), 4) if tails else 0.0,
+        "edge_coverage": round(len(all_edges) / total_edges, 4) if total_edges else 0.0,
+    }
 
 
 def _build_record(sample_index: int, sample, result, answer_metrics, faith_metrics) -> dict[str, Any]:
@@ -92,6 +175,75 @@ def _build_record(sample_index: int, sample, result, answer_metrics, faith_metri
         "retrieval_elapsed_ms": result.retrieval_elapsed_ms,
         "llm_elapsed_ms": result.llm_elapsed_ms,
         "check_elapsed_ms": result.check_elapsed_ms,
+        **answer_metrics,
+        **faith_metrics,
+    }
+
+
+def _build_initial_retrieval_record(sample, result) -> dict[str, Any]:
+    raw_paths = result.raw_mmr_reason_paths
+    return {
+        "question": sample.question_raw,
+        "topics": result.raw_topics,
+        "hop": result.hop,
+        "mmr_reason_paths": raw_paths,
+        "path_diversity": _path_diversity(raw_paths),
+        "golden": sample.gold_mids,
+        "prediction": result.raw_prediction,
+        **_path_metrics(raw_paths, sample.gold_mids),
+    }
+
+
+def _build_initial_answer_record(
+    sample_index: int,
+    sample,
+    result,
+    batch_size: int,
+    reverse_entity_map: dict[str, set[str]],
+) -> dict[str, Any]:
+    first_iteration = result.iterations[0] if result.iterations else None
+    raw_paths = result.raw_mmr_reason_paths[:batch_size]
+    named_paths = result.named_mmr_reason_paths[:batch_size]
+    answer_names = first_iteration.answer_names if first_iteration else []
+    cited_indices = first_iteration.local_cited_path_indices if first_iteration else []
+    expanded_mids, disambiguated_mids = expand_pred_answers_with_path_constraint(
+        pred_answers=answer_names,
+        rev_entity_map=reverse_entity_map,
+        path_mid_entities=_path_mid_entities(raw_paths),
+    )
+    answer_metrics = compute_answer_metrics(disambiguated_mids, sample.gold_mids)
+    golden_indices = label_golden_indices(raw_paths, sample.gold_mids)
+    faith_metrics = compute_faithfulness(
+        cited_indices=set(cited_indices),
+        golden_indices=golden_indices,
+        pred_answers=answer_names,
+        path_entities=get_all_path_entities(named_paths),
+    )
+    return {
+        "sample_index": sample_index,
+        "question": sample.question_raw,
+        "topics": result.raw_topics,
+        "hop": result.hop,
+        "mmr_reason_paths": raw_paths,
+        "named_mmr_reason_paths": named_paths,
+        "path_diversity": _path_diversity(raw_paths),
+        "golden": sample.gold_mids,
+        "prediction": result.raw_prediction,
+        "hit": bool(golden_indices),
+        "llm_raw_input": first_iteration.answer_prompt if first_iteration else "",
+        "llm_raw_output": first_iteration.raw_llm_output if first_iteration else "",
+        "llm_pred": answer_names,
+        "is_rejection": not answer_names,
+        "llm_pred_expanded_mids": expanded_mids,
+        "llm_pred_disambiguated_mids": disambiguated_mids,
+        "cited_indices": cited_indices,
+        "golden_path_indices": sorted(golden_indices),
+        "format_ok": first_iteration.format_ok if first_iteration else False,
+        "used_adapter": first_iteration.used_adapter if first_iteration else False,
+        "tokens_generated": (
+            first_iteration.answer_tokens_generated if first_iteration else 0
+        ),
+        "llm_elapsed_ms": first_iteration.answer_elapsed_ms if first_iteration else 0.0,
         **answer_metrics,
         **faith_metrics,
     }
@@ -148,7 +300,10 @@ def _write_archive(args: argparse.Namespace, summary: dict[str, Any], summary_pa
         f"- beam_size: `{args.beam_size}`",
         f"- lambda_val: `{args.lambda_val}`",
         f"- batch_size: `{args.batch_size}`",
-        f"- output: `{args.output}`",
+        f"- output_dir: `{summary.get('output_dir', args.output)}`",
+        f"- result_jsonl: `{summary.get('output_path', '')}`",
+        f"- initial_retrieval_jsonl: `{summary.get('initial_retrieval_path', '')}`",
+        f"- initial_answer_jsonl: `{summary.get('initial_answer_path', '')}`",
         f"- summary: `{summary_path}`",
         "",
         "## Summary",
@@ -166,7 +321,8 @@ def _write_archive(args: argparse.Namespace, summary: dict[str, Any], summary_pa
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     samples = load_webqsp_qa_samples(args.input, limit=args.limit)
-    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
+    output_paths = _resolve_output_paths(args.output)
+    os.makedirs(output_paths["dir"], exist_ok=True)
 
     path_tool = PathRetrieveTool(
         base_url=args.path_retrieve_url,
@@ -191,11 +347,16 @@ def main(argv: list[str] | None = None) -> int:
         answer_tool=answer_tool,
         check_tool=check_tool,
     )
+    reverse_entity_map = build_reverse_entity_map(path_tool.entity_map)
 
     total = len(samples)
     records: list[dict[str, Any]] = []
     t_start = time.monotonic()
-    with open(args.output, "w", encoding="utf-8") as output_handle:
+    with open(output_paths["records"], "w", encoding="utf-8") as output_handle, open(
+        output_paths["initial_retrieval"], "w", encoding="utf-8"
+    ) as retrieval_handle, open(
+        output_paths["initial_answer"], "w", encoding="utf-8"
+    ) as answer_handle:
         for sample_index, sample in enumerate(samples):
             result = agent.run(
                 sample.question,
@@ -222,6 +383,18 @@ def main(argv: list[str] | None = None) -> int:
             records.append(record)
             output_handle.write(json.dumps(record, ensure_ascii=False) + "\n")
             output_handle.flush()
+            retrieval_record = _build_initial_retrieval_record(sample, result)
+            retrieval_handle.write(json.dumps(retrieval_record, ensure_ascii=False) + "\n")
+            retrieval_handle.flush()
+            answer_record = _build_initial_answer_record(
+                sample_index,
+                sample,
+                result,
+                args.batch_size,
+                reverse_entity_map,
+            )
+            answer_handle.write(json.dumps(answer_record, ensure_ascii=False) + "\n")
+            answer_handle.flush()
 
             if (sample_index + 1) % 10 == 0 or sample_index == 0:
                 n = len(records)
@@ -243,7 +416,10 @@ def main(argv: list[str] | None = None) -> int:
     summary.update(
         {
             "input_path": args.input,
-            "output_path": args.output,
+            "output_dir": output_paths["dir"],
+            "output_path": output_paths["records"],
+            "initial_retrieval_path": output_paths["initial_retrieval"],
+            "initial_answer_path": output_paths["initial_answer"],
             "path_method": args.path_method,
             "alpha_final": args.alpha_final,
             "path_threshold": args.path_threshold,
@@ -252,7 +428,7 @@ def main(argv: list[str] | None = None) -> int:
             "batch_size": args.batch_size,
         }
     )
-    summary_path = os.path.splitext(args.output)[0] + "_summary.json"
+    summary_path = output_paths["summary"]
     with open(summary_path, "w", encoding="utf-8") as summary_handle:
         json.dump(summary, summary_handle, ensure_ascii=False, indent=2)
 

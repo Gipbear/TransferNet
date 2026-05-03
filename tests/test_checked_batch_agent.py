@@ -257,7 +257,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
                 "m.topic\tTopic\nm.a\tAnswer A\nm.b\tAnswer B\n",
                 encoding="utf-8",
             )
-            output_path = tmp_path / "checked.jsonl"
+            output_dir = tmp_path / "checked"
 
             with patch.object(PathRetrieveClient, "retrieve", return_value=path_response), patch.object(
                 LLMClient, "health", return_value={"status": "ok"}
@@ -267,17 +267,27 @@ class CheckedBatchAgentTests(unittest.TestCase):
                         "--input",
                         str(qa_path),
                         "--output",
-                        str(output_path),
+                        str(output_dir),
                         "--entity_map",
                         str(entity_map_path),
                         "--no_archive",
                     ]
                 )
 
+            output_path = output_dir / "checked_batch_eval.jsonl"
+            summary_path = output_dir / "checked_batch_eval_summary.json"
+            retrieval_path = output_dir / "initial_retrieval.jsonl"
+            answer_path = output_dir / "initial_answer.jsonl"
             records = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
             summary = json.loads(
-                output_path.with_name("checked_summary.json").read_text(encoding="utf-8")
+                summary_path.read_text(encoding="utf-8")
             )
+            retrieval_records = [
+                json.loads(line) for line in retrieval_path.read_text(encoding="utf-8").splitlines()
+            ]
+            answer_records = [
+                json.loads(line) for line in answer_path.read_text(encoding="utf-8").splitlines()
+            ]
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(records[0]["final_accepted_path_indices"], [1])
@@ -288,6 +298,14 @@ class CheckedBatchAgentTests(unittest.TestCase):
         self.assertEqual(summary["avg_checked_paths"], 2.0)
         self.assertEqual(summary["avg_accepted_paths"], 1.0)
         self.assertEqual(summary["stop_reason_counts"], {"mixed": 1})
+        self.assertEqual(summary["output_dir"], str(output_dir))
+        self.assertEqual(summary["initial_retrieval_path"], str(retrieval_path))
+        self.assertEqual(summary["initial_answer_path"], str(answer_path))
+        self.assertEqual(retrieval_records[0]["mmr_reason_paths"], path_response.mmr_reason_paths)
+        self.assertEqual(retrieval_records[0]["golden"], ["m.a"])
+        self.assertEqual(answer_records[0]["llm_raw_output"], responses[0].text)
+        self.assertEqual(answer_records[0]["llm_pred"], ["Answer A", "Answer B"])
+        self.assertEqual(answer_records[0]["cited_indices"], [1, 2])
 
 
 if __name__ == "__main__":
