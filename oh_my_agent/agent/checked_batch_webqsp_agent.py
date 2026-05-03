@@ -57,6 +57,7 @@ class CheckedBatchWebQAgentResult:
     pred_answer_names: list[str] = field(default_factory=list)
     pred_answer_expanded_mids: list[str] = field(default_factory=list)
     pred_answer_disambiguated_mids: list[str] = field(default_factory=list)
+    relation_expanded_path_indices: list[int] = field(default_factory=list)
     batches_used: int = 0
     checked_paths_count: int = 0
     accepted_paths_count: int = 0
@@ -82,6 +83,14 @@ def _tail_from_path(path_dict: dict[str, Any]) -> str:
     if not edges:
         return ""
     return str(edges[-1][-1])
+
+
+def _relation_sequence_from_path(path_dict: dict[str, Any]) -> tuple[str, ...]:
+    return tuple(
+        str(edge[1])
+        for edge in path_dict.get("path", [])
+        if isinstance(edge, (list, tuple)) and len(edge) >= 2
+    )
 
 
 def _classify_batch(batch_size: int, accepted_count: int) -> str:
@@ -140,6 +149,7 @@ class CheckedBatchWebQAgent:
         iterations: list[CheckedBatchIteration] = []
         all_cited_indices: list[int] = []
         all_accepted_indices: list[int] = []
+        relation_expanded_indices: list[int] = []
         final_names: list[str] = []
         final_mids: list[str] = []
         seen_answer_keys: set[str] = set()
@@ -196,9 +206,40 @@ class CheckedBatchWebQAgent:
                 final_names.append(named_tail)
                 final_mids.append(raw_tail or named_tail)
 
+            accepted_index_set = set(global_accepted)
+            accepted_relation_sequences = {
+                _relation_sequence_from_path(raw_paths[global_idx - 1])
+                for global_idx in accepted_index_set
+                if 0 < global_idx <= len(raw_paths)
+            }
+            accepted_relation_sequences.discard(())
+            batch_relation_expanded: list[int] = []
+            for global_idx in global_cited:
+                if global_idx in accepted_index_set or not (0 < global_idx <= len(raw_paths)):
+                    continue
+                relation_sequence = _relation_sequence_from_path(raw_paths[global_idx - 1])
+                if relation_sequence not in accepted_relation_sequences:
+                    continue
+                batch_relation_expanded.append(global_idx)
+                relation_expanded_indices.append(global_idx)
+
+                path_offset = global_idx - 1
+                named_tail = (
+                    _tail_from_path(named_paths[path_offset])
+                    if path_offset < len(named_paths)
+                    else ""
+                )
+                raw_tail = _tail_from_path(raw_paths[path_offset])
+                dedupe_key = norm_entity(raw_tail or named_tail)
+                if not dedupe_key or dedupe_key in seen_answer_keys:
+                    continue
+                seen_answer_keys.add(dedupe_key)
+                final_names.append(named_tail)
+                final_mids.append(raw_tail or named_tail)
+
             batch_status = _classify_batch(
                 batch_size=len(batch_named),
-                accepted_count=len(check.accepted_path_indices),
+                accepted_count=len(accepted_index_set | set(batch_relation_expanded)),
             )
             iterations.append(
                 CheckedBatchIteration(
@@ -249,6 +290,7 @@ class CheckedBatchWebQAgent:
             pred_answer_names=final_names,
             pred_answer_expanded_mids=expanded_mids,
             pred_answer_disambiguated_mids=disambiguated_mids,
+            relation_expanded_path_indices=relation_expanded_indices,
             batches_used=len(iterations),
             checked_paths_count=sum(
                 len(item.local_cited_path_indices) for item in iterations

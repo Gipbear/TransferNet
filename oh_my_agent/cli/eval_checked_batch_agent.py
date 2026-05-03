@@ -73,6 +73,7 @@ def _build_record(sample_index: int, sample, result, answer_metrics, faith_metri
         "iterations": [item.to_dict() for item in result.iterations],
         "final_accepted_path_indices": result.final_accepted_path_indices,
         "cited_path_indices": result.cited_path_indices,
+        "relation_expanded_path_indices": result.relation_expanded_path_indices,
         "golden_path_indices": sorted(label_golden_indices(result.raw_mmr_reason_paths, sample.gold_mids)),
         "pred_answer_names": result.pred_answer_names,
         "pred_answer_expanded_mids": result.pred_answer_expanded_mids,
@@ -211,7 +212,8 @@ def main(argv: list[str] | None = None) -> int:
                 sample.gold_mids,
             )
             faith_metrics = compute_faithfulness(
-                cited_indices=set(result.final_accepted_path_indices),
+                cited_indices=set(result.final_accepted_path_indices)
+                | set(result.relation_expanded_path_indices),
                 golden_indices=label_golden_indices(result.raw_mmr_reason_paths, sample.gold_mids),
                 pred_answers=result.pred_answer_names,
                 path_entities=get_all_path_entities(result.named_mmr_reason_paths),
