@@ -104,21 +104,20 @@ class CheckedBatchAgentTests(unittest.TestCase):
         self.assertEqual(retrieve_kwargs["beam_size"], 50)
         self.assertEqual(retrieve_kwargs["lambda_val"], 0.5)
         self.assertEqual(result.stop_reason, "path_exhausted")
-        self.assertEqual([item.batch_status for item in result.iterations], ["all_correct", "mixed"])
+        self.assertEqual([item.batch_status for item in result.iterations], ["all_correct", "all_correct"])
         self.assertEqual(result.iterations[1].global_cited_path_indices, [3, 4])
         self.assertEqual(result.final_accepted_path_indices, [1, 2, 3])
-        self.assertEqual(result.relation_expanded_path_indices, [])
+        self.assertEqual(result.relation_expanded_path_indices, [4])
         self.assertEqual(result.pred_answer_names, ["Answer A", "Answer B", "Answer C"])
         self.assertEqual(result.pred_answer_disambiguated_mids, ["m.a", "m.b", "m.c"])
         self.assertEqual(result.checked_paths_count, 4)
         self.assertEqual(result.accepted_paths_count, 3)
 
-    def test_mixed_batch_does_not_stop_following_batches(self):
+    def test_all_correct_compares_against_full_reasoning_batch(self):
         raw_paths = [
             {"path": [["m.topic", "rel.a", "m.a"]], "log_score": -1.0},
             {"path": [["m.topic", "rel.b", "m.b"]], "log_score": -2.0},
             {"path": [["m.topic", "rel.c", "m.c"]], "log_score": -3.0},
-            {"path": [["m.topic", "rel.d", "m.d"]], "log_score": -4.0},
         ]
         llm_client = FakeLLMClient(
             [
@@ -130,13 +129,6 @@ class CheckedBatchAgentTests(unittest.TestCase):
                 ),
                 GenerateResponse(text="Y", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
                 GenerateResponse(text="Y", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
-                GenerateResponse(
-                    text="Supporting Paths: 1\nAnswer: Answer D",
-                    used_adapter=True,
-                    tokens_generated=4,
-                    elapsed_ms=2.0,
-                ),
-                GenerateResponse(text="Y", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
             ]
         )
         agent = CheckedBatchWebQAgent(
@@ -147,7 +139,6 @@ class CheckedBatchAgentTests(unittest.TestCase):
                     "m.a": "Answer A",
                     "m.b": "Answer B",
                     "m.c": "Answer C",
-                    "m.d": "Answer D",
                 },
             ),
             answer_tool=AnswerWithPathsTool(client=llm_client),
@@ -157,12 +148,10 @@ class CheckedBatchAgentTests(unittest.TestCase):
         result = agent.run("where is example from", "m.topic", batch_size=3)
 
         self.assertEqual(result.iterations[0].batch_status, "mixed")
-        self.assertEqual(result.iterations[1].batch_status, "all_correct")
-        self.assertEqual(result.stop_reason, "path_exhausted")
-        self.assertEqual(result.final_accepted_path_indices, [1, 2, 4])
-        self.assertEqual(result.pred_answer_disambiguated_mids, ["m.a", "m.b", "m.d"])
+        self.assertEqual(result.stop_reason, "mixed")
+        self.assertEqual(result.final_accepted_path_indices, [1, 2])
 
-    def test_rejected_cited_paths_are_not_promoted_by_relation(self):
+    def test_relation_expansion_only_uses_checked_cited_paths(self):
         raw_paths = [
             {"path": [["m.topic", "rel.location", "m.a"]], "log_score": -1.0},
             {"path": [["m.topic", "rel.location", "m.b"]], "log_score": -2.0},
@@ -199,9 +188,9 @@ class CheckedBatchAgentTests(unittest.TestCase):
 
         self.assertEqual(result.cited_path_indices, [1, 2])
         self.assertEqual(result.final_accepted_path_indices, [1])
-        self.assertEqual(result.relation_expanded_path_indices, [])
-        self.assertEqual(result.pred_answer_names, ["Answer A"])
-        self.assertEqual(result.pred_answer_disambiguated_mids, ["m.a"])
+        self.assertEqual(result.relation_expanded_path_indices, [2])
+        self.assertEqual(result.pred_answer_names, ["Answer A", "Answer B"])
+        self.assertEqual(result.pred_answer_disambiguated_mids, ["m.a", "m.b"])
 
     def test_all_wrong_and_invalid_citations_continue_until_exhausted(self):
         raw_paths = [
@@ -308,7 +297,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
         self.assertEqual(summary["avg_batches_used"], 1.0)
         self.assertEqual(summary["avg_checked_paths"], 2.0)
         self.assertEqual(summary["avg_accepted_paths"], 1.0)
-        self.assertEqual(summary["stop_reason_counts"], {"path_exhausted": 1})
+        self.assertEqual(summary["stop_reason_counts"], {"mixed": 1})
         self.assertEqual(summary["output_dir"], str(output_dir))
         self.assertEqual(summary["initial_retrieval_path"], str(retrieval_path))
         self.assertEqual(summary["initial_answer_path"], str(answer_path))

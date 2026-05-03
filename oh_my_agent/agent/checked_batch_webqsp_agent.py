@@ -90,6 +90,14 @@ def _tail_from_path(path_dict: dict[str, Any]) -> str:
     return str(edges[-1][-1])
 
 
+def _relation_sequence_from_path(path_dict: dict[str, Any]) -> tuple[str, ...]:
+    return tuple(
+        str(edge[1])
+        for edge in path_dict.get("path", [])
+        if isinstance(edge, (list, tuple)) and len(edge) >= 2
+    )
+
+
 def _classify_batch(batch_size: int, accepted_count: int) -> str:
     if accepted_count == 0:
         return "all_wrong"
@@ -103,6 +111,7 @@ class _CheckedBatchState:
     iterations: list[CheckedBatchIteration] = field(default_factory=list)
     cited_indices: list[int] = field(default_factory=list)
     accepted_indices: list[int] = field(default_factory=list)
+    relation_expanded_indices: list[int] = field(default_factory=list)
     final_names: list[str] = field(default_factory=list)
     final_mids: list[str] = field(default_factory=list)
     seen_answer_keys: set[str] = field(default_factory=set)
@@ -168,7 +177,7 @@ class CheckedBatchWebQAgent:
             if not batch_named:
                 break
 
-            self._run_checked_batch(
+            batch_status = self._run_checked_batch(
                 question,
                 start=start,
                 batch_named=batch_named,
@@ -181,6 +190,10 @@ class CheckedBatchWebQAgent:
                 check_use_adapter=check_use_adapter,
                 check_max_new_tokens=check_max_new_tokens,
             )
+
+            if batch_status == "mixed":
+                state.stop_reason = "mixed"
+                break
 
         return self._build_result(
             question=question,
@@ -205,7 +218,7 @@ class CheckedBatchWebQAgent:
         max_new_tokens: int | None,
         check_use_adapter: bool | None,
         check_max_new_tokens: int | None,
-    ) -> None:
+    ) -> str:
         answer = self.answer_tool(
             question,
             batch_named,
@@ -238,9 +251,17 @@ class CheckedBatchWebQAgent:
             state=state,
         )
 
+        batch_relation_expanded = self._add_relation_expanded_answers(
+            global_cited=global_cited,
+            global_accepted=global_accepted,
+            raw_paths=raw_paths,
+            named_paths=named_paths,
+            state=state,
+        )
+        accepted_count = len(set(global_accepted) | set(batch_relation_expanded))
         batch_status = _classify_batch(
             batch_size=len(batch_named),
-            accepted_count=len(set(global_accepted)),
+            accepted_count=accepted_count,
         )
         state.iterations.append(
             CheckedBatchIteration(
@@ -262,6 +283,7 @@ class CheckedBatchWebQAgent:
                 path_check=check.to_dict(),
             )
         )
+        return batch_status
 
     def _record_checked_paths(
         self,
@@ -290,6 +312,50 @@ class CheckedBatchWebQAgent:
                 raw_tail=raw_tail,
                 state=state,
             )
+
+    def _add_relation_expanded_answers(
+        self,
+        *,
+        global_cited: list[int],
+        global_accepted: list[int],
+        raw_paths: list[dict[str, Any]],
+        named_paths: list[dict[str, Any]],
+        state: _CheckedBatchState,
+    ) -> list[int]:
+        accepted_index_set = set(global_accepted)
+        accepted_relation_sequences = {
+            _relation_sequence_from_path(raw_paths[global_idx - 1])
+            for global_idx in accepted_index_set
+            if 0 < global_idx <= len(raw_paths)
+        }
+        accepted_relation_sequences.discard(())
+
+        batch_relation_expanded: list[int] = []
+        for global_idx in global_cited:
+            if global_idx in accepted_index_set or not (
+                0 < global_idx <= len(raw_paths)
+            ):
+                continue
+            relation_sequence = _relation_sequence_from_path(raw_paths[global_idx - 1])
+            if relation_sequence not in accepted_relation_sequences:
+                continue
+
+            batch_relation_expanded.append(global_idx)
+            state.relation_expanded_indices.append(global_idx)
+
+            path_offset = global_idx - 1
+            named_tail = (
+                _tail_from_path(named_paths[path_offset])
+                if path_offset < len(named_paths)
+                else ""
+            )
+            raw_tail = _tail_from_path(raw_paths[path_offset])
+            self._append_final_answer(
+                named_tail=named_tail,
+                raw_tail=raw_tail,
+                state=state,
+            )
+        return batch_relation_expanded
 
     def _append_final_answer(
         self,
@@ -339,7 +405,7 @@ class CheckedBatchWebQAgent:
             pred_answer_names=state.final_names,
             pred_answer_expanded_mids=expanded_mids,
             pred_answer_disambiguated_mids=disambiguated_mids,
-            relation_expanded_path_indices=[],
+            relation_expanded_path_indices=state.relation_expanded_indices,
             batches_used=len(state.iterations),
             checked_paths_count=sum(
                 len(item.local_cited_path_indices) for item in state.iterations
