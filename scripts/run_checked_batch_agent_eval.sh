@@ -12,7 +12,7 @@ LIMIT="${LIMIT:-0}"
 ./scripts/llm_server.sh status
 
 CMD=(
-  conda run -n py312_t271_cuda python -m oh_my_agent.cli.eval_checked_batch_agent
+  python -m oh_my_agent.cli.eval_checked_batch_agent
   --input "${INPUT}"
   --output "${OUTPUT_DIR}"
 )
