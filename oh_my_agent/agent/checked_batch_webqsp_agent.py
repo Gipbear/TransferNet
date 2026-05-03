@@ -10,7 +10,12 @@ from oh_my_agent.common import (
     expand_pred_answers_with_path_constraint,
 )
 from oh_my_agent.common.metrics import norm_entity
-from oh_my_agent.tools import AnswerWithPathsTool, CitedPathCheckTool, PathRetrieveTool
+from oh_my_agent.tools import (
+    AnswerWithPathsTool,
+    CitedPathCheckTool,
+    PathRetrieveTool,
+    PathRetrieveToolResult,
+)
 
 
 @dataclass(frozen=True)
@@ -101,6 +106,22 @@ def _classify_batch(batch_size: int, accepted_count: int) -> str:
     return "mixed"
 
 
+@dataclass
+class _CheckedBatchState:
+    iterations: list[CheckedBatchIteration] = field(default_factory=list)
+    cited_indices: list[int] = field(default_factory=list)
+    accepted_indices: list[int] = field(default_factory=list)
+    relation_expanded_indices: list[int] = field(default_factory=list)
+    final_names: list[str] = field(default_factory=list)
+    final_mids: list[str] = field(default_factory=list)
+    seen_answer_keys: set[str] = field(default_factory=set)
+    answer_tokens: int = 0
+    check_tokens: int = 0
+    answer_elapsed_ms: float = 0.0
+    check_elapsed_ms: float = 0.0
+    stop_reason: str = "path_exhausted"
+
+
 class CheckedBatchWebQAgent:
     """Retrieve top paths, answer in batches, and keep checked path tails."""
 
@@ -146,21 +167,9 @@ class CheckedBatchWebQAgent:
             lambda_val=lambda_val,
         )
 
-        iterations: list[CheckedBatchIteration] = []
-        all_cited_indices: list[int] = []
-        all_accepted_indices: list[int] = []
-        relation_expanded_indices: list[int] = []
-        final_names: list[str] = []
-        final_mids: list[str] = []
-        seen_answer_keys: set[str] = set()
-        answer_tokens = 0
-        check_tokens = 0
-        answer_elapsed = 0.0
-        check_elapsed = 0.0
-        stop_reason = "path_exhausted"
-
         raw_paths = retrieval.raw_mmr_reason_paths
         named_paths = retrieval.named_mmr_reason_paths
+        state = _CheckedBatchState()
 
         for start in range(0, len(named_paths), batch_size):
             batch_named = named_paths[start : start + batch_size]
@@ -168,111 +177,217 @@ class CheckedBatchWebQAgent:
             if not batch_named:
                 break
 
-            answer = self.answer_tool(
+            batch_status = self._run_checked_batch(
                 question,
-                batch_named,
+                start=start,
+                batch_named=batch_named,
+                batch_raw=batch_raw,
+                raw_paths=raw_paths,
+                named_paths=named_paths,
+                state=state,
                 use_adapter=use_adapter,
                 max_new_tokens=max_new_tokens,
-            )
-            answer_tokens += answer.tokens_generated
-            answer_elapsed += answer.elapsed_ms
-
-            check = self.check_tool(
-                question,
-                batch_named,
-                cited_path_indices=answer.cited_path_indices,
-                raw_paths=batch_raw,
-                use_adapter=check_use_adapter,
-                max_new_tokens=check_max_new_tokens,
-            )
-            check_tokens += check.total_tokens_generated
-            check_elapsed += check.total_elapsed_ms
-
-            global_cited = [start + local_idx for local_idx in check.cited_path_indices]
-            global_accepted = [start + local_idx for local_idx in check.accepted_path_indices]
-            for global_idx in global_cited:
-                if global_idx not in all_cited_indices:
-                    all_cited_indices.append(global_idx)
-            all_accepted_indices.extend(global_accepted)
-
-            for global_idx in global_accepted:
-                path_offset = global_idx - 1
-                named_tail = _tail_from_path(named_paths[path_offset])
-                raw_tail = _tail_from_path(raw_paths[path_offset]) if path_offset < len(raw_paths) else ""
-                dedupe_key = norm_entity(raw_tail or named_tail)
-                if not dedupe_key or dedupe_key in seen_answer_keys:
-                    continue
-                seen_answer_keys.add(dedupe_key)
-                final_names.append(named_tail)
-                final_mids.append(raw_tail or named_tail)
-
-            accepted_index_set = set(global_accepted)
-            accepted_relation_sequences = {
-                _relation_sequence_from_path(raw_paths[global_idx - 1])
-                for global_idx in accepted_index_set
-                if 0 < global_idx <= len(raw_paths)
-            }
-            accepted_relation_sequences.discard(())
-            batch_relation_expanded: list[int] = []
-            for global_idx in global_cited:
-                if global_idx in accepted_index_set or not (0 < global_idx <= len(raw_paths)):
-                    continue
-                relation_sequence = _relation_sequence_from_path(raw_paths[global_idx - 1])
-                if relation_sequence not in accepted_relation_sequences:
-                    continue
-                batch_relation_expanded.append(global_idx)
-                relation_expanded_indices.append(global_idx)
-
-                path_offset = global_idx - 1
-                named_tail = (
-                    _tail_from_path(named_paths[path_offset])
-                    if path_offset < len(named_paths)
-                    else ""
-                )
-                raw_tail = _tail_from_path(raw_paths[path_offset])
-                dedupe_key = norm_entity(raw_tail or named_tail)
-                if not dedupe_key or dedupe_key in seen_answer_keys:
-                    continue
-                seen_answer_keys.add(dedupe_key)
-                final_names.append(named_tail)
-                final_mids.append(raw_tail or named_tail)
-
-            batch_status = _classify_batch(
-                batch_size=len(batch_named),
-                accepted_count=len(accepted_index_set | set(batch_relation_expanded)),
-            )
-            iterations.append(
-                CheckedBatchIteration(
-                    batch_index=len(iterations) + 1,
-                    batch_start_rank=start + 1,
-                    batch_end_rank=start + len(batch_named),
-                    batch_size=len(batch_named),
-                    local_cited_path_indices=check.cited_path_indices,
-                    global_cited_path_indices=global_cited,
-                    accepted_path_indices=global_accepted,
-                    batch_status=batch_status,
-                    answer_prompt=answer.prompt,
-                    raw_llm_output=answer.raw_output,
-                    answer_names=answer.answer_names,
-                    format_ok=answer.format_ok,
-                    used_adapter=answer.used_adapter,
-                    answer_tokens_generated=answer.tokens_generated,
-                    answer_elapsed_ms=answer.elapsed_ms,
-                    path_check=check.to_dict(),
-                )
+                check_use_adapter=check_use_adapter,
+                check_max_new_tokens=check_max_new_tokens,
             )
 
             if batch_status == "mixed":
-                stop_reason = "mixed"
+                state.stop_reason = "mixed"
                 break
 
-        expanded_mids, disambiguated_mids = expand_pred_answers_with_path_constraint(
-            pred_answers=final_names,
-            rev_entity_map=self.reverse_entity_map,
-            path_mid_entities={norm_entity(mid) for mid in final_mids},
+        return self._build_result(
+            question=question,
+            topic_mid=topic_mid,
+            retrieval=retrieval,
+            raw_paths=raw_paths,
+            named_paths=named_paths,
+            state=state,
         )
-        if final_mids:
-            disambiguated_mids = final_mids
+
+    def _run_checked_batch(
+        self,
+        question: str,
+        *,
+        start: int,
+        batch_named: list[dict[str, Any]],
+        batch_raw: list[dict[str, Any]],
+        raw_paths: list[dict[str, Any]],
+        named_paths: list[dict[str, Any]],
+        state: _CheckedBatchState,
+        use_adapter: bool | None,
+        max_new_tokens: int | None,
+        check_use_adapter: bool | None,
+        check_max_new_tokens: int | None,
+    ) -> str:
+        answer = self.answer_tool(
+            question,
+            batch_named,
+            use_adapter=use_adapter,
+            max_new_tokens=max_new_tokens,
+        )
+        state.answer_tokens += answer.tokens_generated
+        state.answer_elapsed_ms += answer.elapsed_ms
+
+        check = self.check_tool(
+            question,
+            batch_named,
+            cited_path_indices=answer.cited_path_indices,
+            raw_paths=batch_raw,
+            use_adapter=check_use_adapter,
+            max_new_tokens=check_max_new_tokens,
+        )
+        state.check_tokens += check.total_tokens_generated
+        state.check_elapsed_ms += check.total_elapsed_ms
+
+        global_cited = [start + local_idx for local_idx in check.cited_path_indices]
+        global_accepted = [
+            start + local_idx for local_idx in check.accepted_path_indices
+        ]
+        self._record_checked_paths(
+            global_cited=global_cited,
+            global_accepted=global_accepted,
+            raw_paths=raw_paths,
+            named_paths=named_paths,
+            state=state,
+        )
+
+        batch_relation_expanded = self._add_relation_expanded_answers(
+            global_cited=global_cited,
+            global_accepted=global_accepted,
+            raw_paths=raw_paths,
+            named_paths=named_paths,
+            state=state,
+        )
+        accepted_count = len(set(global_accepted) | set(batch_relation_expanded))
+        batch_status = _classify_batch(
+            batch_size=len(batch_named),
+            accepted_count=accepted_count,
+        )
+        state.iterations.append(
+            CheckedBatchIteration(
+                batch_index=len(state.iterations) + 1,
+                batch_start_rank=start + 1,
+                batch_end_rank=start + len(batch_named),
+                batch_size=len(batch_named),
+                local_cited_path_indices=check.cited_path_indices,
+                global_cited_path_indices=global_cited,
+                accepted_path_indices=global_accepted,
+                batch_status=batch_status,
+                answer_prompt=answer.prompt,
+                raw_llm_output=answer.raw_output,
+                answer_names=answer.answer_names,
+                format_ok=answer.format_ok,
+                used_adapter=answer.used_adapter,
+                answer_tokens_generated=answer.tokens_generated,
+                answer_elapsed_ms=answer.elapsed_ms,
+                path_check=check.to_dict(),
+            )
+        )
+        return batch_status
+
+    def _record_checked_paths(
+        self,
+        *,
+        global_cited: list[int],
+        global_accepted: list[int],
+        raw_paths: list[dict[str, Any]],
+        named_paths: list[dict[str, Any]],
+        state: _CheckedBatchState,
+    ) -> None:
+        for global_idx in global_cited:
+            if global_idx not in state.cited_indices:
+                state.cited_indices.append(global_idx)
+        state.accepted_indices.extend(global_accepted)
+
+        for global_idx in global_accepted:
+            path_offset = global_idx - 1
+            named_tail = _tail_from_path(named_paths[path_offset])
+            raw_tail = (
+                _tail_from_path(raw_paths[path_offset])
+                if path_offset < len(raw_paths)
+                else ""
+            )
+            self._append_final_answer(
+                named_tail=named_tail,
+                raw_tail=raw_tail,
+                state=state,
+            )
+
+    def _add_relation_expanded_answers(
+        self,
+        *,
+        global_cited: list[int],
+        global_accepted: list[int],
+        raw_paths: list[dict[str, Any]],
+        named_paths: list[dict[str, Any]],
+        state: _CheckedBatchState,
+    ) -> list[int]:
+        accepted_index_set = set(global_accepted)
+        accepted_relation_sequences = {
+            _relation_sequence_from_path(raw_paths[global_idx - 1])
+            for global_idx in accepted_index_set
+            if 0 < global_idx <= len(raw_paths)
+        }
+        accepted_relation_sequences.discard(())
+
+        batch_relation_expanded: list[int] = []
+        for global_idx in global_cited:
+            if global_idx in accepted_index_set or not (
+                0 < global_idx <= len(raw_paths)
+            ):
+                continue
+            relation_sequence = _relation_sequence_from_path(raw_paths[global_idx - 1])
+            if relation_sequence not in accepted_relation_sequences:
+                continue
+
+            batch_relation_expanded.append(global_idx)
+            state.relation_expanded_indices.append(global_idx)
+
+            path_offset = global_idx - 1
+            named_tail = (
+                _tail_from_path(named_paths[path_offset])
+                if path_offset < len(named_paths)
+                else ""
+            )
+            raw_tail = _tail_from_path(raw_paths[path_offset])
+            self._append_final_answer(
+                named_tail=named_tail,
+                raw_tail=raw_tail,
+                state=state,
+            )
+        return batch_relation_expanded
+
+    def _append_final_answer(
+        self,
+        *,
+        named_tail: str,
+        raw_tail: str,
+        state: _CheckedBatchState,
+    ) -> None:
+        dedupe_key = norm_entity(raw_tail or named_tail)
+        if not dedupe_key or dedupe_key in state.seen_answer_keys:
+            return
+        state.seen_answer_keys.add(dedupe_key)
+        state.final_names.append(named_tail)
+        state.final_mids.append(raw_tail or named_tail)
+
+    def _build_result(
+        self,
+        *,
+        question: str,
+        topic_mid: str,
+        retrieval: PathRetrieveToolResult,
+        raw_paths: list[dict[str, Any]],
+        named_paths: list[dict[str, Any]],
+        state: _CheckedBatchState,
+    ) -> CheckedBatchWebQAgentResult:
+        expanded_mids, disambiguated_mids = expand_pred_answers_with_path_constraint(
+            pred_answers=state.final_names,
+            rev_entity_map=self.reverse_entity_map,
+            path_mid_entities={norm_entity(mid) for mid in state.final_mids},
+        )
+        if state.final_mids:
+            disambiguated_mids = state.final_mids
 
         return CheckedBatchWebQAgentResult(
             question=question,
@@ -284,26 +399,30 @@ class CheckedBatchWebQAgent:
             named_mmr_reason_paths=named_paths,
             raw_prediction=retrieval.raw_prediction,
             named_prediction=retrieval.named_prediction,
-            iterations=iterations,
-            final_accepted_path_indices=all_accepted_indices,
-            cited_path_indices=all_cited_indices,
-            pred_answer_names=final_names,
+            iterations=state.iterations,
+            final_accepted_path_indices=state.accepted_indices,
+            cited_path_indices=state.cited_indices,
+            pred_answer_names=state.final_names,
             pred_answer_expanded_mids=expanded_mids,
             pred_answer_disambiguated_mids=disambiguated_mids,
-            relation_expanded_path_indices=relation_expanded_indices,
-            batches_used=len(iterations),
+            relation_expanded_path_indices=state.relation_expanded_indices,
+            batches_used=len(state.iterations),
             checked_paths_count=sum(
-                len(item.local_cited_path_indices) for item in iterations
+                len(item.local_cited_path_indices) for item in state.iterations
             ),
-            accepted_paths_count=len(all_accepted_indices),
-            final_answer_count=len(final_names),
-            stop_reason=stop_reason,
-            format_ok=all(item.format_ok for item in iterations) if iterations else False,
-            used_adapter=any(item.used_adapter for item in iterations),
-            tokens_generated=answer_tokens + check_tokens,
-            answer_tokens_generated=answer_tokens,
-            check_tokens_generated=check_tokens,
+            accepted_paths_count=len(state.accepted_indices),
+            final_answer_count=len(state.final_names),
+            stop_reason=state.stop_reason,
+            format_ok=(
+                all(item.format_ok for item in state.iterations)
+                if state.iterations
+                else False
+            ),
+            used_adapter=any(item.used_adapter for item in state.iterations),
+            tokens_generated=state.answer_tokens + state.check_tokens,
+            answer_tokens_generated=state.answer_tokens,
+            check_tokens_generated=state.check_tokens,
             retrieval_elapsed_ms=retrieval.elapsed_ms,
-            llm_elapsed_ms=answer_elapsed,
-            check_elapsed_ms=check_elapsed,
+            llm_elapsed_ms=state.answer_elapsed_ms,
+            check_elapsed_ms=state.check_elapsed_ms,
         )
