@@ -12,7 +12,11 @@ TransferNet implementation (EMNLP 2021) for multi-hop KGQA, extended with:
 ## Common Commands
 
 ### Environment Setup
-Default Conda environment: `py312_t271_cuda`. Use this environment for Python, tests, and experiment commands unless the user explicitly requests another environment; do not ask repeatedly which environment to use.
+Local Conda environment available: `py312_t271_cuda`. Use this environment when running Python, tests, and experiment commands locally unless the user explicitly requests another environment; do not ask repeatedly which environment to use.
+
+Prefer activating or entering the environment first, then running `python`, tests, or experiment commands directly. Do not use `conda run -n py312_t271_cuda ...` as the default execution style, because it can delay or hide live terminal output for long-running tasks and services.
+
+This is a local execution preference only. When generating or editing project scripts, configs, docs, or code, do not bake Conda environment switching commands into the generated content unless the user explicitly asks for scripts to be pinned to that environment.
 
 ### Response Language
 Default to Chinese for user-facing communication unless the user explicitly asks for another language. This applies to planning, progress updates, review feedback, test summaries, and final responses. Keep code, commands, logs, error messages, config keys, API names, and file paths in their original form, with Chinese explanation when helpful.
@@ -59,16 +63,16 @@ python scripts/collect_ablation_results.py                   # Parse ablation lo
 
 ### Tests
 ```bash
-conda run -n py312_t271_cuda python -m unittest discover -s tests -p 'test*.py' -v
+python -m unittest discover -s tests -p 'test*.py' -v
 bash tests/run_ablation_lib_test.sh    # Tests for ablation library functions
-conda run -n py312_t271_cuda python -m unittest tests/test_pathfinder_agent.py -v
-conda run -n py312_t271_cuda python -m unittest tests/test_pathfinder_replay.py -v
+python -m unittest tests/test_pathfinder_agent.py -v
+python -m unittest tests/test_pathfinder_replay.py -v
 ```
 
 ### PathfinderAgent Evaluation (Chapter 5)
 ```bash
 # 启动模型服务器（避免每次重新加载，推荐）
-conda run -n py312_t271_cuda python scripts/model_server.py \
+python scripts/model_server.py \
     --ckpt data/ckpt/WebQSP/model-29-0.6411.pt \
     --input_dir data/input/WebQSP --port 8787
 
@@ -86,16 +90,16 @@ python run_agent_eval.py --ckpt <CKPT> --input_dir <DATA_DIR> \
 
 ```bash
 # 推荐：启动两个常驻服务
-conda run -n py312_t271_cuda ./scripts/path_server.sh start
-conda run -n py312_t271_cuda ./scripts/llm_server.sh start
+./scripts/path_server.sh start
+./scripts/llm_server.sh start
 
 # 检查服务状态
 ./scripts/path_server.sh status
 ./scripts/llm_server.sh status
 
 # 如果端口被旧服务占用且明确要替换
-PORT_BUSY_ACTION=kill conda run -n py312_t271_cuda ./scripts/path_server.sh start
-PORT_BUSY_ACTION=kill conda run -n py312_t271_cuda ./scripts/llm_server.sh start
+PORT_BUSY_ACTION=kill ./scripts/path_server.sh start
+PORT_BUSY_ACTION=kill ./scripts/llm_server.sh start
 ```
 
 默认服务地址：
@@ -104,7 +108,7 @@ PORT_BUSY_ACTION=kill conda run -n py312_t271_cuda ./scripts/llm_server.sh start
 
 快速小样本评测：
 ```bash
-conda run -n py312_t271_cuda python -m oh_my_agent.cli.eval_webqsp \
+python -m oh_my_agent.cli.eval_webqsp \
     --input data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt \
     --output data/output/WebQSP/simple_agent_eval_20.jsonl \
     --limit 20 \
@@ -116,7 +120,7 @@ conda run -n py312_t271_cuda python -m oh_my_agent.cli.eval_webqsp \
 
 完整评测：
 ```bash
-conda run -n py312_t271_cuda python -m oh_my_agent.cli.eval_webqsp \
+python -m oh_my_agent.cli.eval_webqsp \
     --input data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt \
     --output data/output/WebQSP/simple_agent_eval_full.jsonl \
     --beam_size 20 \

@@ -2,7 +2,9 @@
 
 ## Environment Constraint
 
-- 默认使用 Conda 环境 `py312_t271_cuda` 运行本项目的 Python、测试和实验命令；除非用户明确指定其他环境，不要反复询问环境选择。
+- 本地已有 Conda 环境 `py312_t271_cuda` 可用于运行本项目的 Python、测试和实验命令；除非用户明确指定其他环境，执行本地命令时默认先激活/进入该环境，再直接运行 `python`、测试或实验命令，不要反复询问环境选择。
+- 优先使用交互式环境激活方式，例如已处于该环境的 shell、`conda activate py312_t271_cuda` 后继续执行，或等价的登录 shell 激活流程；不要把 `conda run -n py312_t271_cuda ...` 作为默认执行方式，因为它可能导致长任务或服务命令的终端输出不及时。
+- 这条规则只约束 Codex 在本机执行命令时的环境选择；生成或修改项目脚本、配置和代码时，不要默认写入 Conda 环境切换命令，除非用户明确要求脚本固定使用该环境。
 
 ## Response Language
 
@@ -24,7 +26,7 @@
   - 默认地址：`http://localhost:8788`
   - 推荐启动方式：
     ```bash
-    conda run -n py312_t271_cuda ./scripts/llm_server.sh start
+    ./scripts/llm_server.sh start
     ```
   - 状态检查：
     ```bash
@@ -32,7 +34,7 @@
     ```
   - 直接模块启动示例：
     ```bash
-    conda run -n py312_t271_cuda python -m oh_my_agent.llm_server.server \
+    python -m oh_my_agent.llm_server.server \
       --adapter models/webqsp/ablation/groupJ_schema_name \
       --port 8788
     ```
@@ -48,7 +50,7 @@
   - 默认地址：`http://localhost:8787`
   - 推荐启动方式：
     ```bash
-    conda run -n py312_t271_cuda ./scripts/path_server.sh start
+    ./scripts/path_server.sh start
     ```
   - 状态检查：
     ```bash
@@ -56,7 +58,7 @@
     ```
   - 直接模块启动示例：
     ```bash
-    conda run -n py312_t271_cuda python -m oh_my_agent.path_server.server \
+    python -m oh_my_agent.path_server.server \
       --dataset webqsp \
       --input_dir data/input/WebQSP \
       --ckpt data/ckpt/WebQSP/model-29-0.6411.pt \
@@ -90,17 +92,17 @@
   ```
 - 如果需要从当前默认配置启动两个服务：
   ```bash
-  conda run -n py312_t271_cuda ./scripts/path_server.sh start
-  conda run -n py312_t271_cuda ./scripts/llm_server.sh start
+  ./scripts/path_server.sh start
+  ./scripts/llm_server.sh start
   ```
 - 如果端口被旧进程占用且明确要替换旧服务，可使用：
   ```bash
-  PORT_BUSY_ACTION=kill conda run -n py312_t271_cuda ./scripts/path_server.sh start
-  PORT_BUSY_ACTION=kill conda run -n py312_t271_cuda ./scripts/llm_server.sh start
+  PORT_BUSY_ACTION=kill ./scripts/path_server.sh start
+  PORT_BUSY_ACTION=kill ./scripts/llm_server.sh start
   ```
 - 快速小样本评测：
   ```bash
-  conda run -n py312_t271_cuda python -m oh_my_agent.cli.eval_webqsp \
+  python -m oh_my_agent.cli.eval_webqsp \
     --input data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt \
     --output data/output/WebQSP/simple_agent_eval_20.jsonl \
     --limit 20 \
@@ -111,7 +113,7 @@
   ```
 - 完整评测：
   ```bash
-  conda run -n py312_t271_cuda python -m oh_my_agent.cli.eval_webqsp \
+  python -m oh_my_agent.cli.eval_webqsp \
     --input data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt \
     --output data/output/WebQSP/simple_agent_eval_full.jsonl \
     --beam_size 20 \

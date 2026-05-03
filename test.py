@@ -2,7 +2,7 @@
 答案校验脚本：逐条读取 JSONL，用 LLM 判断预测答案是否正确，结果保存为 JSON。
 
 前提：服务器已启动
-    conda run -n py312_t271_cuda python -m oh_my_agent.llm_server.server \
+    python -m oh_my_agent.llm_server.server \
         --adapter models/webqsp/ablation/groupJ_schema_name --port 8788
 """
 

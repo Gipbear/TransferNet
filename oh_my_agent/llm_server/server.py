@@ -3,11 +3,11 @@
 
 Usage:
     # 带 adapter 启动
-    conda run -n py312_t271_cuda python -m oh_my_agent.llm_server.server \
+    python -m oh_my_agent.llm_server.server \
         --adapter models/webqsp/ablation/groupJ_schema_name --port 8788
 
     # 不加载 adapter（纯 base 模型）
-    conda run -n py312_t271_cuda python -m oh_my_agent.llm_server.server \
+    python -m oh_my_agent.llm_server.server \
         --port 8788
 
 API:

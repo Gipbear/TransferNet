@@ -21,7 +21,7 @@ esac
 
 run_dump() {
   mkdir -p "$(dirname "${CACHE}")"
-  conda run -n py312_t271_cuda python -m WebQSP.dump_scores \
+  python -m WebQSP.dump_scores \
     --input_dir "${INPUT_DIR}" \
     --ckpt "${CKPT}" \
     --mode test \
@@ -34,7 +34,7 @@ run_dump() {
 
 run_search() {
   mkdir -p "$(dirname "${OUTPUT_JSONL}")"
-  conda run -n py312_t271_cuda python scripts/offline_path_search.py \
+  python scripts/offline_path_search.py \
     --cache "${CACHE}" \
     --input_dir "${INPUT_DIR}" \
     --method tail_blend \
