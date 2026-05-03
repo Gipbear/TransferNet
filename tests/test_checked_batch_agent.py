@@ -113,7 +113,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
         self.assertEqual(result.checked_paths_count, 4)
         self.assertEqual(result.accepted_paths_count, 3)
 
-    def test_all_correct_compares_against_full_reasoning_batch(self):
+    def test_mixed_stops_when_accepted_entity_count_does_not_exceed_one_third(self):
         raw_paths = [
             {"path": [["m.topic", "rel.a", "m.a"]], "log_score": -1.0},
             {"path": [["m.topic", "rel.b", "m.b"]], "log_score": -2.0},
@@ -122,13 +122,14 @@ class CheckedBatchAgentTests(unittest.TestCase):
         llm_client = FakeLLMClient(
             [
                 GenerateResponse(
-                    text="Supporting Paths: 1, 2\nAnswer: Answer A | Answer B",
+                    text="Supporting Paths: 1, 2, 3\nAnswer: Answer A | Answer B | Answer C",
                     used_adapter=True,
                     tokens_generated=8,
                     elapsed_ms=5.0,
                 ),
                 GenerateResponse(text="Y", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
-                GenerateResponse(text="Y", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+                GenerateResponse(text="N", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+                GenerateResponse(text="N", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
             ]
         )
         agent = CheckedBatchWebQAgent(
@@ -149,7 +150,106 @@ class CheckedBatchAgentTests(unittest.TestCase):
 
         self.assertEqual(result.iterations[0].batch_status, "mixed")
         self.assertEqual(result.stop_reason, "mixed")
+        self.assertEqual(result.final_accepted_path_indices, [1])
+
+    def test_mixed_continues_when_accepted_entity_count_exceeds_one_third(self):
+        raw_paths = [
+            {"path": [["m.topic", "rel.a", "m.a"]], "log_score": -1.0},
+            {"path": [["m.topic", "rel.b", "m.b"]], "log_score": -2.0},
+            {"path": [["m.topic", "rel.c", "m.c"]], "log_score": -3.0},
+            {"path": [["m.topic", "rel.d", "m.d"]], "log_score": -4.0},
+            {"path": [["m.topic", "rel.e", "m.e"]], "log_score": -5.0},
+            {"path": [["m.topic", "rel.f", "m.f"]], "log_score": -6.0},
+        ]
+        llm_client = FakeLLMClient(
+            [
+                GenerateResponse(
+                    text="Supporting Paths: 1, 2, 3\nAnswer: Answer A | Answer B | Answer C",
+                    used_adapter=True,
+                    tokens_generated=8,
+                    elapsed_ms=5.0,
+                ),
+                GenerateResponse(text="Y", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+                GenerateResponse(text="Y", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+                GenerateResponse(text="N", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+                GenerateResponse(
+                    text="Supporting Paths: 1, 2, 3\nAnswer: Answer D | Answer E | Answer F",
+                    used_adapter=True,
+                    tokens_generated=8,
+                    elapsed_ms=5.0,
+                ),
+                GenerateResponse(text="N", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+                GenerateResponse(text="N", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+                GenerateResponse(text="N", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+            ]
+        )
+        agent = CheckedBatchWebQAgent(
+            path_tool=PathRetrieveTool(
+                client=FakePathClient(make_response(raw_paths)),
+                entity_map={
+                    "m.topic": "Topic",
+                    "m.a": "Answer A",
+                    "m.b": "Answer B",
+                    "m.c": "Answer C",
+                    "m.d": "Answer D",
+                    "m.e": "Answer E",
+                    "m.f": "Answer F",
+                },
+            ),
+            answer_tool=AnswerWithPathsTool(client=llm_client),
+            check_tool=CitedPathCheckTool(client=llm_client),
+        )
+
+        result = agent.run("where is example from", "m.topic", batch_size=3)
+
+        self.assertEqual([item.batch_status for item in result.iterations], ["mixed", "all_wrong"])
+        self.assertEqual(result.stop_reason, "path_exhausted")
         self.assertEqual(result.final_accepted_path_indices, [1, 2])
+
+    def test_mixed_threshold_counts_entities_not_paths(self):
+        raw_paths = [
+            {"path": [["m.topic", "rel.a1", "m.a"]], "log_score": -1.0},
+            {"path": [["m.topic", "rel.a2", "m.a"]], "log_score": -2.0},
+            {"path": [["m.topic", "rel.b", "m.b"]], "log_score": -3.0},
+            {"path": [["m.topic", "rel.c", "m.c"]], "log_score": -4.0},
+            {"path": [["m.topic", "rel.d", "m.d"]], "log_score": -5.0},
+        ]
+        llm_client = FakeLLMClient(
+            [
+                GenerateResponse(
+                    text="Supporting Paths: 1, 2, 3, 4\nAnswer: Answer A | Answer B | Answer C",
+                    used_adapter=True,
+                    tokens_generated=8,
+                    elapsed_ms=5.0,
+                ),
+                GenerateResponse(text="Y", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+                GenerateResponse(text="Y", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+                GenerateResponse(text="N", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+                GenerateResponse(text="N", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+            ]
+        )
+        agent = CheckedBatchWebQAgent(
+            path_tool=PathRetrieveTool(
+                client=FakePathClient(make_response(raw_paths)),
+                entity_map={
+                    "m.topic": "Topic",
+                    "m.a": "Answer A",
+                    "m.b": "Answer B",
+                    "m.c": "Answer C",
+                    "m.d": "Answer D",
+                },
+            ),
+            answer_tool=AnswerWithPathsTool(client=llm_client),
+            check_tool=CitedPathCheckTool(client=llm_client),
+        )
+
+        result = agent.run("where is example from", "m.topic", batch_size=4)
+
+        self.assertEqual(len(result.iterations), 1)
+        self.assertEqual(result.iterations[0].batch_status, "mixed")
+        self.assertEqual(result.stop_reason, "mixed")
+        self.assertEqual(result.final_accepted_path_indices, [1, 2])
+        self.assertEqual(result.pred_answer_names, ["Answer A"])
 
     def test_relation_expansion_only_uses_checked_cited_paths(self):
         raw_paths = [
@@ -235,16 +335,18 @@ class CheckedBatchAgentTests(unittest.TestCase):
             [
                 {"path": [["m.topic", "rel.a", "m.a"]], "log_score": -1.0},
                 {"path": [["m.topic", "rel.b", "m.b"]], "log_score": -2.0},
+                {"path": [["m.topic", "rel.c", "m.c"]], "log_score": -3.0},
             ]
         )
         responses = [
             GenerateResponse(
-                text="Supporting Paths: 1, 2\nAnswer: Answer A | Answer B",
+                text="Supporting Paths: 1, 2, 3\nAnswer: Answer A | Answer B | Answer C",
                 used_adapter=True,
                 tokens_generated=8,
                 elapsed_ms=5.0,
             ),
             GenerateResponse(text="Y", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+            GenerateResponse(text="N", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
             GenerateResponse(text="N", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
         ]
 
@@ -254,7 +356,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
             qa_path.write_text("where is example from [m.topic]\tm.a\n", encoding="utf-8")
             entity_map_path = tmp_path / "mapped_entities.txt"
             entity_map_path.write_text(
-                "m.topic\tTopic\nm.a\tAnswer A\nm.b\tAnswer B\n",
+                "m.topic\tTopic\nm.a\tAnswer A\nm.b\tAnswer B\nm.c\tAnswer C\n",
                 encoding="utf-8",
             )
             output_dir = tmp_path / "checked"
@@ -290,12 +392,15 @@ class CheckedBatchAgentTests(unittest.TestCase):
             ]
 
         self.assertEqual(exit_code, 0)
+        record_keys = list(records[0])
+        self.assertLess(record_keys.index("hit1"), record_keys.index("raw_topics"))
+        self.assertLess(record_keys.index("citation_accuracy"), record_keys.index("raw_topics"))
         self.assertEqual(records[0]["final_accepted_path_indices"], [1])
-        self.assertEqual(records[0]["iterations"][0]["global_cited_path_indices"], [1, 2])
+        self.assertEqual(records[0]["iterations"][0]["global_cited_path_indices"], [1, 2, 3])
         self.assertEqual(summary["n"], 1)
         self.assertEqual(summary["hit1"], 1.0)
         self.assertEqual(summary["avg_batches_used"], 1.0)
-        self.assertEqual(summary["avg_checked_paths"], 2.0)
+        self.assertEqual(summary["avg_checked_paths"], 3.0)
         self.assertEqual(summary["avg_accepted_paths"], 1.0)
         self.assertEqual(summary["stop_reason_counts"], {"mixed": 1})
         self.assertEqual(summary["output_dir"], str(output_dir))
@@ -304,8 +409,8 @@ class CheckedBatchAgentTests(unittest.TestCase):
         self.assertEqual(retrieval_records[0]["mmr_reason_paths"], path_response.mmr_reason_paths)
         self.assertEqual(retrieval_records[0]["golden"], ["m.a"])
         self.assertEqual(answer_records[0]["llm_raw_output"], responses[0].text)
-        self.assertEqual(answer_records[0]["llm_pred"], ["Answer A", "Answer B"])
-        self.assertEqual(answer_records[0]["cited_indices"], [1, 2])
+        self.assertEqual(answer_records[0]["llm_pred"], ["Answer A", "Answer B", "Answer C"])
+        self.assertEqual(answer_records[0]["cited_indices"], [1, 2, 3])
 
 
 if __name__ == "__main__":

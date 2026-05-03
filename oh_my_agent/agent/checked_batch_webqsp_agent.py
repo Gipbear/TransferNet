@@ -90,6 +90,21 @@ def _tail_from_path(path_dict: dict[str, Any]) -> str:
     return str(edges[-1][-1])
 
 
+def _tail_entity_count(paths: list[dict[str, Any]]) -> int:
+    return len({norm_entity(_tail_from_path(path)) for path in paths if _tail_from_path(path)})
+
+
+def _tail_entity_count_for_indices(raw_paths: list[dict[str, Any]], indices: set[int]) -> int:
+    tails: set[str] = set()
+    for index in indices:
+        path_offset = index - 1
+        if 0 <= path_offset < len(raw_paths):
+            tail = _tail_from_path(raw_paths[path_offset])
+            if tail:
+                tails.add(norm_entity(tail))
+    return len(tails)
+
+
 def _relation_sequence_from_path(path_dict: dict[str, Any]) -> tuple[str, ...]:
     return tuple(
         str(edge[1])
@@ -177,7 +192,7 @@ class CheckedBatchWebQAgent:
             if not batch_named:
                 break
 
-            batch_status = self._run_checked_batch(
+            batch_status, accepted_entity_count, batch_entity_count = self._run_checked_batch(
                 question,
                 start=start,
                 batch_named=batch_named,
@@ -191,7 +206,7 @@ class CheckedBatchWebQAgent:
                 check_max_new_tokens=check_max_new_tokens,
             )
 
-            if batch_status == "mixed":
+            if batch_status == "mixed" and accepted_entity_count <= batch_entity_count / 3:
                 state.stop_reason = "mixed"
                 break
 
@@ -218,7 +233,7 @@ class CheckedBatchWebQAgent:
         max_new_tokens: int | None,
         check_use_adapter: bool | None,
         check_max_new_tokens: int | None,
-    ) -> str:
+    ) -> tuple[str, int, int]:
         answer = self.answer_tool(
             question,
             batch_named,
@@ -259,6 +274,11 @@ class CheckedBatchWebQAgent:
             state=state,
         )
         accepted_count = len(set(global_accepted) | set(batch_relation_expanded))
+        accepted_entity_count = _tail_entity_count_for_indices(
+            raw_paths,
+            set(global_accepted) | set(batch_relation_expanded),
+        )
+        batch_entity_count = _tail_entity_count(batch_raw)
         batch_status = _classify_batch(
             batch_size=len(batch_named),
             accepted_count=accepted_count,
@@ -283,7 +303,7 @@ class CheckedBatchWebQAgent:
                 path_check=check.to_dict(),
             )
         )
-        return batch_status
+        return batch_status, accepted_entity_count, batch_entity_count
 
     def _record_checked_paths(
         self,

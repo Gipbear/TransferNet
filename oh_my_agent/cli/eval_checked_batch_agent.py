@@ -147,6 +147,8 @@ def _build_record(sample_index: int, sample, result, answer_metrics, faith_metri
         "question": sample.question,
         "topic_mid": sample.topic_mid,
         "gold_mids": sample.gold_mids,
+        **answer_metrics,
+        **faith_metrics,
         "raw_topics": result.raw_topics,
         "named_topics": result.named_topics,
         "raw_mmr_reason_paths": result.raw_mmr_reason_paths,
@@ -175,8 +177,6 @@ def _build_record(sample_index: int, sample, result, answer_metrics, faith_metri
         "retrieval_elapsed_ms": result.retrieval_elapsed_ms,
         "llm_elapsed_ms": result.llm_elapsed_ms,
         "check_elapsed_ms": result.check_elapsed_ms,
-        **answer_metrics,
-        **faith_metrics,
     }
 
 
@@ -253,6 +253,76 @@ def _mean(records: list[dict[str, Any]], key: str) -> float:
     if not records:
         return 0.0
     return sum(float(record.get(key, 0.0)) for record in records) / len(records)
+
+
+def _norm_value(value: Any) -> str:
+    return str(value).lower().strip()
+
+
+def _record_cited_answers(record: dict[str, Any]) -> set[str]:
+    raw_paths = record.get("raw_mmr_reason_paths", [])
+    cited_answers: set[str] = set()
+    for index in record.get("cited_path_indices", []):
+        if not isinstance(index, int):
+            continue
+        path_offset = index - 1
+        if 0 <= path_offset < len(raw_paths):
+            tail = _path_tail(raw_paths[path_offset])
+            if tail:
+                cited_answers.add(_norm_value(tail))
+    return cited_answers
+
+
+def _path_tail_mid_by_name(record: dict[str, Any]) -> dict[str, set[str]]:
+    name_to_mids: dict[str, set[str]] = {}
+    raw_paths = record.get("raw_mmr_reason_paths", [])
+    named_paths = record.get("named_mmr_reason_paths", [])
+    for raw_path, named_path in zip(raw_paths, named_paths):
+        name_tail = _path_tail(named_path)
+        raw_tail = _path_tail(raw_path)
+        if name_tail and raw_tail:
+            name_to_mids.setdefault(_norm_value(name_tail), set()).add(_norm_value(raw_tail))
+    return name_to_mids
+
+
+def _record_model_answers(record: dict[str, Any]) -> dict[str, set[str]]:
+    name_to_mids = _path_tail_mid_by_name(record)
+    answers: dict[str, set[str]] = {}
+    for iteration in record.get("iterations", []):
+        for answer in iteration.get("answer_names", []):
+            answer_key = _norm_value(answer)
+            if not answer_key:
+                continue
+            answers.setdefault(answer_key, set()).update(
+                name_to_mids.get(answer_key, {answer_key})
+            )
+    return answers
+
+
+def _answer_count_totals(records: list[dict[str, Any]]) -> dict[str, int]:
+    totals = {
+        "model_answer_count": 0,
+        "model_correct_count": 0,
+        "cited_answer_count": 0,
+        "cited_correct_count": 0,
+        "golden_answer_count": 0,
+    }
+    for record in records:
+        gold = {
+            _norm_value(mid)
+            for mid in record.get("gold_mids", [])
+            if str(mid).strip()
+        }
+        model_answers = _record_model_answers(record)
+        cited_answers = _record_cited_answers(record)
+        totals["model_answer_count"] += len(model_answers)
+        totals["model_correct_count"] += sum(
+            1 for mids in model_answers.values() if mids & gold
+        )
+        totals["cited_answer_count"] += len(cited_answers)
+        totals["cited_correct_count"] += len(cited_answers & gold)
+        totals["golden_answer_count"] += len(gold)
+    return totals
 
 
 def _summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -401,11 +471,19 @@ def main(argv: list[str] | None = None) -> int:
                 elapsed = time.monotonic() - t_start
                 eta_s = elapsed / n * (total - n) if n else 0.0
                 eta_str = time.strftime("%H:%M:%S", time.gmtime(eta_s))
+                answer_counts = _answer_count_totals(records)
                 print(
                     f"[{sample_index + 1}/{total}] "
                     f"hit1={_mean(records, 'hit1'):.4f} "
                     f"hit_any={_mean(records, 'hit_any'):.4f} "
+                    f"P={_mean(records, 'precision'):.4f} "
+                    f"R={_mean(records, 'recall'):.4f} "
                     f"macro_f1={_mean(records, 'f1'):.4f} "
+                    f"A/A_ok={answer_counts['model_answer_count']}/"
+                    f"{answer_counts['model_correct_count']} "
+                    f"B/B_ok={answer_counts['cited_answer_count']}/"
+                    f"{answer_counts['cited_correct_count']} "
+                    f"C={answer_counts['golden_answer_count']} "
                     f"batches={_mean(records, 'batches_used'):.2f} "
                     f"accepted={_mean(records, 'accepted_paths_count'):.2f} "
                     f"ETA={eta_str}",
