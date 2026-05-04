@@ -121,6 +121,10 @@ def _classify_batch(batch_size: int, accepted_count: int) -> str:
     return "mixed"
 
 
+def _prediction_mid_set(prediction: dict[str, float]) -> set[str]:
+    return {norm_entity(mid) for mid in prediction if norm_entity(str(mid))}
+
+
 @dataclass
 class _CheckedBatchState:
     iterations: list[CheckedBatchIteration] = field(default_factory=list)
@@ -168,6 +172,7 @@ class CheckedBatchWebQAgent:
         max_new_tokens: int | None = None,
         check_use_adapter: bool | None = None,
         check_max_new_tokens: int | None = None,
+        sample_index: int | None = None,
     ) -> CheckedBatchWebQAgentResult:
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
@@ -180,6 +185,7 @@ class CheckedBatchWebQAgent:
             threshold=threshold,
             beam_size=beam_size,
             lambda_val=lambda_val,
+            sample_index=sample_index,
         )
 
         raw_paths = retrieval.raw_mmr_reason_paths
@@ -199,6 +205,7 @@ class CheckedBatchWebQAgent:
                 batch_raw=batch_raw,
                 raw_paths=raw_paths,
                 named_paths=named_paths,
+                raw_prediction_mids=_prediction_mid_set(retrieval.raw_prediction),
                 state=state,
                 use_adapter=use_adapter,
                 max_new_tokens=max_new_tokens,
@@ -228,6 +235,7 @@ class CheckedBatchWebQAgent:
         batch_raw: list[dict[str, Any]],
         raw_paths: list[dict[str, Any]],
         named_paths: list[dict[str, Any]],
+        raw_prediction_mids: set[str],
         state: _CheckedBatchState,
         use_adapter: bool | None,
         max_new_tokens: int | None,
@@ -271,6 +279,7 @@ class CheckedBatchWebQAgent:
             global_accepted=global_accepted,
             raw_paths=raw_paths,
             named_paths=named_paths,
+            raw_prediction_mids=raw_prediction_mids,
             state=state,
         )
         accepted_count = len(set(global_accepted) | set(batch_relation_expanded))
@@ -340,6 +349,7 @@ class CheckedBatchWebQAgent:
         global_accepted: list[int],
         raw_paths: list[dict[str, Any]],
         named_paths: list[dict[str, Any]],
+        raw_prediction_mids: set[str],
         state: _CheckedBatchState,
     ) -> list[int]:
         accepted_index_set = set(global_accepted)
@@ -360,6 +370,10 @@ class CheckedBatchWebQAgent:
             if relation_sequence not in accepted_relation_sequences:
                 continue
 
+            raw_tail = _tail_from_path(raw_paths[global_idx - 1])
+            if norm_entity(raw_tail) not in raw_prediction_mids:
+                continue
+
             batch_relation_expanded.append(global_idx)
             state.relation_expanded_indices.append(global_idx)
 
@@ -369,7 +383,6 @@ class CheckedBatchWebQAgent:
                 if path_offset < len(named_paths)
                 else ""
             )
-            raw_tail = _tail_from_path(raw_paths[path_offset])
             self._append_final_answer(
                 named_tail=named_tail,
                 raw_tail=raw_tail,

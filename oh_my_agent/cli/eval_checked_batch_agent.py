@@ -40,6 +40,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input", default=DEFAULT_INPUT_PATH)
     parser.add_argument("--output", default=_default_output_dir(), help="Output directory")
     parser.add_argument("--limit", type=int, default=0)
+    parser.add_argument(
+        "--sample_index",
+        type=int,
+        default=None,
+        help="Run only one 0-based sample index from the input file",
+    )
+    parser.add_argument(
+        "--sample_indices",
+        default="",
+        help="Run a comma/space-separated list of 0-based sample indices",
+    )
     parser.add_argument("--path_method", choices=["tail_blend", "baseline"], default="tail_blend")
     parser.add_argument("--alpha_final", type=float, default=1.0)
     parser.add_argument("--path_threshold", type=float, default=0.01)
@@ -76,6 +87,34 @@ def _resolve_output_paths(output: str) -> dict[str, str]:
         "initial_retrieval": os.path.join(output_dir, INITIAL_RETRIEVAL_FILENAME),
         "initial_answer": os.path.join(output_dir, INITIAL_ANSWER_FILENAME),
     }
+
+
+def _parse_sample_indices(raw_value: str) -> list[int]:
+    indices: list[int] = []
+    seen: set[int] = set()
+    for item in raw_value.replace(",", " ").split():
+        index = int(item)
+        if index < 0:
+            raise ValueError(f"sample index must be non-negative: {index}")
+        if index not in seen:
+            indices.append(index)
+            seen.add(index)
+    return indices
+
+
+def _requested_sample_indices(args: argparse.Namespace) -> list[int]:
+    indices: list[int] = []
+    seen: set[int] = set()
+    if args.sample_index is not None:
+        if args.sample_index < 0:
+            raise ValueError(f"sample_index must be non-negative: {args.sample_index}")
+        indices.append(args.sample_index)
+        seen.add(args.sample_index)
+    for index in _parse_sample_indices(args.sample_indices):
+        if index not in seen:
+            indices.append(index)
+            seen.add(index)
+    return indices
 
 
 def _path_tail(path_dict: dict[str, Any]) -> str:
@@ -299,30 +338,21 @@ def _record_model_answers(record: dict[str, Any]) -> dict[str, set[str]]:
     return answers
 
 
-def _answer_count_totals(records: list[dict[str, Any]]) -> dict[str, int]:
-    totals = {
-        "model_answer_count": 0,
-        "model_correct_count": 0,
-        "cited_answer_count": 0,
-        "cited_correct_count": 0,
-        "golden_answer_count": 0,
+def _record_answer_counts(record: dict[str, Any]) -> dict[str, int]:
+    gold = {
+        _norm_value(mid)
+        for mid in record.get("gold_mids", [])
+        if str(mid).strip()
     }
-    for record in records:
-        gold = {
-            _norm_value(mid)
-            for mid in record.get("gold_mids", [])
-            if str(mid).strip()
-        }
-        model_answers = _record_model_answers(record)
-        cited_answers = _record_cited_answers(record)
-        totals["model_answer_count"] += len(model_answers)
-        totals["model_correct_count"] += sum(
-            1 for mids in model_answers.values() if mids & gold
-        )
-        totals["cited_answer_count"] += len(cited_answers)
-        totals["cited_correct_count"] += len(cited_answers & gold)
-        totals["golden_answer_count"] += len(gold)
-    return totals
+    model_answers = _record_model_answers(record)
+    cited_answers = _record_cited_answers(record)
+    return {
+        "model_answer_count": len(model_answers),
+        "model_correct_count": sum(1 for mids in model_answers.values() if mids & gold),
+        "cited_answer_count": len(cited_answers),
+        "cited_correct_count": len(cited_answers & gold),
+        "golden_answer_count": len(gold),
+    }
 
 
 def _summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -370,6 +400,8 @@ def _write_archive(args: argparse.Namespace, summary: dict[str, Any], summary_pa
         f"- beam_size: `{args.beam_size}`",
         f"- lambda_val: `{args.lambda_val}`",
         f"- batch_size: `{args.batch_size}`",
+        f"- sample_index: `{args.sample_index}`",
+        f"- sample_indices: `{summary.get('sample_indices', [])}`",
         f"- output_dir: `{summary.get('output_dir', args.output)}`",
         f"- result_jsonl: `{summary.get('output_path', '')}`",
         f"- initial_retrieval_jsonl: `{summary.get('initial_retrieval_path', '')}`",
@@ -390,7 +422,18 @@ def _write_archive(args: argparse.Namespace, summary: dict[str, Any], summary_pa
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    samples = load_webqsp_qa_samples(args.input, limit=args.limit)
+    selected_sample_indices = _requested_sample_indices(args)
+    if not selected_sample_indices:
+        samples = load_webqsp_qa_samples(args.input, limit=args.limit)
+        sample_items = list(enumerate(samples))
+    else:
+        samples = load_webqsp_qa_samples(args.input, limit=max(selected_sample_indices) + 1)
+        missing_indices = [
+            index for index in selected_sample_indices if index >= len(samples)
+        ]
+        if missing_indices:
+            raise ValueError(f"sample_index out of range: {missing_indices[0]}")
+        sample_items = [(index, samples[index]) for index in selected_sample_indices]
     output_paths = _resolve_output_paths(args.output)
     os.makedirs(output_paths["dir"], exist_ok=True)
 
@@ -419,7 +462,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     reverse_entity_map = build_reverse_entity_map(path_tool.entity_map)
 
-    total = len(samples)
+    total = len(sample_items)
     records: list[dict[str, Any]] = []
     t_start = time.monotonic()
     with open(output_paths["records"], "w", encoding="utf-8") as output_handle, open(
@@ -427,7 +470,7 @@ def main(argv: list[str] | None = None) -> int:
     ) as retrieval_handle, open(
         output_paths["initial_answer"], "w", encoding="utf-8"
     ) as answer_handle:
-        for sample_index, sample in enumerate(samples):
+        for progress_index, (sample_index, sample) in enumerate(sample_items):
             result = agent.run(
                 sample.question,
                 sample.topic_mid,
@@ -437,6 +480,7 @@ def main(argv: list[str] | None = None) -> int:
                 beam_size=args.beam_size,
                 lambda_val=args.lambda_val,
                 batch_size=args.batch_size,
+                sample_index=sample_index if selected_sample_indices else None,
             )
             answer_metrics = compute_answer_metrics(
                 result.pred_answer_disambiguated_mids,
@@ -466,14 +510,15 @@ def main(argv: list[str] | None = None) -> int:
             answer_handle.write(json.dumps(answer_record, ensure_ascii=False) + "\n")
             answer_handle.flush()
 
-            if (sample_index + 1) % 10 == 0 or sample_index == 0:
+            if (progress_index + 1) % 10 == 0 or progress_index == 0:
                 n = len(records)
                 elapsed = time.monotonic() - t_start
                 eta_s = elapsed / n * (total - n) if n else 0.0
                 eta_str = time.strftime("%H:%M:%S", time.gmtime(eta_s))
-                answer_counts = _answer_count_totals(records)
+                answer_counts = _record_answer_counts(record)
                 print(
-                    f"[{sample_index + 1}/{total}] "
+                    f"[{progress_index + 1}/{total}] "
+                    f"sample={sample_index} "
                     f"hit1={_mean(records, 'hit1'):.4f} "
                     f"hit_any={_mean(records, 'hit_any'):.4f} "
                     f"P={_mean(records, 'precision'):.4f} "
@@ -504,6 +549,8 @@ def main(argv: list[str] | None = None) -> int:
             "beam_size": args.beam_size,
             "lambda_val": args.lambda_val,
             "batch_size": args.batch_size,
+            "sample_index": args.sample_index,
+            "sample_indices": selected_sample_indices,
         }
     )
     summary_path = output_paths["summary"]

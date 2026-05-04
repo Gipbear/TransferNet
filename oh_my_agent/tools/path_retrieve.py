@@ -62,9 +62,11 @@ class PathRetrieveTool:
         threshold: float = 0.01,
         beam_size: int = 50,
         lambda_val: float = 0.5,
+        sample_index: int | None = None,
     ) -> PathRetrieveToolResult:
         response = self.client.retrieve(
             question,
+            sample_index=sample_index,
             topic_entities=[topic_mid] if topic_mid is not None else None,
             method=method,
             alpha_final=alpha_final,
