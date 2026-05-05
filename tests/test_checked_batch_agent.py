@@ -334,6 +334,47 @@ class CheckedBatchAgentTests(unittest.TestCase):
         self.assertEqual(result.pred_answer_names, ["Answer A", "Answer C"])
         self.assertEqual(result.pred_answer_disambiguated_mids, ["m.a", "m.c"])
 
+    def test_answer_name_can_select_middle_entity_without_gold(self):
+        raw_paths = [
+            {
+                "path": [
+                    ["m.topic", "rel.forward", "m.middle"],
+                    ["m.middle", "rel.inverse_reverse", "m.tail"],
+                ],
+                "log_score": -1.0,
+            },
+        ]
+        entity_map = {
+            "m.topic": "Topic",
+            "m.middle": "Middle Answer",
+            "m.tail": "Tail Entity",
+        }
+        llm_client = FakeLLMClient(
+            [
+                GenerateResponse(
+                    text="Supporting Paths: 1\nAnswer: Middle Answer",
+                    used_adapter=True,
+                    tokens_generated=8,
+                    elapsed_ms=5.0,
+                ),
+                GenerateResponse(text="Y", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+            ]
+        )
+        agent = CheckedBatchWebQAgent(
+            path_tool=PathRetrieveTool(
+                client=FakePathClient(make_response(raw_paths)),
+                entity_map=entity_map,
+            ),
+            answer_tool=AnswerWithPathsTool(client=llm_client),
+            check_tool=CitedPathCheckTool(client=llm_client),
+        )
+
+        result = agent.run("where is example from", "m.topic", batch_size=1)
+
+        self.assertEqual(result.final_accepted_path_indices, [1])
+        self.assertEqual(result.pred_answer_names, ["Middle Answer"])
+        self.assertEqual(result.pred_answer_disambiguated_mids, ["m.middle"])
+
     def test_all_wrong_and_invalid_citations_continue_until_exhausted(self):
         raw_paths = [
             {"path": [["m.topic", "rel.a", "m.a"]], "log_score": -1.0},

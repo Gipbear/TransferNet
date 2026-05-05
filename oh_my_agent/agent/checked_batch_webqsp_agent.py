@@ -90,6 +90,48 @@ def _tail_from_path(path_dict: dict[str, Any]) -> str:
     return str(edges[-1][-1])
 
 
+def _path_entity_sequence(path_dict: dict[str, Any]) -> list[str]:
+    edges = path_dict.get("path", [])
+    if not edges:
+        return []
+
+    entities = [str(edges[0][0])]
+    for edge in edges:
+        if len(edge) < 3:
+            continue
+        head = str(edge[0])
+        tail = str(edge[2])
+        if norm_entity(entities[-1]) != norm_entity(head):
+            entities.append(head)
+        entities.append(tail)
+    return entities
+
+
+def _answer_pair_from_paths(
+    named_path_dict: dict[str, Any],
+    raw_path_dict: dict[str, Any] | None,
+    *,
+    answer_names: list[str],
+) -> tuple[str, str]:
+    raw_path_dict = raw_path_dict or named_path_dict
+    named_answer = _tail_from_path(named_path_dict)
+    raw_answer = _tail_from_path(raw_path_dict)
+
+    answer_keys = {norm_entity(answer) for answer in answer_names if norm_entity(answer)}
+    if not answer_keys:
+        return named_answer, raw_answer
+
+    named_entities = _path_entity_sequence(named_path_dict)
+    raw_entities = _path_entity_sequence(raw_path_dict)
+    for offset, named_entity in list(enumerate(named_entities))[1:] + list(enumerate(named_entities))[:1]:
+        if norm_entity(named_entity) not in answer_keys:
+            continue
+        raw_entity = raw_entities[offset] if offset < len(raw_entities) else named_entity
+        return named_entity, raw_entity
+
+    return named_answer, raw_answer
+
+
 def _tail_entity_count(paths: list[dict[str, Any]]) -> int:
     return len({norm_entity(_tail_from_path(path)) for path in paths if _tail_from_path(path)})
 
@@ -271,6 +313,7 @@ class CheckedBatchWebQAgent:
             global_accepted=global_accepted,
             raw_paths=raw_paths,
             named_paths=named_paths,
+            answer_names=answer.answer_names,
             state=state,
         )
 
@@ -280,6 +323,7 @@ class CheckedBatchWebQAgent:
             raw_paths=raw_paths,
             named_paths=named_paths,
             raw_prediction_mids=raw_prediction_mids,
+            answer_names=answer.answer_names,
             state=state,
         )
         accepted_count = len(set(global_accepted) | set(batch_relation_expanded))
@@ -321,6 +365,7 @@ class CheckedBatchWebQAgent:
         global_accepted: list[int],
         raw_paths: list[dict[str, Any]],
         named_paths: list[dict[str, Any]],
+        answer_names: list[str],
         state: _CheckedBatchState,
     ) -> None:
         for global_idx in global_cited:
@@ -330,15 +375,15 @@ class CheckedBatchWebQAgent:
 
         for global_idx in global_accepted:
             path_offset = global_idx - 1
-            named_tail = _tail_from_path(named_paths[path_offset])
-            raw_tail = (
-                _tail_from_path(raw_paths[path_offset])
-                if path_offset < len(raw_paths)
-                else ""
+            raw_path = raw_paths[path_offset] if path_offset < len(raw_paths) else None
+            named_answer, raw_answer = _answer_pair_from_paths(
+                named_paths[path_offset],
+                raw_path,
+                answer_names=answer_names,
             )
             self._append_final_answer(
-                named_tail=named_tail,
-                raw_tail=raw_tail,
+                named_answer=named_answer,
+                raw_answer=raw_answer,
                 state=state,
             )
 
@@ -350,6 +395,7 @@ class CheckedBatchWebQAgent:
         raw_paths: list[dict[str, Any]],
         named_paths: list[dict[str, Any]],
         raw_prediction_mids: set[str],
+        answer_names: list[str],
         state: _CheckedBatchState,
     ) -> list[int]:
         accepted_index_set = set(global_accepted)
@@ -370,22 +416,21 @@ class CheckedBatchWebQAgent:
             if relation_sequence not in accepted_relation_sequences:
                 continue
 
-            raw_tail = _tail_from_path(raw_paths[global_idx - 1])
-            if norm_entity(raw_tail) not in raw_prediction_mids:
+            named_answer, raw_answer = _answer_pair_from_paths(
+                named_paths[global_idx - 1],
+                raw_paths[global_idx - 1],
+                answer_names=answer_names,
+            )
+            if norm_entity(raw_answer) not in raw_prediction_mids:
                 continue
 
             batch_relation_expanded.append(global_idx)
             state.relation_expanded_indices.append(global_idx)
 
             path_offset = global_idx - 1
-            named_tail = (
-                _tail_from_path(named_paths[path_offset])
-                if path_offset < len(named_paths)
-                else ""
-            )
             self._append_final_answer(
-                named_tail=named_tail,
-                raw_tail=raw_tail,
+                named_answer=named_answer,
+                raw_answer=raw_answer,
                 state=state,
             )
         return batch_relation_expanded
@@ -393,16 +438,16 @@ class CheckedBatchWebQAgent:
     def _append_final_answer(
         self,
         *,
-        named_tail: str,
-        raw_tail: str,
+        named_answer: str,
+        raw_answer: str,
         state: _CheckedBatchState,
     ) -> None:
-        dedupe_key = norm_entity(raw_tail or named_tail)
+        dedupe_key = norm_entity(raw_answer or named_answer)
         if not dedupe_key or dedupe_key in state.seen_answer_keys:
             return
         state.seen_answer_keys.add(dedupe_key)
-        state.final_names.append(named_tail)
-        state.final_mids.append(raw_tail or named_tail)
+        state.final_names.append(named_answer)
+        state.final_mids.append(raw_answer or named_answer)
 
     def _build_result(
         self,
