@@ -385,8 +385,10 @@ def print_group_j(rows: list[dict]):
     order = {
         "groupJ_schema_mid": 0,
         "groupJ_schema_name": 1,
-        "groupJ_schema_base_mid": 2,
-        "groupJ_schema_base_name": 3,
+        "groupJ_schema_gloss_name": 2,
+        "groupJ_schema_base_mid": 3,
+        "groupJ_schema_base_name": 4,
+        "groupJ_schema_gloss_base_name": 5,
     }
     for r in sorted(rows, key=lambda x: order.get(x.get("config", ""), 99)):
         m = r.get("metrics") or {}

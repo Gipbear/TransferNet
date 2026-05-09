@@ -13,7 +13,7 @@
 #   Group F: 拒答能力训练 (chain+v2, 含 Hit@K=0 拒答样本)
 #   Group G: 训练轮数消融 (epochs 1-5, chain+name+v2, limit=500)
 #   Group H: 无路径基线 (base model 直接回答，无检索路径输入)
-#   Group J: Schema-aware 路径格式 (schema × MID/name，含微调与 base model 零样本)
+#   Group J: Schema-aware 路径格式 (schema/schema_gloss × MID/name，含微调与 base model 零样本)
 #
 # 特性：
 #   - 三步流程：build_kgcot_dataset → train_sft → eval_faithfulness
@@ -640,7 +640,7 @@ fi
 
 # ── Group J: Schema-aware 路径格式 ─────────────────────────────────────────────
 if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "J" ]]; then
-    log_section "Group J: Schema-aware 路径格式 (schema × MID/name, v2 输出)"
+    log_section "Group J: Schema-aware 路径格式 (schema/schema_gloss × MID/name, v2 输出)"
 
     ENTITY_MAP="${PROJECT_DIR}/data/resources/WebQSP/fbwq_full/mapped_entities.txt"
 
@@ -659,11 +659,18 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "J" ]]; then
         "--path_format schema --entity_map ${ENTITY_MAP}" \
         "--path_format schema --entity_map ${ENTITY_MAP}"
 
-    # J3/J4: base model 零样本，直接使用 schema 路径输入做 v2 评测
+    # J3: schema_gloss + name，使用 relation_gloss_positive.json 替换关系文本
+    run_schema_experiment "groupJ_schema_gloss_name" \
+        "--path_format schema_gloss --entity_map ${ENTITY_MAP}" \
+        "--path_format schema_gloss --entity_map ${ENTITY_MAP}"
+
+    # J4/J5/J6: base model 零样本，直接使用 schema/schema_gloss 路径输入做 v2 评测
     run_base_eval "groupJ_schema_base_mid" "${TEST_BEAM20_LAM02}" "v2" \
         "--path_format schema"
     run_base_eval "groupJ_schema_base_name" "${TEST_BEAM20_LAM02}" "v2" \
         "--path_format schema --entity_map ${ENTITY_MAP}"
+    run_base_eval "groupJ_schema_gloss_base_name" "${TEST_BEAM20_LAM02}" "v2" \
+        "--path_format schema_gloss --entity_map ${ENTITY_MAP}"
 fi
 
 # ── 完成 ──────────────────────────────────────────────────────────────────────

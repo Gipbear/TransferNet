@@ -106,6 +106,9 @@ class OfflinePathMethodTest(unittest.TestCase):
         self.assertIn("--alpha_final", wrapper)
         self.assertIn("--lambda_val", wrapper)
         self.assertIn("--grid", wrapper)
+        self.assertIn("SUMMARY_FILE", wrapper)
+        self.assertIn("relation_jaccard_diversity", wrapper)
+        self.assertIn("relation_coverage", wrapper)
         self.assertIn("GRID_ALPHAS", wrapper)
         self.assertIn('GRID_LAMBDAS="0 0.2 0.5 0.7 1.0"', wrapper)
         self.assertIn('GRID_BEAMS="3 5 10 15 20 30 40 50"', wrapper)
@@ -119,6 +122,7 @@ class OfflinePathMethodTest(unittest.TestCase):
         self.assertIn('OUTPUT_DIR="${OFFLINE_DIR}/score_cache"', wrapper)
         self.assertIn('LOG_DIR="${OFFLINE_DIR}/logs"', wrapper)
         self.assertIn('PATHS_DIR="${OFFLINE_DIR}/paths"', wrapper)
+        self.assertIn('SUMMARY_FILE="${OFFLINE_DIR}/summary.csv"', wrapper)
         self.assertNotIn('OUTPUT_DIR="${PROJ_DIR}/output/score_cache"', wrapper)
 
 

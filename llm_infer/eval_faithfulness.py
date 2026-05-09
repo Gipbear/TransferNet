@@ -566,8 +566,9 @@ def parse_args():
     p.add_argument("--show_score",      action="store_true",
                    help="路径字符串中包含 [score=S]（默认不含；需与训练时对齐）")
     p.add_argument("--path_format",    default="arrow",
-                   choices=["arrow", "nl", "tuple", "chain", "schema"],
-                   help="路径表示方式: arrow=符号格式(默认) nl=自然语言格式 tuple=三元组 chain=连续链式 schema=语义方向感知链式")
+                   choices=["arrow", "nl", "tuple", "chain", "schema", "schema_gloss"],
+                   help=("路径表示方式: arrow=符号格式(默认) nl=自然语言格式 tuple=三元组 "
+                         "chain=连续链式 schema=语义方向感知链式 schema_gloss=关系自然语言化 schema"))
     p.add_argument("--entity_map", default=None,
                    help="实体映射文件路径 (MID→Name, tab-separated)")
     p.add_argument("--num_runs",       type=int, default=1,

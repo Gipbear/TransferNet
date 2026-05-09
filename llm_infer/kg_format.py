@@ -5,7 +5,9 @@ KG 路径格式化工具函数（共享模块）
 确保训练与评估时路径字符串格式、System Prompt 完全一致。
 """
 
+import json
 import re
+from pathlib import Path
 
 
 # ─── System Prompts ───────────────────────────────────────────────────────────
@@ -184,6 +186,43 @@ def _rel_to_schema_label(rel: str) -> str:
     return base_rel
 
 
+_RELATION_GLOSS_CACHE: dict[str, str] | None = None
+
+
+def _load_relation_glosses() -> dict[str, str]:
+    """加载 WebQSP 正向关系的自然语言 gloss；缺文件时安全回退为空表。"""
+    global _RELATION_GLOSS_CACHE
+    if _RELATION_GLOSS_CACHE is not None:
+        return _RELATION_GLOSS_CACHE
+
+    gloss_path = (
+        Path(__file__).resolve().parents[1]
+        / "data"
+        / "input"
+        / "WebQSP"
+        / "fbwq_full"
+        / "relation_gloss_positive.json"
+    )
+    if not gloss_path.exists():
+        _RELATION_GLOSS_CACHE = {}
+        return _RELATION_GLOSS_CACHE
+
+    with gloss_path.open(encoding="utf-8") as f:
+        payload = json.load(f)
+    _RELATION_GLOSS_CACHE = {
+        item["relation"]: item["natural_language"]
+        for item in payload.get("relations", [])
+        if item.get("relation") and item.get("natural_language")
+    }
+    return _RELATION_GLOSS_CACHE
+
+
+def _rel_to_schema_gloss_label(rel: str) -> str:
+    """将 Freebase 关系替换为自然语言 gloss；未知关系回退到 schema label。"""
+    base_rel = _rel_to_schema_label(rel)
+    return _load_relation_glosses().get(base_rel, base_rel)
+
+
 def format_path_str_nl(path_edges: list, log_score: float, idx: int,
                        show_score: bool = False) -> str:
     """将路径序列化为自然语言句子（供 V5 使用）。
@@ -258,6 +297,32 @@ def format_path_str_schema(path_edges: list, log_score: float, idx: int,
     return f"{idx}: {chain}"
 
 
+def format_path_str_schema_gloss(path_edges: list, log_score: float, idx: int,
+                                 show_score: bool = False) -> str:
+    """schema-aware 连续链式格式，但用自然语言 gloss 替换关系名。
+
+    反向边仍沿用 schema 格式的箭头方向表达；gloss 查表时使用去掉
+    ``_reverse`` 后的正向基础关系。
+    """
+    if not path_edges:
+        return f"{idx}:"
+
+    parts = [path_edges[0][0]]
+    for head, rel, tail in path_edges:
+        current_head = head
+        if parts[-1] != current_head:
+            parts.append(current_head)
+        label = _rel_to_schema_gloss_label(rel)
+        _, is_reverse = _split_reverse_relation(rel)
+        arrow = f"<- [{label}] -" if is_reverse else f"- [{label}] ->"
+        parts.extend([arrow, tail])
+
+    chain = " ".join(parts)
+    if show_score:
+        return f"{idx} [score={log_score:.4f}]: {chain}"
+    return f"{idx}: {chain}"
+
+
 # ─── 实体映射工具 ─────────────────────────────────────────────────────────────
 
 def load_entity_map(path: str) -> dict:
@@ -318,6 +383,7 @@ _FORMAT_FN_MAP = {
     "tuple":  format_path_str_tuple,
     "chain":  format_path_str_chain,
     "schema": format_path_str_schema,
+    "schema_gloss": format_path_str_schema_gloss,
 }
 
 
@@ -328,7 +394,7 @@ def build_user_content(paths_with_meta: list, question: str,
     """构建 User 消息：问题前置，路径列表随后。
 
     paths_with_meta: [(path_edges, log_score, display_idx), ...]
-    path_format: 'arrow'（默认）/ 'nl'（自然语言）/ 'tuple'（三元组）/ 'chain'（连续链式）/ 'schema'（语义方向感知）
+    path_format: 'arrow'（默认）/ 'nl'（自然语言）/ 'tuple'（三元组）/ 'chain'（连续链式）/ 'schema'（语义方向感知）/ 'schema_gloss'（schema 关系自然语言化）
     entity_map: MID→Name 映射表（可选），提供时对路径实体做替换
     """
     fmt_fn = _FORMAT_FN_MAP.get(path_format)
