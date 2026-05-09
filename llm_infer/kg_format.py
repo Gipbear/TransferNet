@@ -166,11 +166,6 @@ def _rel_to_text(rel: str) -> str:
     return rel.replace(".", " ").replace("_", " ")
 
 
-_REL_LABEL_OVERRIDES = {
-    "containedby": "contained by",
-}
-
-
 def _split_reverse_relation(rel: str) -> tuple[str, bool]:
     """返回去掉 _reverse 的基础关系名，以及该边是否为反向边。"""
     if rel.endswith("_reverse"):
@@ -179,14 +174,14 @@ def _split_reverse_relation(rel: str) -> tuple[str, bool]:
 
 
 def _rel_to_schema_label(rel: str) -> str:
-    """将 Freebase 关系转成 schema 格式使用的短标签。
+    """将 Freebase 关系转成 schema 格式使用的完整 schema 名。
 
-    关系的语义由 subject -> object 定义，因此 schema 格式只展示属性名
-    的最后一段，并由箭头方向表达是否使用了反向边。
+    关系的语义由 subject -> object 定义。schema 格式保留
+    ``domain.type.property`` 形式的完整关系名，并由箭头方向表达是否
+    使用了反向边。
     """
     base_rel, _ = _split_reverse_relation(rel)
-    leaf = base_rel.rsplit(".", 1)[-1]
-    return _REL_LABEL_OVERRIDES.get(leaf, leaf.replace("_", " "))
+    return base_rel
 
 
 def format_path_str_nl(path_edges: list, log_score: float, idx: int,
@@ -241,8 +236,8 @@ def format_path_str_schema(path_edges: list, log_score: float, idx: int,
     's - [relation] -> o'；反向边 '*_reverse' 保持路径遍历顺序，
     但用 '<- [relation] -' 表明基础关系的语义方向与遍历方向相反。
 
-    单跳: 'N: Person A - [place of birth] -> City'
-    多跳: 'N: Person A - [place of birth] -> City <- [contained by] - Country'
+    单跳: 'N: Person A - [people.person.place_of_birth] -> City'
+    多跳: 'N: Person A - [people.person.place_of_birth] -> City <- [location.location.containedby] - Country'
     """
     if not path_edges:
         return f"{idx}:"

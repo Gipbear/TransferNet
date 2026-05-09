@@ -35,9 +35,9 @@ def create_std_stats():
             "precision_sum": 0.0, "f1_sum": 0.0, "count": 0}
 
 
-def update_mmr_stats(mmr_stats, mmr_paths, gold_ids):
+def update_mmr_stats(mmr_stats, mmr_paths, gold_ids, id2rel=None):
     """累加单样本 MMR 路径检索指标和多样性指标，返回 (path_metrics, diversity_metrics)。"""
-    m = compute_path_metrics(mmr_paths, gold_ids)
+    m = compute_path_metrics(mmr_paths, gold_ids, id2rel=id2rel)
     d = compute_path_diversity(mmr_paths)
     mmr_stats["count"]           += 1
     mmr_stats["answer_path_hit"] += int(m["answer_hit"])
@@ -67,9 +67,9 @@ def update_thresh_stats(thresh_stats, e_score_i, gold_ids, thresholds):
         thresh_stats[t]["f1_sum"]        += thr_f1
 
 
-def update_std_stats(std_stats, std_paths, gold_ids):
+def update_std_stats(std_stats, std_paths, gold_ids, id2rel=None):
     """累加单样本标准束搜索（λ=0）指标。"""
-    sm = compute_path_metrics(std_paths, gold_ids)
+    sm = compute_path_metrics(std_paths, gold_ids, id2rel=id2rel)
     std_stats["answer_path_hit"] += int(sm["answer_hit"])
     std_stats["top1_hit"]        += int(sm["top1_hit"])
     std_stats["precision_sum"]   += sm["precision"]

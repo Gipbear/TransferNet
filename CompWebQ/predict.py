@@ -86,7 +86,7 @@ def validate(args, model, data, device, verbose=False,
                         h + 1, K=beam_size, lambda_val=0.0,
                         precomputed_dicts=precomputed
                     )
-                    update_std_stats(std_stats, std_paths, gold_ids)
+                    update_std_stats(std_stats, std_paths, gold_ids, id2rel=data.id2rel)
 
                 mmr_reason_paths = []
                 for nodes, rels, score in mmr_paths:
@@ -100,7 +100,7 @@ def validate(args, model, data, device, verbose=False,
                         "log_score": round(float(score), 6),
                     })
 
-                path_m, path_d = update_mmr_stats(mmr_stats, mmr_paths, gold_ids)
+                path_m, path_d = update_mmr_stats(mmr_stats, mmr_paths, gold_ids, id2rel=data.id2rel)
                 update_thresh_stats(thresh_stats, e_score[i], gold_ids, acc_thresholds)
 
                 question_ids = batch[1]['input_ids'][i].tolist()

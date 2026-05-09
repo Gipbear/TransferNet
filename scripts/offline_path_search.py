@@ -395,7 +395,11 @@ def run_experiment(
     agg = {
         "answer_hit": 0, "top1_hit": 0,
         "precision": 0.0, "recall": 0.0, "f1": 0.0,
-        "diversity_edge": 0.0, "tail_unique": 0.0,
+        "diversity_edge": 0.0,
+        "relation_jaccard_diversity": 0.0,
+        "tail_unique": 0.0,
+        "relation_coverage": 0.0,
+        "edge_coverage": 0.0,
         "empty_path": 0,
     }
     # 检查阈值截断风险：若最后一个保存的得分仍高于 threshold，可能丢失候选
@@ -454,7 +458,7 @@ def run_experiment(
             selected = candidates
 
             # 评估
-            m = compute_path_metrics(selected, gold_ids)
+            m = compute_path_metrics(selected, gold_ids, id2rel=id2rel)
             d = compute_path_diversity(selected)
 
             agg["answer_hit"] += int(m["answer_hit"])
@@ -463,7 +467,10 @@ def run_experiment(
             agg["recall"] += m["recall"]
             agg["f1"] += m["f1"]
             agg["diversity_edge"] += d.get("jaccard_diversity", 0.0)
+            agg["relation_jaccard_diversity"] += d.get("relation_jaccard_diversity", 0.0)
             agg["tail_unique"] += d.get("tail_diversity", 0.0)
+            agg["relation_coverage"] += d.get("relation_coverage", 0.0)
+            agg["edge_coverage"] += d.get("edge_coverage", 0.0)
 
             # 写 JSONL
             if out_file:
@@ -492,7 +499,10 @@ def run_experiment(
         "recall": agg["recall"] / n,
         "f1": agg["f1"] / n,
         "diversity_edge": agg["diversity_edge"] / n,
+        "relation_jaccard_diversity": agg["relation_jaccard_diversity"] / n,
         "tail_unique": agg["tail_unique"] / n,
+        "relation_coverage": agg["relation_coverage"] / n,
+        "edge_coverage": agg["edge_coverage"] / n,
     }
 
 
@@ -538,7 +548,9 @@ def _build_record(
         "mmr_top1_hit": bool(metrics["top1_hit"]),
         "path_diversity": {
             "jaccard_diversity": diversity.get("jaccard_diversity", 0.0),
+            "relation_jaccard_diversity": diversity.get("relation_jaccard_diversity", 0.0),
             "tail_diversity": diversity.get("tail_diversity", 0.0),
+            "relation_coverage": diversity.get("relation_coverage", 0.0),
             "edge_coverage": diversity.get("edge_coverage", 0.0),
         },
         "mmr_answer_recall": round(metrics["recall"], 4),
@@ -567,7 +579,13 @@ def _build_empty_record(sample: dict, hop_num: int, id2ent: dict) -> dict:
         "mmr_reason_paths": [],
         "mmr_answer_path_hit": False,
         "mmr_top1_hit": False,
-        "path_diversity": {"jaccard_diversity": 0.0, "tail_diversity": 0.0, "edge_coverage": 0.0},
+        "path_diversity": {
+            "jaccard_diversity": 0.0,
+            "relation_jaccard_diversity": 0.0,
+            "tail_diversity": 0.0,
+            "relation_coverage": 0.0,
+            "edge_coverage": 0.0,
+        },
         "mmr_answer_recall": 0.0,
         "mmr_precision": 0.0,
         "mmr_f1": 0.0,
@@ -644,7 +662,10 @@ def main():
     print(f"  Recall       : {metrics['recall']:.4f}")
     print(f"  F1           : {metrics['f1']:.4f}")
     print(f"  Edge Diversity: {metrics['diversity_edge']:.4f}")
+    print(f"  Relation Diversity: {metrics['relation_jaccard_diversity']:.4f}")
     print(f"  Tail Unique  : {metrics['tail_unique']:.4f}")
+    print(f"  Relation Coverage: {metrics['relation_coverage']:.4f}")
+    print(f"  Edge Coverage: {metrics['edge_coverage']:.4f}")
     print("=" * 60)
 
 

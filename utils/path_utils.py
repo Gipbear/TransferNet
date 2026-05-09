@@ -6,6 +6,7 @@
   filter_tensor            - 张量阈值过滤
   path_to_edge_set         - 路径转有向边三元组集合
   path_to_rel_set          - 路径转带 hop 位置的关系集合
+  path_answer_ids          - 根据关系方向提取路径候选答案节点
   compute_path_metrics     - 路径命中率/精度/召回/F1
   compute_path_diversity   - 路径多样性（边级/关系级 Jaccard、尾节点、关系覆盖）
   mmr_diversity_beam_search - 关系级 MMR 多样性束搜索（WebQSP/MetaQA_KB 共用）
@@ -35,14 +36,59 @@ def path_to_rel_set(rels):
     return set(enumerate(rels))
 
 
-def compute_path_metrics(paths, gold_ids):
+def is_reverse_relation(rel, id2rel=None):
+    """判断关系是否为反向边。
+
+    WebQSP/CompWebQ 的关系字典以 base/reverse 成对编号，通常偶数为原关系、
+    奇数为 ``_reverse``。若传入 id2rel，则优先用关系名判断。
+    """
+    rel_name = None
+    if id2rel is not None:
+        if hasattr(id2rel, "get"):
+            rel_name = id2rel.get(rel)
+            if rel_name is None:
+                rel_name = id2rel.get(str(rel))
+        else:
+            try:
+                rel_name = id2rel[rel]
+            except (IndexError, KeyError, TypeError):
+                rel_name = None
+    if rel_name is not None:
+        return str(rel_name).endswith(("_reverse", "_rev"))
+    if isinstance(rel, str):
+        return rel.endswith(("_reverse", "_rev"))
+    if isinstance(rel, int):
+        return rel % 2 == 1
+    return False
+
+
+def path_answer_ids(nodes, rels, id2rel=None):
+    """提取一条路径对答案实体的候选节点。
+
+    常规路径使用最后一个节点；若内部节点形成 ``-> node <-`` 的汇合结构，
+    则该中间节点才是这条路径指向的候选答案。
+    """
+    if len(nodes) <= 1:
+        return set()
+    sinks = []
+    for idx in range(1, len(nodes) - 1):
+        prev_is_forward = not is_reverse_relation(rels[idx - 1], id2rel)
+        next_is_reverse = is_reverse_relation(rels[idx], id2rel)
+        if prev_is_forward and next_is_reverse:
+            sinks.append(nodes[idx])
+    return set(sinks) if sinks else {nodes[-1]}
+
+
+def compute_path_metrics(paths, gold_ids, id2rel=None):
     """计算路径检索指标：answer_hit / top1_hit / precision / recall / f1。"""
-    tail_ids   = {nodes[-1] for nodes, _, _ in paths if len(nodes) > 1}
-    hit_count  = len(tail_ids & gold_ids)
+    answer_ids = set()
+    for nodes, rels, _ in paths:
+        answer_ids.update(path_answer_ids(nodes, rels, id2rel))
+    hit_count  = len(answer_ids & gold_ids)
     answer_hit = bool(hit_count)
-    top1_hit   = bool(paths and paths[0][0][-1] in gold_ids)
+    top1_hit   = bool(paths and path_answer_ids(paths[0][0], paths[0][1], id2rel) & gold_ids)
     recall     = hit_count / len(gold_ids) if gold_ids else 0.0
-    precision  = hit_count / len(tail_ids) if tail_ids else 0.0
+    precision  = hit_count / len(answer_ids) if answer_ids else 0.0
     f1 = (2 * precision * recall / (precision + recall)
           if (precision + recall) > 0 else 0.0)
     return {"answer_hit": answer_hit, "top1_hit": top1_hit,

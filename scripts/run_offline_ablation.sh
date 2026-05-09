@@ -5,7 +5,7 @@
 # 离线消融实验：基于 offline_search/paths/ 的路径文件运行 build→train→eval 流程
 #
 # 四组实验：
-#   Group A (eval-only): 检索参数扫描 (beam/lambda/alpha × MID, chain+v2)
+#   Group A (eval-only): 检索参数扫描 (beam/lambda/alpha × schema × MID/name, v2)
 #   Group B (train+eval): 路径序列化格式 (arrow/chain/tuple/nl × MID/name, v2)
 #   Group C (train+eval): 输出格式 (v1/v2/v3/v4 × MID/name, chain)
 #   Group D (train+eval): 训练轮数 (epoch 1-5, chain+name, v2)
@@ -92,6 +92,10 @@ done
 
 if [[ "${RUN_PHASE}" != "all" && "${RUN_PHASE}" != "train" && "${RUN_PHASE}" != "eval" ]]; then
     echo "[ERROR] --phase 仅支持: all | train | eval"
+    exit 1
+fi
+if [[ "${RUN_VARIANT}" != "both" && "${RUN_VARIANT}" != "mid" && "${RUN_VARIANT}" != "name" ]]; then
+    echo "[ERROR] --variant 仅支持: both | mid | name"
     exit 1
 fi
 
@@ -358,32 +362,37 @@ echo "======================================================"
 # Group A: 检索参数扫描 (eval-only)
 # ─────────────────────────────────────────────────────────────────────────────
 if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "A" ]]; then
-    log_section "Group A: 检索参数扫描 (beam/lambda/alpha × MID+name, chain+v2, eval-only)"
+    log_section "Group A: 检索参数扫描 (beam/lambda/alpha × schema × MID/name, v2, eval-only)"
 
-    ADAPTER_A_MID="$(try_resolve_adapter "groupAmid_v2")"
-    ADAPTER_A_NAME="$(try_resolve_adapter "groupAname_v2")"
+    ADAPTER_A_SCHEMA_MID="$(try_resolve_adapter "groupJ_schema_mid")"
+    ADAPTER_A_SCHEMA_NAME="$(try_resolve_adapter "groupJ_schema_name")"
 
-    if [[ -z "${ADAPTER_A_MID}" && -z "${ADAPTER_A_NAME}" ]]; then
-        echo "[ERROR] Group A 需要 groupAmid_v2 或 groupAname_v2 adapter"; exit 1
+    if [[ "${RUN_VARIANT}" != "name" && -z "${ADAPTER_A_SCHEMA_MID}" ]]; then
+        echo "[ERROR] Group A MID 评估需要 groupJ_schema_mid adapter"; exit 1
+    fi
+    if [[ "${RUN_VARIANT}" != "mid" && -z "${ADAPTER_A_SCHEMA_NAME}" ]]; then
+        echo "[ERROR] Group A name 评估需要 groupJ_schema_name adapter"; exit 1
     fi
 
     build_group_a_inputs
-    echo "  adapter_mid : ${ADAPTER_A_MID:-（未找到）}"
-    echo "  adapter_name: ${ADAPTER_A_NAME:-（未找到）}"
-    echo "  文件数      : ${#GROUP_A_INPUTS[@]}"
+    echo "  adapter_schema_mid : ${ADAPTER_A_SCHEMA_MID:-（未找到）}"
+    echo "  adapter_schema_name: ${ADAPTER_A_SCHEMA_NAME:-（未找到）}"
+    echo "  serialization      : output_format=v2, path_format=schema, entity=MID/name"
+    echo "  文件数             : ${#GROUP_A_INPUTS[@]}"
 
-    if [[ ! -f "${ENTITY_MAP}" ]]; then
+    if [[ "${RUN_VARIANT}" != "mid" && ! -f "${ENTITY_MAP}" ]]; then
         echo "[ERROR] 实体映射文件不存在: ${ENTITY_MAP}"; exit 1
     fi
 
     WALL_A=$(date +%s)
     for input in "${GROUP_A_INPUTS[@]}"; do
         if [[ "${RUN_VARIANT}" != "name" ]]; then
-            [[ -n "${ADAPTER_A_MID}"  ]] && eval_one "${input}" "groupA/mid"  "${ADAPTER_A_MID}"  "v2" "chain"
+            [[ -n "${ADAPTER_A_SCHEMA_MID}" ]] && eval_one "${input}" "groupA/schema_mid" \
+                "${ADAPTER_A_SCHEMA_MID}" "v2" "schema"
         fi
         if [[ "${RUN_VARIANT}" != "mid" ]]; then
-            [[ -n "${ADAPTER_A_NAME}" ]] && eval_one "${input}" "groupA/name" "${ADAPTER_A_NAME}" "v2" "chain" \
-                --entity_map "${ENTITY_MAP}"
+            [[ -n "${ADAPTER_A_SCHEMA_NAME}" ]] && eval_one "${input}" "groupA/schema_name" \
+                "${ADAPTER_A_SCHEMA_NAME}" "v2" "schema" --entity_map "${ENTITY_MAP}"
         fi
     done
     echo ""

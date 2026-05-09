@@ -98,7 +98,7 @@ def validate(args, model, data, triples_list, valid_edges_dict, device,
                         h + 1, K=beam_size, lambda_val=0.0,
                         precomputed_dicts=precomputed
                     )
-                    update_std_stats(std_stats, std_paths, gold_ids)
+                    update_std_stats(std_stats, std_paths, gold_ids, id2rel=data.id2rel)
 
                 # 序列化路径（实体名经 resolve 转为可读名）
                 mmr_reason_paths = []
@@ -114,7 +114,7 @@ def validate(args, model, data, triples_list, valid_edges_dict, device,
                     })
 
                 # ── MMR 路径检索指标 ──────────────────────────────────────────
-                m, d = update_mmr_stats(mmr_stats, mmr_paths, gold_ids)
+                m, d = update_mmr_stats(mmr_stats, mmr_paths, gold_ids, id2rel=data.id2rel)
 
                 # ── 多阈值对比 ────────────────────────────────────────────────
                 update_thresh_stats(thresh_stats, e_score[i], gold_ids, acc_thresholds)

@@ -83,6 +83,7 @@ OFFLINE_DIR="${PROJ_DIR}/data/output/WebQSP/offline_search"
 OUTPUT_DIR="${OFFLINE_DIR}/score_cache"
 LOG_DIR="${OFFLINE_DIR}/logs"
 PATHS_DIR="${OFFLINE_DIR}/paths"
+SUMMARY_FILE="${OFFLINE_DIR}/summary.csv"
 
 # ── 参数解析 ──────────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -108,6 +109,7 @@ while [[ $# -gt 0 ]]; do
         --grid_beams)  GRID_BEAMS="$2";  shift 2 ;;
         --output_dir)  OUTPUT_DIR="$2";  shift 2 ;;
         --paths_dir)   PATHS_DIR="$2";   shift 2 ;;
+        --summary_file) SUMMARY_FILE="$2"; shift 2 ;;
         *) echo "[ERROR] 未知参数: $1"; exit 1 ;;
     esac
 done
@@ -139,6 +141,12 @@ print_header() {
     echo "════════════════════════════════════════════════════════════"
     echo "  $1"
     echo "════════════════════════════════════════════════════════════"
+}
+
+metric_from_log() {
+    local label="$1"
+    local log_file="$2"
+    grep -F "$label" "$log_file" | tail -1 | awk -F':' '{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}'
 }
 
 # ── Step 1: dump ──────────────────────────────────────────────────────────────
@@ -246,11 +254,14 @@ run_search() {
         echo "  thresholds : ${GRID_THRESHOLDS}"
         echo "  beams      : ${GRID_BEAMS}"
         echo "  log        : ${log_file}"
+        echo "  summary    : ${SUMMARY_FILE}"
         echo ""
 
         echo "# 网格搜索  $(ts)" > "$log_file"
         echo "# cache=${CACHE}  input_dir=${INPUT_DIR}  method=${METHOD}" >> "$log_file"
         echo "" >> "$log_file"
+        mkdir -p "$(dirname "$SUMMARY_FILE")"
+        echo "method,alpha_final,lambda_val,threshold,beam_size,total,empty_path,answer_hit,top1_hit,precision,recall,f1,jaccard_diversity,relation_jaccard_diversity,tail_diversity,relation_coverage,edge_coverage,elapsed_s,jsonl_path" > "$SUMMARY_FILE"
 
         local t0=$SECONDS
         local count=0
@@ -265,8 +276,24 @@ run_search() {
                         lam_fmt=$(printf '%s' "$lam" | sed 's/\.*0*$//' | sed 's/^\./0./')
                         [[ -z "$lam_fmt" ]] && lam_fmt="0"
                         local jsonl_path="${PATHS_DIR}/${METHOD}_beam${beam}_alpha${alpha_fmt}_lam${lam_fmt}.jsonl"
+                        local iter_start=$SECONDS
                         echo "─── [method=${METHOD} alpha=${alpha} lambda=${lam} threshold=${thresh} beam=${beam}] ───────────────────" >> "$log_file"
                         run_search_once "$METHOD" "$alpha" "$thresh" "$lam" "$beam" "$log_file" "$jsonl_path"
+                        local iter_elapsed=$((SECONDS - iter_start))
+                        local total empty_path answer_hit top1_hit precision recall f1 edge_div rel_div tail_unique rel_cov edge_cov
+                        total=$(metric_from_log "总样本数" "$log_file")
+                        empty_path=$(metric_from_log "空路径数" "$log_file")
+                        answer_hit=$(metric_from_log "Answer Hit" "$log_file")
+                        top1_hit=$(metric_from_log "Top-1 Hit" "$log_file")
+                        precision=$(metric_from_log "Precision" "$log_file")
+                        recall=$(metric_from_log "Recall" "$log_file")
+                        f1=$(metric_from_log "F1" "$log_file")
+                        edge_div=$(metric_from_log "Edge Diversity" "$log_file")
+                        rel_div=$(metric_from_log "Relation Diversity" "$log_file")
+                        tail_unique=$(metric_from_log "Tail Unique" "$log_file")
+                        rel_cov=$(metric_from_log "Relation Coverage" "$log_file")
+                        edge_cov=$(metric_from_log "Edge Coverage" "$log_file")
+                        echo "${METHOD},${alpha},${lam},${thresh},${beam},${total},${empty_path},${answer_hit},${top1_hit},${precision},${recall},${f1},${edge_div},${rel_div},${tail_unique},${rel_cov},${edge_cov},${iter_elapsed},${jsonl_path}" >> "$SUMMARY_FILE"
                         count=$((count + 1))
                     done
                 done
@@ -274,6 +301,7 @@ run_search() {
         done
         echo "[$(ts)] 网格搜索完成，共 ${count} 组，耗时 $((SECONDS - t0))s"
         echo "[INFO] 完整日志: ${log_file}"
+        echo "[INFO] 汇总表: ${SUMMARY_FILE}"
         return 0
     fi
 

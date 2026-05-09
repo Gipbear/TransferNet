@@ -1,9 +1,28 @@
 import torch
 import os
 import pickle
+import sys
 from collections import defaultdict
 from transformers import AutoTokenizer
+from tqdm import tqdm
 from utils.misc import invert_dict
+
+
+def iter_file_with_progress(path, desc, unit):
+    total = os.path.getsize(path)
+    with open(path, 'rb') as fp:
+        with tqdm(
+            total=total,
+            desc=desc,
+            unit=unit,
+            unit_scale=True,
+            dynamic_ncols=True,
+            mininterval=1.0,
+            file=sys.stdout,
+        ) as pbar:
+            for raw_line in fp:
+                pbar.update(len(raw_line))
+                yield raw_line.decode('utf-8')
 
 
 def normalize_answers(answer_text):
@@ -56,64 +75,71 @@ class DataLoader(torch.utils.data.DataLoader):
 
 
         sub_map = defaultdict(list)
-        so_map = defaultdict(list)
-        with open(os.path.join(input_dir, 'fbwq_full/train.txt')) as fp:
-            for line in fp:
-                l = line.strip().split('\t')
-                s = l[0].strip()
-                p = l[1].strip()
-                o = l[2].strip()
-                sub_map[s].append((p, o))
-                so_map[(s, o)].append(p)
+        train_path = os.path.join(input_dir, 'fbwq_full/train.txt')
+        for line in iter_file_with_progress(train_path, desc='build WebQSP adjacency', unit='B'):
+            l = line.strip().split('\t')
+            s = l[0].strip()
+            o = l[2].strip()
+            sub_map[ent2id[s]].append(ent2id[o])
 
 
         data = []
         missing_answer_count = 0
         skipped_missing_answer_count = 0
         missing_answer_examples = []
-        with open(fn) as fp:
-            for line_no, line in enumerate(fp, 1):
-                line = line.strip()
-                if line == '':
-                    continue
-                line = line.split('\t')
-                # if no answer
-                if len(line) != 2:
-                    continue
-                question = line[0].split('[')
-                question_1 = question[0]
-                question_2 = question[1].split(']')
-                head = question_2[0].strip()
-                question_2 = question_2[1]
-                # question = question_1 + 'NE' + question_2
-                question = question_1.strip()
-                ans = normalize_answers(line[1])
+        for line_no, line in enumerate(iter_file_with_progress(fn, desc='parse WebQSP questions', unit='B'), 1):
+            line = line.strip()
+            if line == '':
+                continue
+            line = line.split('\t')
+            # if no answer
+            if len(line) != 2:
+                continue
+            question = line[0].split('[')
+            question_1 = question[0]
+            question_2 = question[1].split(']')
+            head = question_2[0].strip()
+            question_2 = question_2[1]
+            # question = question_1 + 'NE' + question_2
+            question = question_1.strip()
+            ans = normalize_answers(line[1])
 
-                # if (head, ans[0]) not in so_map:
-                #     continue
+            # if (head, ans[0]) not in so_map:
+            #     continue
 
-                valid_ans = []
-                for a in ans:
-                    if a in ent2id:
-                        valid_ans.append(ent2id[a])
-                    else:
-                        missing_answer_count += 1
-                        if len(missing_answer_examples) < 5:
-                            missing_answer_examples.append((line_no, a))
-                if not valid_ans:
-                    skipped_missing_answer_count += 1
-                    continue
+            valid_ans = []
+            for a in ans:
+                if a in ent2id:
+                    valid_ans.append(ent2id[a])
+                else:
+                    missing_answer_count += 1
+                    if len(missing_answer_examples) < 5:
+                        missing_answer_examples.append((line_no, a))
+            if not valid_ans:
+                skipped_missing_answer_count += 1
+                continue
 
-                entity_range = set()
-                for p, o in sub_map[head]:
-                    entity_range.add(o)
-                    for p2, o2 in sub_map[o]:
-                        entity_range.add(o2)
-                entity_range = [ent2id[o] for o in entity_range]
+            head = ent2id[head]
+            entity_range = set()
+            for o in sub_map[head]:
+                entity_range.add(o)
+                entity_range.update(sub_map[o])
+            entity_range = list(entity_range)
 
-                head = [ent2id[head]]
-                question = self.tokenizer(question.strip(), max_length=64, padding='max_length', return_tensors="pt")
-                data.append([head, question, valid_ans, entity_range])
+            head = [head]
+            data.append([head, question, valid_ans, entity_range])
+
+        tokenize_batch_size = 512
+        for start in tqdm(range(0, len(data), tokenize_batch_size), desc='tokenize WebQSP questions', unit='batch', dynamic_ncols=True, mininterval=1.0, file=sys.stdout):
+            end = min(start + tokenize_batch_size, len(data))
+            encoded = self.tokenizer(
+                [item[1] for item in data[start:end]],
+                max_length=64,
+                padding='max_length',
+                return_tensors="pt",
+            )
+            for offset, item in enumerate(data[start:end]):
+                item[1] = {k: v[offset:offset + 1] for k, v in encoded.items()}
 
         print('data number: {}'.format(len(data)))
         if missing_answer_count:
