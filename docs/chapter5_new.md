@@ -163,9 +163,9 @@
 
 **(4) 典型案例分析。**
 
-**案例一（accept_full 早停）**：sample_index=4，问题 "where was george washington carver from"，标准答案 *Diamond*（密苏里州一小镇，George Washington Carver 出生地）。检索服务返回 50 条候选路径，前 20 条中包含多条指向 *Diamond* 的"出生地"与"出生地反查"关系路径。批次 1 的答题模型基于前 20 条候选给出候选答案 `[Diamond]` 与 6 条引用路径；引用核查器对每条路径独立判定，6 条引用均指向 *Diamond* 且均支撑"出生地"语义，全部通过核查。决策层判定为 **accept_full** 状态，立即终止后续批次，最终答案 `[Diamond]`，hit@1=1, F1=1.0。
+**案例一（早停成功）**：sample_index=4，问题 "where was george washington carver from"，标准答案 *Diamond*（密苏里州一小镇，George Washington Carver 出生地）。检索服务返回 50 条候选路径，前 8 条覆盖 *Diamond*（"出生地"、"出生反查"两条关系）以及 *Tuskegee*（"逝世地"）、教育、族裔等多个候选实体。批次 1 的答题模型基于前 20 条候选给出候选答案 `[Diamond, Tuskegee]` 与 8 条引用路径。引用核查器对每条路径独立判定，发现 local index 3（关系为 `place_of_death → Tuskegee`）与"出生地"语义不符，将其拒绝；其余 7 条全部通过核查，并均指向 *Diamond*。决策层进入 mixed 状态后无更多需要补救的引用，立即终止，最终答案收敛为 `[Diamond]`，hit@1=1, F1=1.0。
 
-本例的关键意义在于：在候选池中正确路径集中、噪声路径未进入首批上下文的情况下，决策层能够在第 1 批以 accept_full 状态完成推理并立即终止，无需消耗剩余 30 条候选路径——这正体现了批式渐进机制对 L3（计算无早停）的解决效果。
+本例的关键意义在于：核查器**同时**完成了对错误引用的过滤与对错误候选答案 *Tuskegee* 的剔除——这正体现了 5.2.4 (c) 节所述的"核查器以路径语义而非答题置信度为判据"的优势。如果没有核查机制，单次直答输出 `[Diamond, Tuskegee]` 会同时拉低 F1 与 EM。
 
 **案例二（多批翻盘）**：sample_index=574，问题 "who was president in 1988 in the united states"，标准答案 *Ronald Reagan*。检索服务返回的 Top-K 路径以 office_holder 关系为主，但由于 MMR 多样性策略，前 20 条候选中头部分布于 *Barack Obama*、*Abraham Lincoln*、*Ulysses S. Grant*、*Gerald Ford* 等多任总统，*Reagan* 相关路径位置靠后（约全局索引 24）。批次 1 的答题模型基于前 20 条候选错误地锁定 `[Woodrow Wilson]`（与 1988 年时序明显不符），引用 local index 16；核查器判定该引用**不**支撑 Woodrow Wilson 与"1988 年总统"的关系，将其拒绝，整批进入 `all_wrong` 状态、accepted 集合为空。
 
