@@ -29,3 +29,19 @@
 **(2) 协议化工具。** 决策层 Agent 仅依赖 JSON 格式的接口契约，不耦合底层模型的具体实现：检索服务暴露 `(question, topic_mid, beam_size, lambda_val) → ranked paths` 接口，推理服务暴露 `AnswerWithPaths` 与 `CitedPathCheck` 两个工具协议。在不改动决策层逻辑的前提下，可替换底层为其他 KGQA 检索算法或更大的 LLM 底座。
 
 **(3) 共享底座。** `AnswerWithPaths` 与 `CitedPathCheck` 复用同一份基座 + LoRA Adapter，仅通过提示词模板切换工具语义。这避免了为不同任务加载多份模型实例的显存开销。
+
+### 5.2.2 检索服务层
+
+检索服务层将第三章的 TransferNet + MMR 多样性波束搜索算法封装为常驻 HTTP 服务，向上层提供路径请求接口。服务初始化时载入预训练 TransferNet 模型与 WebQSP 知识图谱稀疏矩阵，常驻于 GPU。请求接口接收 `(question, topic_mid, beam_size, lambda_val, alpha_final)` 参数，返回按 MMR 评分降序排列的候选路径列表，每条路径同时给出原始 MID 边表示与实体名表示，便于上层根据需要选择。
+
+服务实现位于 `oh_my_agent/path_retrieve_server/`，默认端口 `8789`。在第五章实验中，所有问答请求均通过该服务获取检索结果，避免了重复加载 TransferNet 的开销，使单次检索的延迟稳定在 159 ms 左右（见 5.3.5 节延迟分解）。
+
+### 5.2.3 推理服务层
+
+推理服务层基于第四章微调的 LLaMA-3.1-8B + LoRA Adapter，对外暴露两个工具协议：`AnswerWithPaths` 与 `CitedPathCheck`。
+
+**AnswerWithPaths**：输入 `(question, paths_batch)`，其中 `paths_batch` 为一批序列化后的候选路径（默认每批 20 条），输出 `(answer_set, cited_path_indices)`，分别为模型给出的答案实体集合与所引用的路径编号子集。该工具沿用第四章训练阶段的提示词模板与输出格式约束（V5 格式：答案与引用编号同时输出）。
+
+**CitedPathCheck**：输入 `(question, candidate_answers, single_path)`，输出该路径是否支撑给定候选答案的二分类判定。该工具的提示词模板为针对核查任务专门设计的简化版（仅生成 1-2 个 token 的接受/拒绝标签），单次核查耗时显著小于一次完整答题。
+
+两个工具复用同一基座与 LoRA Adapter，仅在请求时由 `tool_type` 字段切换提示词模板。服务实现位于 `oh_my_agent/llm_server/`，默认端口 `8788`。
