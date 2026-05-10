@@ -2,11 +2,11 @@
 
 Case A (early-stop success): batches_used == 1, hit1 == 1, stop_reason != path_exhausted,
     verifier rejected at least 1 cited path, question length 30-90 chars.
-    Picks idx=8 ("who was vice president after kennedy died") by default.
+    Picks idx=4 ("where was george washington carver from") by default.
 
 Case B (multi-batch rescue): batches_used == 2, hit1 == 1, batch 0 has all_wrong status
     (all cited paths rejected), batch 1 provides the correct answer.
-    Picks idx=872 ("which country in north america is divided into provinces") by default.
+    Picks idx=574 ("who was president in 1988 in the united states") by default.
 """
 
 from __future__ import annotations
