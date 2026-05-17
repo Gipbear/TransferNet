@@ -19,6 +19,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--beam_size", type=int, default=50)
     parser.add_argument("--lambda_val", type=float, default=0.5)
     parser.add_argument("--batch_size", type=int, default=20)
+    parser.add_argument(
+        "--dedupe_tail_paths",
+        action="store_true",
+        help="Deduplicate retrieved paths by final raw tail entity before batching",
+    )
     parser.add_argument("--max_new_tokens", type=int, default=256)
     parser.add_argument("--check_max_new_tokens", type=int, default=2)
     parser.add_argument("--path_retrieve_url", default="http://localhost:8789")
@@ -63,6 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         beam_size=args.beam_size,
         lambda_val=args.lambda_val,
         batch_size=args.batch_size,
+        dedupe_tail_paths=args.dedupe_tail_paths,
     )
     print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
     return 0

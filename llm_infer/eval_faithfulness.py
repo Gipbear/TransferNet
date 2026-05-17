@@ -558,7 +558,7 @@ def parse_args():
                    choices=["v0", "v1", "v2", "v3", "v4", "v5", "v11"],
                    help="模型输出格式（决定 prompt 和解析方式）")
     p.add_argument("--max_new_tokens", type=int, default=256)
-    p.add_argument("--batch_size",     type=int, default=8,
+    p.add_argument("--batch_size",     type=int, default=4,
                    help="批量推理大小（越大越快，受显存限制；建议 4~16）")
     p.add_argument("--limit",          type=int, default=0, help="只评估前 N 条（0=全部）")
     p.add_argument("--noise_paths",    type=int, default=0,

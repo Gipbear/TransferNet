@@ -3,7 +3,8 @@
 # run_offline_path_search.sh
 #
 # 两步式离线路径搜索实验脚本：
-#   Step 1 (dump)   : 运行 WebQSP.dump_scores，将模型中间得分矩阵写入缓存文件
+#   Step 1 (dump)   : 运行 WebQSP.dump_scores / CompWebQ.dump_scores，
+#                     将模型中间得分矩阵写入缓存文件
 #   Step 2 (search) : 运行 scripts/offline_path_search.py，离线重放路径搜索
 #
 # 特性：
@@ -43,6 +44,9 @@
 #       --cache data/output/WebQSP/offline_search/score_cache/webqsp_val.pt \
 #       --grid
 #
+#   # CWQ（默认 checkpoint/input/output 会自动切到 data/ckpt/CWQ、data/input/CWQ、data/output/CWQ）
+#   bash scripts/run_offline_path_search.sh --dataset cwq --phase all
+#
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -50,16 +54,17 @@ set -euo pipefail
 PROJ_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # ── 默认参数 ──────────────────────────────────────────────────────────────────
-# 最佳 WebQSP checkpoint（acc=0.6411 @ epoch 29）
-CKPT="${PROJ_DIR}/data/ckpt/WebQSP/model-29-0.6411.pt"
-# WebQSP 数据目录
-INPUT_DIR="${PROJ_DIR}/data/input/WebQSP"
-# QA 文件；默认使用过滤掉无有效答案样本后的 1581 条测试集
+# 数据集：webqsp | cwq
+DATASET="webqsp"
+# checkpoint / 数据目录 / BERT 默认值按 DATASET 自动补齐；显式参数优先
+CKPT=""
+INPUT_DIR=""
+# QA 文件；WebQSP 默认使用过滤掉无有效答案样本后的 1581 条测试集，CWQ 不需要
 QA_FILE=""
-# 得分缓存路径（空 = 自动推导为 OUTPUT_DIR/webqsp_${MODE}.pt）
+# 得分缓存路径（空 = 自动推导为 OUTPUT_DIR/${dataset}_${MODE}.pt）
 CACHE=""
 MODE="val"
-BERT_NAME="bert-base-uncased"
+BERT_NAME=""
 BATCH_SIZE=16
 TOPK=500
 PHASE="all"          # all | dump | search
@@ -78,16 +83,17 @@ GRID_LAMBDAS="0 0.2 0.5 0.7 1.0"
 GRID_THRESHOLDS="0.01"
 GRID_BEAMS="3 5 10 15 20 30 40 50"
 
-# 缓存、日志与路径结果放在同一父目录下
-OFFLINE_DIR="${PROJ_DIR}/data/output/WebQSP/offline_search"
-OUTPUT_DIR="${OFFLINE_DIR}/score_cache"
-LOG_DIR="${OFFLINE_DIR}/logs"
-PATHS_DIR="${OFFLINE_DIR}/paths"
-SUMMARY_FILE="${OFFLINE_DIR}/summary.csv"
+# 缓存、日志与路径结果放在同一父目录下；空值按 DATASET 自动补齐
+OFFLINE_DIR=""
+OUTPUT_DIR=""
+LOG_DIR=""
+PATHS_DIR=""
+SUMMARY_FILE=""
 
 # ── 参数解析 ──────────────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --dataset)     DATASET="$2";     shift 2 ;;
         --ckpt)        CKPT="$2";        shift 2 ;;
         --input_dir)   INPUT_DIR="$2";   shift 2 ;;
         --qa_file)     QA_FILE="$2";     shift 2 ;;
@@ -114,18 +120,48 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# ── 数据集默认值 ──────────────────────────────────────────────────────────────
+DATASET="${DATASET,,}"
+case "$DATASET" in
+    webqsp)
+        DUMP_MODULE="WebQSP.dump_scores"
+        CACHE_PREFIX="webqsp"
+        [[ -z "$CKPT" ]] && CKPT="${PROJ_DIR}/data/ckpt/WebQSP/model-29-0.6411.pt"
+        [[ -z "$INPUT_DIR" ]] && INPUT_DIR="${PROJ_DIR}/data/input/WebQSP"
+        [[ -z "$BERT_NAME" ]] && BERT_NAME="bert-base-uncased"
+        [[ -z "$OFFLINE_DIR" ]] && OFFLINE_DIR="${PROJ_DIR}/data/output/WebQSP/offline_search"
+        ;;
+    cwq)
+        DUMP_MODULE="CompWebQ.dump_scores"
+        CACHE_PREFIX="cwq"
+        [[ -z "$CKPT" ]] && CKPT="${PROJ_DIR}/data/ckpt/CWQ/model-29-0.4206.pt"
+        [[ -z "$INPUT_DIR" ]] && INPUT_DIR="${PROJ_DIR}/data/input/CWQ"
+        [[ -z "$BERT_NAME" ]] && BERT_NAME="bert-base-cased"
+        [[ -z "$OFFLINE_DIR" ]] && OFFLINE_DIR="${PROJ_DIR}/data/output/CWQ/offline_search"
+        ;;
+    *)
+        echo "[ERROR] --dataset 仅支持: webqsp | cwq，当前值: ${DATASET}"
+        exit 1
+        ;;
+esac
+
+[[ -z "$OUTPUT_DIR" ]] && OUTPUT_DIR="${OFFLINE_DIR}/score_cache"
+[[ -z "$LOG_DIR" ]] && LOG_DIR="${OFFLINE_DIR}/logs"
+[[ -z "$PATHS_DIR" ]] && PATHS_DIR="${OFFLINE_DIR}/paths"
+[[ -z "$SUMMARY_FILE" ]] && SUMMARY_FILE="${OFFLINE_DIR}/summary.csv"
+
 # ── 自动推导缓存路径 ──────────────────────────────────────────────────────────
 if [[ -z "$CACHE" ]]; then
-    CACHE="${OUTPUT_DIR}/webqsp_${MODE}.pt"
+    CACHE="${OUTPUT_DIR}/${CACHE_PREFIX}_${MODE}.pt"
 fi
-if [[ -z "$QA_FILE" ]]; then
+if [[ "$DATASET" == "webqsp" && -z "$QA_FILE" ]]; then
     QA_FILE="${INPUT_DIR}/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"
 fi
 
 # 将路径归一成绝对路径，避免 dump_scores 对相对 qa_file 再拼 input_dir，
 # 产生 data/input/WebQSP/data/input/WebQSP/... 这种双重前缀。
 INPUT_DIR="$(cd "$INPUT_DIR" && pwd)"
-if [[ "$QA_FILE" != /* ]]; then
+if [[ -n "$QA_FILE" && "$QA_FILE" != /* ]]; then
     if [[ -f "$QA_FILE" ]]; then
         QA_FILE="$(cd "$(dirname "$QA_FILE")" && pwd)/$(basename "$QA_FILE")"
     else
@@ -153,6 +189,7 @@ metric_from_log() {
 run_dump() {
     print_header "Step 1: 导出得分缓存"
     echo "  ckpt       : ${CKPT}"
+    echo "  dataset    : ${DATASET}"
     echo "  input_dir  : ${INPUT_DIR}"
     echo "  qa_file    : ${QA_FILE}"
     echo "  mode       : ${MODE}"
@@ -168,7 +205,7 @@ run_dump() {
         echo "[ERROR] --input_dir 未指定。"
         exit 1
     fi
-    if [[ ! -f "$QA_FILE" ]]; then
+    if [[ "$DATASET" == "webqsp" && ! -f "$QA_FILE" ]]; then
         echo "[ERROR] QA 文件不存在: ${QA_FILE}"
         echo "        可先运行: python scripts/build_webqsp_fixed_qa.py"
         exit 1
@@ -183,15 +220,19 @@ run_dump() {
 
     local t0=$SECONDS
     echo "[$(ts)] 开始 dump ..."
-    python -m WebQSP.dump_scores \
+    local dump_args=(
         --ckpt       "$CKPT" \
         --input_dir  "$INPUT_DIR" \
         --mode       "$MODE" \
         --bert_name  "$BERT_NAME" \
         --batch_size "$BATCH_SIZE" \
         --topk       "$TOPK" \
-        --qa_file    "$QA_FILE" \
         --output     "$CACHE"
+    )
+    if [[ "$DATASET" == "webqsp" ]]; then
+        dump_args+=(--qa_file "$QA_FILE")
+    fi
+    python -m "$DUMP_MODULE" "${dump_args[@]}"
     echo "[$(ts)] dump 完成，耗时 $((SECONDS - t0))s"
 }
 

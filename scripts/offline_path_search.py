@@ -205,6 +205,22 @@ def rebuild_valid_edges_dict(input_dir: str) -> dict[int, list[tuple[int, int]]]
     return build_valid_edges_dict(triples)
 
 
+def sample_valid_edges_dict(
+    sample: dict,
+    global_valid_edges_dict: Optional[dict[int, list[tuple[int, int]]]],
+) -> dict[int, list[tuple[int, int]]]:
+    """返回当前样本可用的邻接表。
+
+    WebQSP 使用全局 fbwq_full KG；CWQ 的 predict.py 按样本 subgraph 搜索，
+    因此 CWQ dump cache 会在每个 sample 中保存 ``triples`` 并在这里重建。
+    """
+    if "triples" in sample:
+        return build_valid_edges_dict(sample["triples"])
+    if global_valid_edges_dict is None:
+        raise ValueError("缓存未包含 sample triples，且未提供全局 valid_edges_dict")
+    return global_valid_edges_dict
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 基础路径评分
 # ─────────────────────────────────────────────────────────────────────────────
@@ -373,7 +389,7 @@ def final_ent_score_dict(sample: dict) -> dict[int, float]:
 
 def run_experiment(
     cache: dict,
-    valid_edges_dict: dict,
+    valid_edges_dict: Optional[dict[int, list[tuple[int, int]]]],
     method: str,
     threshold: float,
     beam_size: int,
@@ -414,6 +430,7 @@ def run_experiment(
     try:
         scoring = LogNormStrategy()
         for sample in tqdm(samples, desc="search", unit="sample", dynamic_ncols=True):
+            current_valid_edges_dict = sample_valid_edges_dict(sample, valid_edges_dict)
             hop_num = int(sample["hop_attn"].argmax().item()) + 1
             hop_nums = _method_hop_numbers(method, hop_num, len(sample["rel_probs"]))
             topic_ids = sample["topic_ids"]
@@ -435,7 +452,7 @@ def run_experiment(
             for candidate_hop in hop_nums:
                 path_candidates.extend(search_path_candidates(
                     topic_ids, rel_dicts, ent_dicts, candidate_hop,
-                    valid_edges_dict, scoring, beam_size,
+                    current_valid_edges_dict, scoring, beam_size,
                     final_ent_scores=final_scores,
                     order_start=len(path_candidates),
                 ))
@@ -604,7 +621,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cache", required=True,
                         help="predict.py 生成的得分缓存路径（.pt 文件）")
     parser.add_argument("--input_dir", default=None,
-                        help="WebQSP 数据目录，用于重建 valid_edges_dict。"
+                        help="WebQSP 数据目录，用于重建全局 valid_edges_dict；"
+                             "CWQ cache 含逐样本 triples 时不需要。"
                              "不提供时从缓存 meta.input_dir 自动读取。")
     parser.add_argument("--method", default="tail_blend", choices=["tail_blend", "baseline"],
                         help="路径检索方法：tail_blend 为新实验；baseline 为旧基线复现。")
@@ -631,14 +649,19 @@ def main():
     print(f"[INFO] 数据集={meta.get('dataset')}, split={meta.get('split')}, "
           f"样本数={meta.get('num_samples')}, topk_entities={meta.get('topk_entities')}", flush=True)
 
-    input_dir = args.input_dir or meta.get("input_dir", "")
-    if not input_dir or not os.path.isdir(input_dir):
-        print(f"[ERROR] 无法找到数据目录: {input_dir!r}，请通过 --input_dir 指定。")
-        sys.exit(1)
+    samples_have_triples = any("triples" in sample for sample in cache.get("samples", []))
+    if samples_have_triples:
+        valid_edges_dict = None
+        print("[INFO] 使用缓存中的逐样本 triples 重建 valid_edges_dict。", flush=True)
+    else:
+        input_dir = args.input_dir or meta.get("input_dir", "")
+        if not input_dir or not os.path.isdir(input_dir):
+            print(f"[ERROR] 无法找到数据目录: {input_dir!r}，请通过 --input_dir 指定。")
+            sys.exit(1)
 
-    print(f"[INFO] 重建 valid_edges_dict from: {input_dir}", flush=True)
-    valid_edges_dict = rebuild_valid_edges_dict(input_dir)
-    print(f"[INFO] 完成，共 {len(valid_edges_dict)} 个实体节点的出边。", flush=True)
+        print(f"[INFO] 重建 valid_edges_dict from: {input_dir}", flush=True)
+        valid_edges_dict = rebuild_valid_edges_dict(input_dir)
+        print(f"[INFO] 完成，共 {len(valid_edges_dict)} 个实体节点的出边。", flush=True)
 
     print(f"\n[RUN] method={args.method}, selector=mmr, lambda={args.lambda_val}, "
           f"alpha_final={args.alpha_final}, threshold={args.threshold}, "

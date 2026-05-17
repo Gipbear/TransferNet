@@ -93,8 +93,13 @@ class SimpleAgentToolTests(unittest.TestCase):
             },
         )
 
-        result = tool("who was vice president after kennedy died", "m.0d3k14")
+        result = tool(
+            "who was vice president after kennedy died",
+            "m.0d3k14",
+            sample_index=3,
+        )
 
+        self.assertEqual(tool.client.calls[0][1]["sample_index"], 3)
         self.assertEqual(tool.client.calls[0][1]["topic_entities"], ["m.0d3k14"])
         self.assertEqual(result.topic_mid, "m.0d3k14")
         self.assertEqual(result.raw_topics, ["m.0d3k14"])

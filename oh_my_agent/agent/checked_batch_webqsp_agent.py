@@ -147,6 +147,26 @@ def _tail_entity_count_for_indices(raw_paths: list[dict[str, Any]], indices: set
     return len(tails)
 
 
+def _dedupe_paths_by_tail(
+    raw_paths: list[dict[str, Any]],
+    named_paths: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    deduped_raw: list[dict[str, Any]] = []
+    deduped_named: list[dict[str, Any]] = []
+    seen_tails: set[str] = set()
+
+    for raw_path, named_path in zip(raw_paths, named_paths):
+        raw_tail = norm_entity(_tail_from_path(raw_path))
+        if raw_tail:
+            if raw_tail in seen_tails:
+                continue
+            seen_tails.add(raw_tail)
+        deduped_raw.append(raw_path)
+        deduped_named.append(named_path)
+
+    return deduped_raw, deduped_named
+
+
 def _relation_sequence_from_path(path_dict: dict[str, Any]) -> tuple[str, ...]:
     return tuple(
         str(edge[1])
@@ -215,6 +235,7 @@ class CheckedBatchWebQAgent:
         check_use_adapter: bool | None = None,
         check_max_new_tokens: int | None = None,
         sample_index: int | None = None,
+        dedupe_tail_paths: bool = False,
     ) -> CheckedBatchWebQAgentResult:
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
@@ -232,6 +253,8 @@ class CheckedBatchWebQAgent:
 
         raw_paths = retrieval.raw_mmr_reason_paths
         named_paths = retrieval.named_mmr_reason_paths
+        if dedupe_tail_paths:
+            raw_paths, named_paths = _dedupe_paths_by_tail(raw_paths, named_paths)
         state = _CheckedBatchState()
 
         for start in range(0, len(named_paths), batch_size):

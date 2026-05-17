@@ -14,6 +14,7 @@ from scripts.offline_path_search import (
     build_parser,
     candidate_to_tuple,
     compute_candidate_score,
+    run_experiment,
     select_path_candidates,
 )
 
@@ -72,6 +73,43 @@ class OfflinePathMethodTest(unittest.TestCase):
 
         self.assertEqual(candidate_to_tuple(candidate), ([1, 2], [10], -2.5))
 
+    def test_run_experiment_uses_sample_triples_for_cwq_cache(self):
+        import torch
+
+        cache = {
+            "version": 1,
+            "meta": {
+                "dataset": "CWQ",
+                "split": "val",
+                "topk_entities": 1,
+                "id2ent": {0: "topic", 1: "answer"},
+                "id2rel": {0: "rel"},
+            },
+            "samples": [{
+                "question": "dummy",
+                "topic_ids": [0],
+                "gold_ids": [1],
+                "triples": [[0, 0, 1]],
+                "hop_attn": torch.tensor([1.0]),
+                "rel_probs": [torch.tensor([0.9])],
+                "ent_indices": [torch.tensor([1])],
+                "ent_scores": [torch.tensor([0.8])],
+                "e_score_indices": torch.tensor([1]),
+                "e_score_values": torch.tensor([0.9]),
+            }],
+        }
+
+        metrics = run_experiment(
+            cache,
+            valid_edges_dict=None,
+            method="baseline",
+            threshold=0.01,
+            beam_size=1,
+        )
+
+        self.assertEqual(metrics["empty_path"], 0)
+        self.assertEqual(metrics["answer_hit_rate"], 1.0)
+
     def test_parser_exposes_only_formal_method_parameters(self):
         help_buf = io.StringIO()
         parser = build_parser()
@@ -101,6 +139,8 @@ class OfflinePathMethodTest(unittest.TestCase):
     def test_wrapper_supports_tail_blend_grid_without_old_search_knobs(self):
         wrapper = (ROOT / "scripts" / "run_offline_path_search.sh").read_text(encoding="utf-8")
 
+        self.assertIn("--dataset", wrapper)
+        self.assertIn("CompWebQ.dump_scores", wrapper)
         self.assertIn("--method", wrapper)
         self.assertIn("tail_blend", wrapper)
         self.assertIn("--alpha_final", wrapper)
@@ -115,10 +155,11 @@ class OfflinePathMethodTest(unittest.TestCase):
         self.assertNotIn("--scoring", wrapper)
         self.assertNotIn("--diversity", wrapper)
 
-    def test_wrapper_defaults_keep_webqsp_artifacts_under_data_output(self):
+    def test_wrapper_defaults_keep_dataset_artifacts_under_data_output(self):
         wrapper = (ROOT / "scripts" / "run_offline_path_search.sh").read_text(encoding="utf-8")
 
         self.assertIn('OFFLINE_DIR="${PROJ_DIR}/data/output/WebQSP/offline_search"', wrapper)
+        self.assertIn('OFFLINE_DIR="${PROJ_DIR}/data/output/CWQ/offline_search"', wrapper)
         self.assertIn('OUTPUT_DIR="${OFFLINE_DIR}/score_cache"', wrapper)
         self.assertIn('LOG_DIR="${OFFLINE_DIR}/logs"', wrapper)
         self.assertIn('PATHS_DIR="${OFFLINE_DIR}/paths"', wrapper)

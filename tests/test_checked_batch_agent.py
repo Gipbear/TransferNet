@@ -251,6 +251,58 @@ class CheckedBatchAgentTests(unittest.TestCase):
         self.assertEqual(result.final_accepted_path_indices, [1, 2])
         self.assertEqual(result.pred_answer_names, ["Answer A"])
 
+    def test_dedupe_tail_paths_keeps_first_tail_before_batching(self):
+        raw_paths = [
+            {"path": [["m.topic", "rel.a1", "m.a"]], "log_score": -1.0},
+            {"path": [["m.topic", "rel.a2", "m.a"]], "log_score": -2.0},
+            {"path": [["m.topic", "rel.b", "m.b"]], "log_score": -3.0},
+        ]
+        entity_map = {
+            "m.topic": "Topic",
+            "m.a": "Answer A",
+            "m.b": "Answer B",
+        }
+        llm_client = FakeLLMClient(
+            [
+                GenerateResponse(
+                    text="Supporting Paths: 1, 2\nAnswer: Answer A | Answer B",
+                    used_adapter=True,
+                    tokens_generated=8,
+                    elapsed_ms=5.0,
+                ),
+                GenerateResponse(text="Y", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+                GenerateResponse(text="Y", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+            ]
+        )
+        agent = CheckedBatchWebQAgent(
+            path_tool=PathRetrieveTool(
+                client=FakePathClient(make_response(raw_paths)),
+                entity_map=entity_map,
+            ),
+            answer_tool=AnswerWithPathsTool(client=llm_client),
+            check_tool=CitedPathCheckTool(client=llm_client),
+        )
+
+        result = agent.run(
+            "where is example from",
+            "m.topic",
+            batch_size=3,
+            dedupe_tail_paths=True,
+        )
+
+        self.assertEqual(result.raw_mmr_reason_paths, [raw_paths[0], raw_paths[2]])
+        self.assertEqual(
+            [path["path"] for path in result.named_mmr_reason_paths],
+            [
+                [["Topic", "rel.a1", "Answer A"]],
+                [["Topic", "rel.b", "Answer B"]],
+            ],
+        )
+        self.assertEqual(result.iterations[0].batch_size, 2)
+        self.assertEqual(result.iterations[0].global_cited_path_indices, [1, 2])
+        self.assertEqual(result.final_accepted_path_indices, [1, 2])
+        self.assertEqual(result.pred_answer_disambiguated_mids, ["m.a", "m.b"])
+
     def test_relation_expansion_only_uses_checked_cited_paths(self):
         raw_paths = [
             {"path": [["m.topic", "rel.location", "m.a"]], "log_score": -1.0},
