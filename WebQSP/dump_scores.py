@@ -21,6 +21,7 @@ from tqdm import tqdm
 
 from utils.misc import batch_device
 from utils.path_utils import filter_tensor
+from .predict import id_score_pairs
 from .data import DataLoader, load_data
 from .model import TransferNet
 
@@ -98,8 +99,8 @@ def dump_scores(model, data, device, output_path, topk=500, mode="val",
 
             bsz = e_score_cpu.shape[0]
             for i in range(bsz):
-                topic_ids = [x for (x, _) in filter_tensor(batch[0][i], 1)]
-                gold_ids  = [x for (x, _) in filter_tensor(batch[2][i], 1)]
+                topic_ids = [x for (x, _) in id_score_pairs(batch[0][i], 1)]
+                gold_ids  = [x for (x, _) in id_score_pairs(batch[2][i], 1)]
 
                 question = raw_questions[sample_counter]
                 sample_counter += 1

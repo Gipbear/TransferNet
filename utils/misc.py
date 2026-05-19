@@ -17,13 +17,13 @@ def batch_device(batch, device):
     res = []
     for x in batch:
         if isinstance(x, torch.Tensor):
-            x = x.to(device)
+            x = x.to(device, non_blocking=True)
         elif isinstance(x, (dict, transformers.tokenization_utils_base.BatchEncoding)):
             for k in x:
                 if isinstance(x[k], torch.Tensor):
-                    x[k] = x[k].to(device)
+                    x[k] = x[k].to(device, non_blocking=True)
         elif isinstance(x, (list, tuple)) and isinstance(x[0], torch.Tensor):
-            x = list(map(lambda i: i.to(device), x))
+            x = list(map(lambda i: i.to(device, non_blocking=True), x))
         res.append(x)
     return res
 

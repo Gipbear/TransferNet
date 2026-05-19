@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
-import math
 from transformers import AutoModel
-from utils.BiGRU import GRU, BiGRU
 
 class TransferNet(nn.Module):
     def __init__(self, args, ent2id, rel2id, triples):
@@ -39,34 +37,74 @@ class TransferNet(nn.Module):
 
         self.hop_selector = nn.Linear(dim_hidden, self.num_steps)
 
+    def _one_hot_from_index_lists(self, index_lists, device):
+        heads = torch.zeros(
+            (len(index_lists), self.Msubj.shape[1]),
+            device=device,
+            dtype=torch.float32,
+        )
+        for row, ids in enumerate(index_lists):
+            ids = ids.to(device=device, dtype=torch.long)
+            if ids.numel() > 0:
+                heads[row].scatter_(0, ids, 1.0)
+        return heads
+
+    def _sparse_loss(self, scores, answers, entity_range):
+        numerator = scores.new_tensor(0.0)
+        denominator = scores.new_tensor(0.0)
+        for row, range_ids in enumerate(entity_range):
+            range_ids = range_ids.to(device=scores.device, dtype=torch.long)
+            if range_ids.numel() == 0:
+                continue
+            answer_ids = answers[row].to(device=scores.device, dtype=torch.long)
+            target = torch.isin(range_ids, answer_ids).to(dtype=scores.dtype)
+            weight = target * 99 + 1
+            row_scores = scores[row].index_select(0, range_ids)
+            numerator = numerator + torch.sum(weight * torch.pow(row_scores - target, 2))
+            denominator = denominator + torch.sum(weight)
+        return numerator / denominator.clamp_min(1.0)
 
     def follow(self, e, r):
-        # cast r to float32: sparse mm doesn't support float16 (AMP compat)
-        x = torch.sparse.mm(self.Msubj, e.t()) * torch.sparse.mm(self.Mrel, r.float().t())
-        return torch.sparse.mm(self.Mobj.t(), x).t() # [bsz, Esize]
+        # CUDA sparse mm doesn't support float16. Casting with .float() alone
+        # isn't enough under AMP: autocast can silently re-cast fp32 inputs
+        # back to fp16 when entering ops outside its safelist. Disable autocast
+        # explicitly for this region.
+        with torch.amp.autocast('cuda', enabled=False):
+            e32 = e.float()
+            r32 = r.float()
+            x = torch.sparse.mm(self.Msubj, e32.t()) * torch.sparse.mm(self.Mrel, r32.t())
+            out = torch.sparse.mm(self.Mobj.t(), x).t()
+        return out # [bsz, Esize], fp32
 
-    def forward(self, heads, questions, answers=None, entity_range=None):
+    def forward(self, heads, questions, answers=None, entity_range=None, return_intermediates=None):
+        if isinstance(heads, list):
+            heads = self._one_hot_from_index_lists(heads, questions['input_ids'].device)
+
+        collect_intermediates = (not self.training) if return_intermediates is None else return_intermediates
         q = self.bert_encoder(**questions)
         q_embeddings, q_word_h = q.pooler_output, q.last_hidden_state # (bsz, dim_h), (bsz, len, dim_h)
 
-        device = heads.device
         last_e = heads
-        word_attns = []
-        rel_probs = []
-        ent_probs = []
+        word_attns = [] if collect_intermediates else None
+        rel_probs = [] if collect_intermediates else None
+        ent_probs = [] if collect_intermediates else None
+        hop_attn = torch.softmax(self.hop_selector(q_embeddings), dim=1)
+        weighted_e = None
         for t in range(self.num_steps):
             cq_t = self.step_encoders[t](q_embeddings) # [bsz, dim_h]
             q_logits = torch.sum(cq_t.unsqueeze(1) * q_word_h, dim=2) # [bsz, max_q]
             q_dist = torch.softmax(q_logits, 1) # [bsz, max_q]
             q_dist = q_dist * questions['attention_mask'].float()
             q_dist = q_dist / (torch.sum(q_dist, dim=1, keepdim=True) + 1e-6) # [bsz, max_q]
-            word_attns.append(q_dist)
+            if collect_intermediates:
+                word_attns.append(q_dist)
             ctx_h = (q_dist.unsqueeze(1) @ q_word_h).squeeze(1) # [bsz, dim_h]
 
             rel_logit = self.rel_classifier(ctx_h) # [bsz, num_relations]
             # rel_dist = torch.softmax(rel_logit, 1) # bad
             rel_dist = torch.sigmoid(rel_logit)
-            rel_probs.append(rel_dist)
+            if collect_intermediates:
+                rel_probs.append(rel_dist)
 
             # sub, rel, obj = self.triples[:,0], self.triples[:,1], self.triples[:,2]
             # sub_p = last_e[:, sub] # [bsz, #tri]
@@ -81,22 +119,30 @@ class TransferNet(nn.Module):
             z = (m * last_e + (1-m)).detach()
             last_e = last_e / z
 
-            ent_probs.append(last_e)
+            weighted_step = last_e * hop_attn[:, t:t + 1]
+            weighted_e = weighted_step if weighted_e is None else weighted_e + weighted_step
+            if collect_intermediates:
+                ent_probs.append(last_e)
 
-        hop_res = torch.stack(ent_probs, dim=1) # [bsz, num_hop, num_ent]
-        hop_attn = torch.softmax(self.hop_selector(q_embeddings), dim=1).unsqueeze(2) # [bsz, num_hop, 1]
-        last_e = torch.sum(hop_res * hop_attn, dim=1) # [bsz, num_ent]
+        last_e = weighted_e # [bsz, num_ent]
 
         if not self.training:
-            return {
+            outputs = {
                 'e_score': last_e,
-                'word_attns': word_attns,
-                'rel_probs': rel_probs,
-                'ent_probs': ent_probs,
-                'hop_attn': hop_attn.squeeze(2)
+                'hop_attn': hop_attn,
             }
+            if collect_intermediates:
+                outputs.update({
+                    'word_attns': word_attns,
+                    'rel_probs': rel_probs,
+                    'ent_probs': ent_probs,
+                })
+            return outputs
         else:
-            weight = answers * 99 + 1
-            loss = torch.sum(entity_range * weight * torch.pow(last_e - answers, 2)) / torch.sum(entity_range * weight)
+            if isinstance(answers, list):
+                loss = self._sparse_loss(last_e, answers, entity_range)
+            else:
+                weight = answers * 99 + 1
+                loss = torch.sum(entity_range * weight * torch.pow(last_e - answers, 2)) / torch.sum(entity_range * weight)
 
             return {'loss': loss}

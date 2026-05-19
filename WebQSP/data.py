@@ -1,6 +1,5 @@
 import torch
 import os
-import pickle
 import sys
 from collections import defaultdict
 from transformers import AutoTokenizer
@@ -32,10 +31,10 @@ def normalize_answers(answer_text):
 def collate(batch):
     batch = list(zip(*batch))
     topic_entity, question, answer, entity_range = batch
-    topic_entity = torch.stack(topic_entity)
+    topic_entity = list(topic_entity)
     question = {k:torch.cat([q[k] for q in question], dim=0) for k in question[0]}
-    answer = torch.stack(answer)
-    entity_range = torch.stack(entity_range)
+    answer = list(answer)
+    entity_range = list(entity_range)
     return topic_entity, question, answer, entity_range
 
 
@@ -46,21 +45,15 @@ class Dataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         topic_entity, question, answer, entity_range = self.questions[index]
-        topic_entity = self.toOneHot(topic_entity)
-        answer = self.toOneHot(answer)
-        entity_range = self.toOneHot(entity_range)
-        return topic_entity, question, answer, entity_range
+        return (
+            torch.LongTensor(topic_entity),
+            question,
+            torch.LongTensor(answer),
+            torch.LongTensor(entity_range),
+        )
 
     def __len__(self):
         return len(self.questions)
-
-    def toOneHot(self, indices):
-        indices = torch.LongTensor(indices)
-        vec_len = len(self.ent2id)
-        one_hot = torch.FloatTensor(vec_len)
-        one_hot.zero_()
-        one_hot.scatter_(0, indices, 1)
-        return one_hot
 
 
 class DataLoader(torch.utils.data.DataLoader):
@@ -164,40 +157,30 @@ class DataLoader(torch.utils.data.DataLoader):
 
 
 def load_data(input_dir, bert_name, batch_size):
-    cache_fn = os.path.join(input_dir, 'processed.pt')
-    if os.path.exists(cache_fn):
-        print('Read from cache file: {} (NOTE: delete it if you modified data loading process)'.format(cache_fn))
-        with open(cache_fn, 'rb') as fp:
-            ent2id, rel2id, triples, train_data, test_data = pickle.load(fp)
-        print('Train number: {}, test number: {}'.format(len(train_data.dataset), len(test_data.dataset)))
-    else:
-        print('Read data...')
-        ent2id = {}
-        for line in open(os.path.join(input_dir, 'fbwq_full/entities.dict')):
-            l = line.strip().split('\t')
-            ent2id[l[0].strip()] = len(ent2id)
-        # print(len(ent2id))
-        # print(max(ent2id.values()))
-        rel2id = {}
-        for line in open(os.path.join(input_dir, 'fbwq_full/relations.dict')):
-            l = line.strip().split('\t')
-            rel2id[l[0].strip()] = int(l[1])
+    print('Read data...')
+    ent2id = {}
+    for line in open(os.path.join(input_dir, 'fbwq_full/entities.dict')):
+        l = line.strip().split('\t')
+        ent2id[l[0].strip()] = len(ent2id)
+    # print(len(ent2id))
+    # print(max(ent2id.values()))
+    rel2id = {}
+    for line in open(os.path.join(input_dir, 'fbwq_full/relations.dict')):
+        l = line.strip().split('\t')
+        rel2id[l[0].strip()] = int(l[1])
 
-        triples = []
-        for line in open(os.path.join(input_dir, 'fbwq_full/train.txt')):
-            l = line.strip().split('\t')
-            s = ent2id[l[0].strip()]
-            p = rel2id[l[1].strip()]
-            o = ent2id[l[2].strip()]
-            triples.append((s, p, o))
-            p_rev = rel2id[l[1].strip()+'_reverse']
-            triples.append((o, p_rev, s))
-        triples = torch.LongTensor(triples)
+    triples = []
+    for line in open(os.path.join(input_dir, 'fbwq_full/train.txt')):
+        l = line.strip().split('\t')
+        s = ent2id[l[0].strip()]
+        p = rel2id[l[1].strip()]
+        o = ent2id[l[2].strip()]
+        triples.append((s, p, o))
+        p_rev = rel2id[l[1].strip()+'_reverse']
+        triples.append((o, p_rev, s))
+    triples = torch.LongTensor(triples)
 
-        train_data = DataLoader(input_dir, os.path.join(input_dir, 'QA_data/WebQuestionsSP/qa_train_webqsp.txt'), bert_name, ent2id, rel2id, batch_size, training=True)
-        test_data = DataLoader(input_dir, os.path.join(input_dir, 'QA_data/WebQuestionsSP/qa_test_webqsp_fixed.txt'), bert_name, ent2id, rel2id, batch_size)
-    
-        with open(cache_fn, 'wb') as fp:
-            pickle.dump((ent2id, rel2id, triples, train_data, test_data), fp)
+    train_data = DataLoader(input_dir, os.path.join(input_dir, 'QA_data/WebQuestionsSP/qa_train_webqsp.txt'), bert_name, ent2id, rel2id, batch_size, training=True)
+    test_data = DataLoader(input_dir, os.path.join(input_dir, 'QA_data/WebQuestionsSP/qa_test_webqsp_fixed.txt'), bert_name, ent2id, rel2id, batch_size)
 
     return ent2id, rel2id, triples, train_data, test_data

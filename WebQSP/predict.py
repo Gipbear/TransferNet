@@ -18,6 +18,20 @@ from utils.eval_utils import (
 from IPython import embed
 
 
+def id_score_pairs(value, threshold=1):
+    if isinstance(value, torch.Tensor) and value.dtype.is_floating_point:
+        return filter_tensor(value, threshold)
+    if isinstance(value, torch.Tensor):
+        ids = value.detach().cpu().tolist()
+    else:
+        ids = list(value)
+    return [(int(x), 1.0) for x in ids]
+
+
+def id_set(value):
+    return {x for x, _ in id_score_pairs(value, 1)}
+
+
 def validate(args, model, data, triples_list, valid_edges_dict, device,
              verbose=False, beam_size=3, lambda_val=0.5, output_path=None,
              mid2label=None, acc_thresholds=None, compare_standard=True):
@@ -52,7 +66,13 @@ def validate(args, model, data, triples_list, valid_edges_dict, device,
             e_score = outputs['e_score'].cpu()
             scores, idx = torch.max(e_score, dim=1)  # [bsz], [bsz]
             pred_mask = e_score.gt(0.7)
-            hit_score = (pred_mask & batch[2].gt(0.7)).any(dim=1).float().tolist()
+            if isinstance(batch[2], list):
+                hit_score = [
+                    bool(pred_mask[i, list(id_set(batch[2][i]))].any().item()) if batch[2][i].numel() else False
+                    for i in range(len(batch[2]))
+                ]
+            else:
+                hit_score = (pred_mask & batch[2].gt(0.7)).any(dim=1).float().tolist()
             del pred_mask
             count += len(hit_score)
             correct += sum(hit_score)
@@ -66,11 +86,11 @@ def validate(args, model, data, triples_list, valid_edges_dict, device,
                 h = hop_attn_cpu[i].argmax().item()
                 hop_count[h].append(hit_score[i])
 
-                topic_scores = filter_tensor(batch[0][i], 1)
+                topic_scores = id_score_pairs(batch[0][i], 1)
                 topics = [resolve(data.id2ent[x]) for (x, _) in topic_scores]
 
                 # 一次性计算 gold 信息，后续（std/mmr 指标、输出序列化）三处复用
-                gold_pairs = filter_tensor(batch[2][i], 1)
+                gold_pairs = id_score_pairs(batch[2][i], 1)
                 gold_ids   = {x for (x, _) in gold_pairs}
 
                 single_outputs = {
@@ -156,7 +176,8 @@ def validate(args, model, data, triples_list, valid_edges_dict, device,
                         question_ids = batch[1]['input_ids'][i].tolist()
                         question_tokens = data.tokenizer.convert_ids_to_tokens(question_ids)
                         print(' '.join(question_tokens))
-                        topic_id = batch[0][i].argmax(0).item()
+                        verbose_topic_scores = id_score_pairs(batch[0][i], 1)
+                        topic_id = verbose_topic_scores[0][0] if verbose_topic_scores else -1
                         print('> topic entity: {}'.format(data.id2ent[topic_id]))
                         for t in range(2):
                             print('>>>>>>> step {}'.format(t))
@@ -172,7 +193,7 @@ def validate(args, model, data, triples_list, valid_edges_dict, device,
                         print('----')
                         print('> max is {}'.format(data.id2ent[idx[i].item()]))
                         print('> golden: {}'.format('; '.join([data.id2ent[_] for _ in
-                            answers[i].gt(0.9).nonzero().squeeze(1).tolist()])))
+                            id_set(answers[i])])))
                         print('> prediction: {}'.format('; '.join([data.id2ent[_] for _ in
                             e_score[i].gt(0.9).nonzero().squeeze(1).tolist()])))
                         print(' '.join(question_tokens))
@@ -195,7 +216,7 @@ def main():
     parser.add_argument('--input_dir', default='./input')
     parser.add_argument('--ckpt', required=True)
     parser.add_argument('--mode', default='val', choices=['val', 'vis', 'test', 'train'])
-    parser.add_argument('--bert_name', default='bert-base-uncased', choices=['roberta-base', 'bert-base-uncased'])
+    parser.add_argument('--bert_name', default='BAAI/bge-base-en-v1.5')
     parser.add_argument('--beam_size', default=3, type=int,
                         help='MMR beam size')
     parser.add_argument('--lambda_val', default=0.5, type=float,
