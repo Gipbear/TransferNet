@@ -24,7 +24,7 @@ ACTION="${1:-start}"
 
 DATASET="${DATASET:-webqsp}"
 INPUT_DIR="${INPUT_DIR:-${PROJECT_DIR}/data/input/WebQSP}"
-CKPT="${CKPT:-${PROJECT_DIR}/data/ckpt/WebQSP/model-29-0.6411.pt}"
+CKPT="${CKPT:-${PROJECT_DIR}/data/ckpt/WebQSP_run_20260518_2241/model-49-0.7154.pt}"
 BERT_NAME="${BERT_NAME:-bert-base-uncased}"
 NUM_STEPS="${NUM_STEPS:-3}"
 DIM_WORD="${DIM_WORD:-300}"
@@ -61,7 +61,7 @@ Usage:
 Env vars:
   DATASET           webqsp | metaqa (默认 webqsp)
   INPUT_DIR         数据目录（默认 data/input/WebQSP）
-  CKPT              模型 checkpoint 路径（默认 data/ckpt/WebQSP/model-29-0.6411.pt）
+  CKPT              模型 checkpoint 路径（默认 data/ckpt/WebQSP_run_20260518_2241/model-49-0.7154.pt）
   BERT_NAME         WebQSP BERT encoder（默认 bert-base-uncased）
   NUM_STEPS         MetaQA num_steps（默认 3）
   DIM_WORD          MetaQA word embedding dim（默认 300）

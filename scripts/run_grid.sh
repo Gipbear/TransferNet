@@ -10,7 +10,7 @@
 #   bash scripts/run_grid.sh webqsp
 #   bash scripts/run_grid.sh metaqa
 #   bash scripts/run_grid.sh cwq
-#   bash scripts/run_grid.sh webqsp data/ckpt/WebQSP/model-29-0.6411.pt
+#   bash scripts/run_grid.sh webqsp data/ckpt/WebQSP_run_20260518_2241/model-49-0.7154.pt
 
 set -euo pipefail
 
@@ -23,7 +23,7 @@ fi
 
 case "$DATASET" in
     webqsp)
-        DEFAULT_CKPT="data/ckpt/WebQSP/model-29-0.6411.pt"
+        DEFAULT_CKPT="data/ckpt/WebQSP_run_20260518_2241/model-49-0.7154.pt"
         INPUT_DIR="data/input/WebQSP"
         OUTPUT_BASE="data/output/WebQSP/grid_search"
         MODULE="WebQSP.predict"

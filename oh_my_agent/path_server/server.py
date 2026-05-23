@@ -5,7 +5,7 @@ Usage:
     python -m oh_my_agent.path_server.server \
         --dataset webqsp \
         --input_dir data/input/WebQSP \
-        --ckpt data/ckpt/WebQSP/model-29-0.6411.pt \
+        --ckpt data/ckpt/WebQSP_run_20260518_2241/model-49-0.7154.pt \
         --port 8787
 
 API:

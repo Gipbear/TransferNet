@@ -126,7 +126,7 @@ case "$DATASET" in
     webqsp)
         DUMP_MODULE="WebQSP.dump_scores"
         CACHE_PREFIX="webqsp"
-        [[ -z "$CKPT" ]] && CKPT="${PROJ_DIR}/data/ckpt/WebQSP/model-29-0.6411.pt"
+        [[ -z "$CKPT" ]] && CKPT="${PROJ_DIR}/data/ckpt/WebQSP_run_20260518_2241/model-49-0.7154.pt"
         [[ -z "$INPUT_DIR" ]] && INPUT_DIR="${PROJ_DIR}/data/input/WebQSP"
         [[ -z "$BERT_NAME" ]] && BERT_NAME="bert-base-uncased"
         [[ -z "$OFFLINE_DIR" ]] && OFFLINE_DIR="${PROJ_DIR}/data/output/WebQSP/offline_search"

@@ -73,7 +73,7 @@ python -m unittest tests/test_pathfinder_replay.py -v
 ```bash
 # 启动模型服务器（避免每次重新加载，推荐）
 python scripts/model_server.py \
-    --ckpt data/ckpt/WebQSP/model-29-0.6411.pt \
+    --ckpt data/ckpt/WebQSP_run_20260518_2241/model-49-0.7154.pt \
     --input_dir data/input/WebQSP --port 8787
 
 # 客户端模式评测（连接已启动的服务器）

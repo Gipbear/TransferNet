@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-CKPT="${CKPT:-${PROJECT_DIR}/data/ckpt/WebQSP/model-29-0.6411.pt}"
+CKPT="${CKPT:-${PROJECT_DIR}/data/ckpt/WebQSP_run_20260518_2241/model-49-0.7154.pt}"
 INPUT_DIR="${INPUT_DIR:-${PROJECT_DIR}/data/input/WebQSP}"
 QA_FILE="${QA_FILE:-${INPUT_DIR}/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt}"
 CACHE="${CACHE:-${PROJECT_DIR}/data/output/WebQSP/path_retrieve_server/score_cache/webqsp_test_1581.pt}"
