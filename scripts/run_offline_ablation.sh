@@ -4,12 +4,13 @@
 #
 # 离线消融实验：基于 offline_search/paths/ 的路径文件运行 build→train→eval 流程
 #
-# 五组实验：
+# 六组实验：
 #   Group A (eval-only): 检索参数扫描 (beam/lambda/alpha × schema × name, v2)
 #   Group B (train+eval): 路径序列化格式 (arrow/chain/tuple/nl/schema/schema_gloss × name, v2)
 #   Group C (train+eval): 输出格式 (v1/v2/v3/v4 × name, chain)
 #   Group D (train+eval): 训练轮数 (epoch 1-5, chain+name, v2)
 #   Group E (train+eval): chain+name+v2 固定下的路径顺序/score/去重/干扰比例消融
+#   Group F (eval-only): base model 无 adapter，固定 4 组检索参数，chain+name+v2
 #
 # 特性：
 #   - Group A 仅 eval，复用已有 adapter；Group B/C/D 支持完整三步流程
@@ -26,6 +27,7 @@
 #   bash scripts/run_offline_ablation.sh --group D --phase train
 #   bash scripts/run_offline_ablation.sh --group E
 #   bash scripts/run_offline_ablation.sh --group E --configs base,score
+#   bash scripts/run_offline_ablation.sh --group F
 #   bash scripts/run_offline_ablation.sh --group ALL
 #   bash scripts/run_offline_ablation.sh --group ALL --limit 10   # 快速冒烟测试
 #
@@ -380,6 +382,52 @@ run_offline_eval_variant() {
     echo "[INFO] 评估完成，耗时 $(($(date +%s) - T0))s"
 }
 
+# ── run_offline_base_eval ─────────────────────────────────────────────────────
+# 无 adapter 评估：直接使用 base model，保留指定路径格式 / 输出格式。
+# run_offline_base_eval CONFIG_NAME FMT EVAL_INPUT EVAL_EXTRA
+run_offline_base_eval() {
+    local config_name="$1"
+    local fmt="$2"
+    local eval_input="$3"
+    local eval_extra="${4:-}"
+
+    local data_dir="${ABLATION_DATA}/${config_name}"
+    local stem
+    stem="$(basename "${eval_input}" .jsonl)"
+    local eval_json="${data_dir}/${stem}_${fmt}_eval.jsonl"
+
+    mkdir -p "${data_dir}"
+
+    log_section "实验: ${config_name} (base model, no adapter, format=${fmt})"
+
+    if [[ "${RUN_PHASE}" == "train" ]]; then
+        echo "[SKIP] phase=train，跳过无 adapter 评估"
+        return 0
+    fi
+    if eval_output_complete "${eval_json}" "${NUM_RUNS}"; then
+        echo "[SKIP] 评估结果已存在: ${eval_json}"
+        return 0
+    fi
+    if [[ ! -f "${eval_input}" ]]; then
+        echo "[ERROR] 评估输入不存在: ${eval_input}"
+        exit 1
+    fi
+
+    log_step "Step: 无 adapter 忠实度评估"
+    local limit_args=()
+    [[ "${EVAL_LIMIT}" -gt 0 ]] && limit_args+=(--limit "${EVAL_LIMIT}")
+    local T0; T0=$(date +%s)
+    # shellcheck disable=SC2086
+    python "${EVAL_SCRIPT}" \
+        --input         "${eval_input}" \
+        --output        "${data_dir}" \
+        --output_format "${fmt}" \
+        --num_runs      "${NUM_RUNS}" \
+        "${limit_args[@]+"${limit_args[@]}"}" \
+        ${eval_extra}
+    echo "[INFO] 评估完成，耗时 $(($(date +%s) - T0))s"
+}
+
 group_e_config_selected() {
     local name="$1"
     [[ -z "${E_CONFIGS}" ]] && return 0
@@ -403,7 +451,7 @@ validate_group_e_configs() {
     for token in "${_e_selected[@]}"; do
         token="${token//[[:space:]]/}"
         case "${token}" in
-            base|eval_noshuffle|train_noshuffle|all_noshuffle|score|dist0.3|dist0.5|dist03|dist05|dedupe_tail) ;;
+            base|eval_shuffle|train_noshuffle|train_noshuffle_eval_shuffle|score|dist0.3|dist0.5|dist03|dist05|dedupe_tail) ;;
             *) echo "[ERROR] 未知 Group E config: ${token}"; exit 1 ;;
         esac
     done
@@ -616,11 +664,11 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "E" ]]; then
             "${GROUP_E_BASE_ARGS}"
     fi
 
-    if group_e_config_selected "eval_noshuffle"; then
+    if group_e_config_selected "eval_shuffle"; then
         run_offline_eval_variant \
-            "offE_eval_noshuffle" "offE_base" "v2" \
+            "offE_eval_shuffle" "offE_base" "v2" \
             "${DEFAULT_INPUT}" \
-            "${GROUP_E_BASE_ARGS} --no_shuffle"
+            "${GROUP_E_BASE_ARGS} --shuffle_paths"
     fi
 
     if group_e_config_selected "train_noshuffle"; then
@@ -631,11 +679,11 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "E" ]]; then
             "${GROUP_E_BASE_ARGS}"
     fi
 
-    if group_e_config_selected "all_noshuffle"; then
+    if group_e_config_selected "train_noshuffle_eval_shuffle"; then
         run_offline_eval_variant \
-            "offE_all_noshuffle" "offE_train_noshuffle" "v2" \
+            "offE_train_noshuffle_eval_shuffle" "offE_train_noshuffle" "v2" \
             "${DEFAULT_INPUT}" \
-            "${GROUP_E_BASE_ARGS} --no_shuffle"
+            "${GROUP_E_BASE_ARGS} --shuffle_paths"
     fi
 
     if group_e_config_selected "score"; then
@@ -672,6 +720,49 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "E" ]]; then
 
     echo ""
     echo "  [Group E 完成，耗时 $(($(date +%s) - WALL_E))s]"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Group F: base model 无 adapter，固定 4 组检索参数，chain+name+v2
+# ─────────────────────────────────────────────────────────────────────────────
+if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "F" ]]; then
+    log_section "Group F: base model 无 adapter (4 retrieval configs, chain × name, v2, eval-only)"
+
+    if [[ ! -f "${ENTITY_MAP}" ]]; then
+        echo "[ERROR] 实体映射文件不存在: ${ENTITY_MAP}"; exit 1
+    fi
+
+    WALL_F=$(date +%s)
+    SAVED_NUM_RUNS="${NUM_RUNS}"
+    SAVED_EVAL_LIMIT="${EVAL_LIMIT}"
+    NUM_RUNS=1
+    EVAL_LIMIT=0
+    GROUP_F_INPUTS=(
+        "${PATHS_DIR}/tail_blend_beam20_alpha1_lam0.2.jsonl"
+        "${PATHS_DIR}/tail_blend_beam20_alpha0_lam0.2.jsonl"
+        "${PATHS_DIR}/tail_blend_beam20_alpha1_lam0.jsonl"
+        "${PATHS_DIR}/tail_blend_beam20_alpha0_lam0.jsonl"
+    )
+    echo "  configs:"
+    echo "    alpha=1 lambda=0.2 beam=20"
+    echo "    alpha=0 lambda=0.2 beam=20"
+    echo "    alpha=1 lambda=0   beam=20"
+    echo "    alpha=0 lambda=0   beam=20"
+    echo "  eval_limit: full"
+    echo "  num_runs  : 1"
+    for input in "${GROUP_F_INPUTS[@]}"; do
+        if [[ "${RUN_PHASE}" != "train" && ! -f "${input}" ]]; then
+            echo "[ERROR] Group F 评估输入不存在: ${input}"; exit 1
+        fi
+        run_offline_base_eval \
+            "offF_base_chain_name" "v2" \
+            "${input}" \
+            "--path_format chain --entity_map ${ENTITY_MAP}"
+    done
+    NUM_RUNS="${SAVED_NUM_RUNS}"
+    EVAL_LIMIT="${SAVED_EVAL_LIMIT}"
+    echo ""
+    echo "  [Group F 完成，耗时 $(($(date +%s) - WALL_F))s]"
 fi
 
 # ── 完成 ──────────────────────────────────────────────────────────────────────

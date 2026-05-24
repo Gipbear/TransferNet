@@ -571,10 +571,11 @@ def parse_args():
     p.add_argument("--entity_map", default=None,
                    help="实体映射文件路径 (MID→Name, tab-separated)")
     p.add_argument("--num_runs",       type=int, default=1,
-                   help="多轮 shuffle 推理次数（每轮使用不同路径排列顺序），"
-                        "num_runs>1 时日志输出 mean±std（默认 1，向后兼容）")
+                   help="多轮推理次数；配合 --shuffle_paths 时每轮使用不同路径排列顺序")
+    p.add_argument("--shuffle_paths", action="store_true",
+                   help="推理时随机打乱输入路径顺序（用于路径顺序鲁棒性消融）")
     p.add_argument("--no_shuffle", action="store_true",
-                   help="推理时保持输入 mmr_reason_paths 原始顺序，不做路径随机打乱")
+                   help="兼容旧参数；默认已不打乱路径")
     p.add_argument("--dedupe_tail_paths", action="store_true",
                    help="按原始路径 tail entity 去重，保留首次出现的路径")
     p.add_argument("--reject_prompt", action="store_true",
@@ -600,8 +601,7 @@ def resolve_output(input_path: str, output_arg, fmt: str, adapter: str,
 def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
                run_idx: int, output_path: str) -> list:
     """
-    单轮推理：用 run_idx 作为 shuffle 偏移量，返回样本级指标列表。
-    run_idx=0 时种子为 hash(question) % 2**31（与原始行为一致）。
+    单轮推理：默认保持输入路径顺序；启用 shuffle_paths 时用 run_idx 作为 shuffle 偏移量。
     结果同时写入 {output_path_stem}_run{run_idx}.jsonl。
     """
     import random as _random
@@ -642,9 +642,8 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
             if getattr(args, "dedupe_tail_paths", False):
                 mmr_paths = dedupe_paths_by_tail(mmr_paths)
 
-            if not getattr(args, "no_shuffle", False):
-                # run_idx=0 时种子 = hash(question) % 2**31，与原始行为完全一致
-                # run_idx>0 时加偏移，产生不同的排列顺序
+            if getattr(args, "shuffle_paths", False) and not getattr(args, "no_shuffle", False):
+                # run_idx=0 时种子 = hash(question) % 2**31；run_idx>0 时加偏移。
                 _seed = (hash(question) + run_idx) % (2 ** 31)
                 _rng  = _random.Random(_seed)
                 _rng.shuffle(mmr_paths)
@@ -867,6 +866,7 @@ def main():
     log.info("  path_format   : %s", getattr(args, 'path_format', 'arrow'))
     log.info("  entity_map    : %s", args.entity_map or "None")
     log.info("  num_runs      : %d", args.num_runs)
+    log.info("  shuffle_paths : %s", args.shuffle_paths)
     log.info("  no_shuffle    : %s", args.no_shuffle)
     log.info("  dedupe_tail_paths: %s", args.dedupe_tail_paths)
     log.info("=" * 60)
