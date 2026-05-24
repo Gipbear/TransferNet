@@ -22,6 +22,16 @@ SYSTEM_PROMPT_ANSWER_ONLY = (
     "Output format:\nAnswer: <entity_id> | <entity_id>"
 )
 
+SYSTEM_PROMPT_ANSWER_ONLY_NAME = (
+    "You are a KGQA assistant. "
+    "Given reasoning paths from a knowledge graph and a question, "
+    "answer the question using entity names from the paths.\n"
+    "Rules:\n"
+    "- Only output entity names that appear in the provided paths.\n"
+    "- Do not generate or fabricate new entity names.\n"
+    "Output format:\nAnswer: <entity_name> | <entity_name>"
+)
+
 SYSTEM_PROMPT_V2 = (
     "You are a KGQA assistant. "
     "Given reasoning paths from a knowledge graph and a question, "
@@ -45,6 +55,16 @@ SYSTEM_PROMPT_V3 = (
     'Output format: {"reasoning": ["1", "3"], "answer": ["<entity_id>", "<entity_id>"]}'
 )
 
+SYSTEM_PROMPT_V3_NAME = (
+    "You are a KGQA assistant. "
+    "Given reasoning paths from a knowledge graph and a question, "
+    "output a JSON object with the supporting path indices and the answer entity names.\n"
+    "Rules:\n"
+    "- Only output entity names that appear in the provided paths.\n"
+    "- Do not generate or fabricate new entity names.\n"
+    'Output format: {"reasoning": ["1", "3"], "answer": ["<entity_name>", "<entity_name>"]}'
+)
+
 # V4: Compact CoT —— 一句话推理 + citation + 答案
 SYSTEM_PROMPT_V4 = (
     "You are a KGQA assistant. "
@@ -60,6 +80,20 @@ SYSTEM_PROMPT_V4 = (
     "Answer: <entity_id> | <entity_id>"
 )
 
+SYSTEM_PROMPT_V4_NAME = (
+    "You are a KGQA assistant. "
+    "Given reasoning paths from a knowledge graph and a question, "
+    "briefly explain which paths answer the question, then output the answer.\n"
+    "Rules:\n"
+    "- Only output entity names that appear in the provided paths.\n"
+    "- Do not generate or fabricate new entity names.\n"
+    "- Keep reasoning to 1-2 sentences.\n"
+    "Output format:\n"
+    "Reasoning: <brief explanation>\n"
+    "Supporting Paths: <path numbers>\n"
+    "Answer: <entity_name> | <entity_name>"
+)
+
 # V11: Full CoT（备用，暂不纳入主消融）—— 带 [Reasoning]/[Answer] 双段结构
 SYSTEM_PROMPT_V11 = (
     "You are a KGQA assistant. "
@@ -71,8 +105,19 @@ SYSTEM_PROMPT_V11 = (
     "Output format:\n[Reasoning]\n1 → <tail_entity> via [rel1] -> [rel2]\n...\n[Answer]\nSupporting Paths: 1, 3\nAnswer: <entity_id>"
 )
 
+SYSTEM_PROMPT_V11_NAME = (
+    "You are a KGQA assistant. "
+    "Given reasoning paths from a knowledge graph and a question, "
+    "reason step by step about which paths support the answer, then output the answer entity names.\n"
+    "Rules:\n"
+    "- Only output entity names that appear in the provided paths.\n"
+    "- Do not generate or fabricate new entity names.\n"
+    "Output format:\n[Reasoning]\n1 → <tail_entity> via [rel1] -> [rel2]\n...\n[Answer]\nSupporting Paths: 1, 3\nAnswer: <entity_name>"
+)
+
 # V1 与 V0 零样本共用同一 prompt（仅输出答案）
 SYSTEM_PROMPT_V1 = SYSTEM_PROMPT_ANSWER_ONLY
+SYSTEM_PROMPT_V1_NAME = SYSTEM_PROMPT_ANSWER_ONLY_NAME
 
 # NO_PATHS: 无检索路径输入，直接基于参数化知识回答（Group H）
 SYSTEM_PROMPT_NO_PATHS = (
@@ -136,11 +181,26 @@ FORMAT_PROMPTS = {
     "v3":           SYSTEM_PROMPT_V3,
     "v4":           SYSTEM_PROMPT_V4,          # Compact CoT
     "v11":          SYSTEM_PROMPT_V11,         # Full CoT（备用）
-    "v2_name":      SYSTEM_PROMPT_V2_NAME,     # Entity-name variant
+    "v0_name":      SYSTEM_PROMPT_ANSWER_ONLY_NAME,
+    "v1_name":      SYSTEM_PROMPT_V1_NAME,
+    "v2_name":      SYSTEM_PROMPT_V2_NAME,
+    "v3_name":      SYSTEM_PROMPT_V3_NAME,
+    "v4_name":      SYSTEM_PROMPT_V4_NAME,
+    "v11_name":     SYSTEM_PROMPT_V11_NAME,
     "v2_reject":      SYSTEM_PROMPT_V2_REJECT,      # Rejection-aware MID variant（Group F）
     "v2_name_reject": SYSTEM_PROMPT_V2_NAME_REJECT, # Rejection-aware name variant（Group F）
     "no_paths":     SYSTEM_PROMPT_NO_PATHS,    # 无路径输入（Group H）
 }
+
+
+def select_format_prompt(fmt: str, use_entity_names: bool = False,
+                         reject_prompt: bool = False) -> str:
+    """按输出格式和实体表示选择 system prompt。"""
+    if reject_prompt:
+        return FORMAT_PROMPTS["v2_name_reject" if use_entity_names else "v2_reject"]
+
+    key = f"{fmt}_name" if use_entity_names else fmt
+    return FORMAT_PROMPTS[key]
 
 
 # ─── 路径格式化 ───────────────────────────────────────────────────────────────

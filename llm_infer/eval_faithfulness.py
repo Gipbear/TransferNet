@@ -59,7 +59,7 @@ logging.getLogger("transformers").setLevel(logging.ERROR)
 # kg_format 与本脚本同目录（llm_infer/）
 from kg_format import (FORMAT_PROMPTS, build_user_content, build_user_content_no_paths,
                        clean_question_text, load_entity_map, apply_entity_map,
-                       build_reverse_entity_map)
+                       build_reverse_entity_map, select_format_prompt)
 
 
 # ─── 日志 ─────────────────────────────────────────────────────────────────────
@@ -103,6 +103,21 @@ def get_all_path_entities(mmr_paths: list) -> set:
             entities.add(edge[0].lower().strip())
             entities.add(edge[2].lower().strip())
     return entities
+
+
+def dedupe_paths_by_tail(mmr_paths: list) -> list:
+    """按原始 tail entity 去重，保留首次出现的路径；空 tail 不去重。"""
+    result = []
+    seen_tails = set()
+    for path_item in mmr_paths:
+        edges = path_item.get("path", [])
+        tail = edges[-1][2].lower().strip() if edges else ""
+        if tail:
+            if tail in seen_tails:
+                continue
+            seen_tails.add(tail)
+        result.append(path_item)
+    return result
 
 
 def expand_pred_answers_with_path_constraint(
@@ -560,6 +575,8 @@ def parse_args():
                         "num_runs>1 时日志输出 mean±std（默认 1，向后兼容）")
     p.add_argument("--no_shuffle", action="store_true",
                    help="推理时保持输入 mmr_reason_paths 原始顺序，不做路径随机打乱")
+    p.add_argument("--dedupe_tail_paths", action="store_true",
+                   help="按原始路径 tail entity 去重，保留首次出现的路径")
     p.add_argument("--reject_prompt", action="store_true",
                    help="使用含拒答规则的 system prompt（Group F）")
     p.add_argument("--no_paths", action="store_true",
@@ -598,21 +615,9 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
         system_prompt = FORMAT_PROMPTS["no_paths"]
     elif use_reject_prompt:
         # Group F: 使用含拒答规则的 system prompt
-        if entity_map_dict:
-            system_prompt = FORMAT_PROMPTS["v2_name_reject"]
-        else:
-            system_prompt = FORMAT_PROMPTS["v2_reject"]
-    elif entity_map_dict and args.output_format == "v2":
-        system_prompt = FORMAT_PROMPTS["v2_name"]
+        system_prompt = select_format_prompt("v2", bool(entity_map_dict), reject_prompt=True)
     else:
-        system_prompt = FORMAT_PROMPTS[args.output_format]
-        if entity_map_dict and args.output_format not in ("v2",):
-            log.warning(
-                "entity_map 已启用，但 output_format=%s 没有对应的 _name system prompt。"
-                "系统 prompt 仍要求输出实体 ID，而路径已替换为实体名称，可能导致模型混淆。"
-                "建议使用 --output_format v2 配合 --entity_map。",
-                args.output_format,
-            )
+        system_prompt = select_format_prompt(args.output_format, bool(entity_map_dict))
     show_score    = args.show_score
     path_format   = getattr(args, "path_format", "arrow")
 
@@ -633,6 +638,9 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
                     fake = [[f"noise_{i}_{j}", e[1], f"noise_{i}_{j+1}"]
                             for j, e in enumerate(base.get("path", []))]
                     mmr_paths.append({"path": fake, "log_score": -99.0})
+
+            if getattr(args, "dedupe_tail_paths", False):
+                mmr_paths = dedupe_paths_by_tail(mmr_paths)
 
             if not getattr(args, "no_shuffle", False):
                 # run_idx=0 时种子 = hash(question) % 2**31，与原始行为完全一致
@@ -860,6 +868,7 @@ def main():
     log.info("  entity_map    : %s", args.entity_map or "None")
     log.info("  num_runs      : %d", args.num_runs)
     log.info("  no_shuffle    : %s", args.no_shuffle)
+    log.info("  dedupe_tail_paths: %s", args.dedupe_tail_paths)
     log.info("=" * 60)
 
     # ── 加载模型（只加载一次）────────────────────────────────────────────────

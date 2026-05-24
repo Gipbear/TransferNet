@@ -4,11 +4,12 @@
 #
 # 离线消融实验：基于 offline_search/paths/ 的路径文件运行 build→train→eval 流程
 #
-# 四组实验：
+# 五组实验：
 #   Group A (eval-only): 检索参数扫描 (beam/lambda/alpha × schema × name, v2)
 #   Group B (train+eval): 路径序列化格式 (arrow/chain/tuple/nl/schema/schema_gloss × name, v2)
 #   Group C (train+eval): 输出格式 (v1/v2/v3/v4 × name, chain)
 #   Group D (train+eval): 训练轮数 (epoch 1-5, chain+name, v2)
+#   Group E (train+eval): chain+name+v2 固定下的路径顺序/score/去重/干扰比例消融
 #
 # 特性：
 #   - Group A 仅 eval，复用已有 adapter；Group B/C/D 支持完整三步流程
@@ -23,6 +24,8 @@
 #   bash scripts/run_offline_ablation.sh --group B
 #   bash scripts/run_offline_ablation.sh --group C --phase eval
 #   bash scripts/run_offline_ablation.sh --group D --phase train
+#   bash scripts/run_offline_ablation.sh --group E
+#   bash scripts/run_offline_ablation.sh --group E --configs base,score
 #   bash scripts/run_offline_ablation.sh --group ALL
 #   bash scripts/run_offline_ablation.sh --group ALL --limit 10   # 快速冒烟测试
 #
@@ -66,6 +69,8 @@ GRID_ALPHAS=""
 
 # GroupB/C/D 使用的固定路径文件（空=自动推导）
 DEFAULT_INPUT=""
+# GroupE 配置选择（逗号分隔；空=全部）
+E_CONFIGS=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -86,6 +91,7 @@ while [[ $# -gt 0 ]]; do
         --grid_alphas)   GRID_ALPHAS="$2";            shift 2 ;;
         --all)           SCAN_ALL=1;                  shift 1 ;;
         --default_input) DEFAULT_INPUT="$2";          shift 2 ;;
+        --configs)       E_CONFIGS="$2";              shift 2 ;;
         *) echo "[ERROR] 未知参数: $1"; exit 1 ;;
     esac
 done
@@ -314,6 +320,97 @@ run_offline_experiment() {
     fi
 }
 
+# ── run_offline_eval_variant ──────────────────────────────────────────────────
+# 只新增独立评估目录，复用同组内已训练 adapter。
+# run_offline_eval_variant CONFIG_NAME ADAPTER_CONFIG FMT EVAL_INPUT EVAL_EXTRA
+run_offline_eval_variant() {
+    local config_name="$1"
+    local adapter_config="$2"
+    local fmt="$3"
+    local eval_input="$4"
+    local eval_extra="${5:-}"
+
+    local data_dir="${ABLATION_DATA}/${config_name}"
+    local model_dir="${ABLATION_MODELS}/${adapter_config}"
+    local eval_adapter="${model_dir}"
+
+    local stem
+    stem="$(basename "${eval_input}" .jsonl)"
+    local eval_json="${data_dir}/${stem}_${fmt}_ft_eval.jsonl"
+
+    mkdir -p "${data_dir}"
+
+    log_section "实验: ${config_name} (eval adapter=${adapter_config}, format=${fmt})"
+
+    if [[ "${RUN_PHASE}" == "train" ]]; then
+        echo "[SKIP] phase=train，跳过评估"
+        return 0
+    fi
+    if eval_output_complete "${eval_json}" "${NUM_RUNS}"; then
+        echo "[SKIP] 评估结果已存在: ${eval_json}"
+        return 0
+    fi
+    if [[ "${RUN_PHASE}" == "eval" ]]; then
+        eval_adapter="$(resolve_slot_adapter "${PROJ_DIR}" "${MODEL_DATASET}" "${adapter_config}" 2>/dev/null \
+            || echo "${model_dir}")"
+    fi
+    if [[ ! -d "${eval_adapter}" ]]; then
+        echo "[ERROR] adapter 不存在: ${eval_adapter}"
+        exit 1
+    fi
+    if [[ ! -f "${eval_input}" ]]; then
+        echo "[ERROR] 评估输入不存在: ${eval_input}"
+        exit 1
+    fi
+
+    log_step "Step: 忠实度评估"
+    echo "[INFO] adapter: ${eval_adapter}"
+    local limit_args=()
+    [[ "${EVAL_LIMIT}" -gt 0 ]] && limit_args+=(--limit "${EVAL_LIMIT}")
+    local T0; T0=$(date +%s)
+    # shellcheck disable=SC2086
+    python "${EVAL_SCRIPT}" \
+        --input         "${eval_input}" \
+        --output        "${data_dir}" \
+        --adapter       "${eval_adapter}" \
+        --output_format "${fmt}" \
+        --num_runs      "${NUM_RUNS}" \
+        "${limit_args[@]+"${limit_args[@]}"}" \
+        ${eval_extra}
+    echo "[INFO] 评估完成，耗时 $(($(date +%s) - T0))s"
+}
+
+group_e_config_selected() {
+    local name="$1"
+    [[ -z "${E_CONFIGS}" ]] && return 0
+    local token
+    local -a _e_selected
+    IFS=',' read -r -a _e_selected <<< "${E_CONFIGS}"
+    for token in "${_e_selected[@]}"; do
+        token="${token//[[:space:]]/}"
+        [[ "${token}" == "${name}" ]] && return 0
+        [[ "${name}" == "dist0.3" && "${token}" == "dist03" ]] && return 0
+        [[ "${name}" == "dist0.5" && "${token}" == "dist05" ]] && return 0
+    done
+    return 1
+}
+
+validate_group_e_configs() {
+    [[ -z "${E_CONFIGS}" ]] && return 0
+    local token
+    local -a _e_selected
+    IFS=',' read -r -a _e_selected <<< "${E_CONFIGS}"
+    for token in "${_e_selected[@]}"; do
+        token="${token//[[:space:]]/}"
+        case "${token}" in
+            base|eval_noshuffle|train_noshuffle|all_noshuffle|score|dist0.3|dist0.5|dist03|dist05|dedupe_tail) ;;
+            *) echo "[ERROR] 未知 Group E config: ${token}"; exit 1 ;;
+        esac
+    done
+}
+
+validate_group_e_configs
+
 # ── 自动推导 DEFAULT_INPUT ────────────────────────────────────────────────────
 if [[ -z "${DEFAULT_INPUT}" ]]; then
     DEFAULT_INPUT="${PATHS_DIR}/tail_blend_beam20_alpha1_lam0.jsonl"
@@ -380,6 +477,7 @@ echo "  default_input: ${DEFAULT_INPUT}"
 echo "  eval_limit  : ${EVAL_LIMIT}"
 echo "  num_runs    : ${NUM_RUNS}"
 echo "  epochs      : ${EPOCHS}"
+echo "  configs     : ${E_CONFIGS:-ALL}"
 echo "  $(ts)"
 echo "======================================================"
 
@@ -492,6 +590,88 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "D" ]]; then
     EPOCHS="${SAVED_EPOCHS}"
     echo ""
     echo "  [Group D 完成，耗时 $(($(date +%s) - WALL_D))s]"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Group E: chain+name+v2 固定下的路径顺序/score/去重/干扰比例消融
+# ─────────────────────────────────────────────────────────────────────────────
+if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "E" ]]; then
+    log_section "Group E: chain+name+v2 路径顺序/score/去重/干扰比例消融 (epoch=${EPOCHS})"
+
+    if [[ "${RUN_PHASE}" != "train" && ! -f "${DEFAULT_INPUT}" ]]; then
+        echo "[ERROR] Group E 评估需要 default_input: ${DEFAULT_INPUT}"; exit 1
+    fi
+    if [[ ! -f "${ENTITY_MAP}" ]]; then
+        echo "[ERROR] 实体映射文件不存在: ${ENTITY_MAP}"; exit 1
+    fi
+
+    WALL_E=$(date +%s)
+    GROUP_E_BASE_ARGS="--path_format chain --entity_map ${ENTITY_MAP}"
+
+    if group_e_config_selected "base"; then
+        run_offline_experiment \
+            "offE_base" "v2" \
+            "${GROUP_E_BASE_ARGS}" \
+            "${DEFAULT_INPUT}" \
+            "${GROUP_E_BASE_ARGS}"
+    fi
+
+    if group_e_config_selected "eval_noshuffle"; then
+        run_offline_eval_variant \
+            "offE_eval_noshuffle" "offE_base" "v2" \
+            "${DEFAULT_INPUT}" \
+            "${GROUP_E_BASE_ARGS} --no_shuffle"
+    fi
+
+    if group_e_config_selected "train_noshuffle"; then
+        run_offline_experiment \
+            "offE_train_noshuffle" "v2" \
+            "${GROUP_E_BASE_ARGS} --no_shuffle" \
+            "${DEFAULT_INPUT}" \
+            "${GROUP_E_BASE_ARGS}"
+    fi
+
+    if group_e_config_selected "all_noshuffle"; then
+        run_offline_eval_variant \
+            "offE_all_noshuffle" "offE_train_noshuffle" "v2" \
+            "${DEFAULT_INPUT}" \
+            "${GROUP_E_BASE_ARGS} --no_shuffle"
+    fi
+
+    if group_e_config_selected "score"; then
+        run_offline_experiment \
+            "offE_score" "v2" \
+            "${GROUP_E_BASE_ARGS} --show_score" \
+            "${DEFAULT_INPUT}" \
+            "${GROUP_E_BASE_ARGS} --show_score"
+    fi
+
+    if group_e_config_selected "dist0.3"; then
+        run_offline_experiment \
+            "offE_dist0.3" "v2" \
+            "${GROUP_E_BASE_ARGS} --distractor_ratio 0.3" \
+            "${DEFAULT_INPUT}" \
+            "${GROUP_E_BASE_ARGS}"
+    fi
+
+    if group_e_config_selected "dist0.5"; then
+        run_offline_experiment \
+            "offE_dist0.5" "v2" \
+            "${GROUP_E_BASE_ARGS} --distractor_ratio 0.5" \
+            "${DEFAULT_INPUT}" \
+            "${GROUP_E_BASE_ARGS}"
+    fi
+
+    if group_e_config_selected "dedupe_tail"; then
+        run_offline_experiment \
+            "offE_dedupe_tail" "v2" \
+            "${GROUP_E_BASE_ARGS} --dedupe_tail_paths" \
+            "${DEFAULT_INPUT}" \
+            "${GROUP_E_BASE_ARGS} --dedupe_tail_paths"
+    fi
+
+    echo ""
+    echo "  [Group E 完成，耗时 $(($(date +%s) - WALL_E))s]"
 fi
 
 # ── 完成 ──────────────────────────────────────────────────────────────────────

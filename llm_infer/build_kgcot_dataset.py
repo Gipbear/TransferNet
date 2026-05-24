@@ -41,11 +41,11 @@ from typing import Optional
 
 # kg_format 与本脚本同目录（llm_infer/），直接导入
 from kg_format import (
-    FORMAT_PROMPTS,
     build_user_content,
     clean_question_text,
     load_entity_map,
     map_answers,
+    select_format_prompt,
 )
 
 
@@ -83,6 +83,20 @@ def label_paths(mmr_reason_paths: list, golden: list) -> list:
         log_score = p.get("log_score", 0.0)
         tail      = edges[-1][2].lower().strip() if edges else None
         is_golden = tail in golden_set if tail else False
+        result.append((edges, log_score, is_golden))
+    return result
+
+
+def dedupe_labeled_paths_by_tail(labeled: list) -> list:
+    """按原始 tail entity 去重，保留首次出现的路径；空 tail 不去重。"""
+    result = []
+    seen_tails = set()
+    for edges, log_score, is_golden in labeled:
+        tail = edges[-1][2].lower().strip() if edges else ""
+        if tail:
+            if tail in seen_tails:
+                continue
+            seen_tails.add(tail)
         result.append((edges, log_score, is_golden))
     return result
 
@@ -190,7 +204,8 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
                 path_format: str = "arrow",
                 entity_map: dict = None,
                 include_rejection: bool = False,
-                synthetic_rejection: bool = False) -> Optional[dict]:
+                synthetic_rejection: bool = False,
+                dedupe_tail_paths: bool = False) -> Optional[dict]:
     """
     从一条 predict JSONL 记录构造训练样本。
     返回 None 表示样本无效（无问题/无答案），或 Hit@K 未命中且未启用拒答。
@@ -209,6 +224,8 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
         return None
 
     labeled = label_paths(mmr_paths, golden)
+    if dedupe_tail_paths:
+        labeled = dedupe_labeled_paths_by_tail(labeled)
 
     has_golden_path = any(is_g for _, _, is_g in labeled)
 
@@ -229,10 +246,7 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
             show_score=show_score, path_format=path_format,
             entity_map=entity_map,
         )
-        system_prompt = (
-            FORMAT_PROMPTS["v2_name_reject"] if entity_map
-            else FORMAT_PROMPTS["v2_reject"]
-        )
+        system_prompt = select_format_prompt("v2", bool(entity_map), reject_prompt=True)
         return {
             "messages": [
                 {"role": "system",    "content": system_prompt},
@@ -272,10 +286,7 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
             show_score=show_score, path_format=path_format,
             entity_map=entity_map,
         )
-        if entity_map:
-            system_prompt = FORMAT_PROMPTS["v2_name_reject"]
-        else:
-            system_prompt = FORMAT_PROMPTS["v2_reject"]
+        system_prompt = select_format_prompt("v2", bool(entity_map), reject_prompt=True)
         asst = output_v2_reject()
         return {
             "messages": [
@@ -329,14 +340,9 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
 
     if include_rejection:
         # 拒答训练模式：所有样本使用含拒答规则的 system prompt
-        if entity_map:
-            system_prompt = FORMAT_PROMPTS["v2_name_reject"]
-        else:
-            system_prompt = FORMAT_PROMPTS["v2_reject"]
-    elif entity_map and fmt == "v2":
-        system_prompt = FORMAT_PROMPTS["v2_name"]
+        system_prompt = select_format_prompt("v2", bool(entity_map), reject_prompt=True)
     else:
-        system_prompt = FORMAT_PROMPTS.get(fmt, FORMAT_PROMPTS["v2"])
+        system_prompt = select_format_prompt(fmt, bool(entity_map))
 
     if fmt == "v1":
         asst = output_v1(answer_entities)
@@ -382,12 +388,14 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
           entity_map: dict = None,
           include_rejection: bool = False,
           rejection_oversample: int = 1,
-          synthetic_rejection_ratio: float = 0.0) -> dict:
+          synthetic_rejection_ratio: float = 0.0,
+          dedupe_tail_paths: bool = False) -> dict:
     with open(input_path, encoding="utf-8") as f:
         records = [json.loads(l) for l in f if l.strip()]
-    log.info("读入 %d 条记录  格式=%s  show_score=%s  path_format=%s  entity_map=%s  include_rejection=%s  rejection_oversample=%d  synthetic_rejection_ratio=%.3f",
+    log.info("读入 %d 条记录  格式=%s  show_score=%s  path_format=%s  entity_map=%s  include_rejection=%s  rejection_oversample=%d  synthetic_rejection_ratio=%.3f  dedupe_tail_paths=%s",
              len(records), fmt, show_score, path_format, bool(entity_map),
-             include_rejection, rejection_oversample, synthetic_rejection_ratio)
+             include_rejection, rejection_oversample, synthetic_rejection_ratio,
+             dedupe_tail_paths)
 
     if sample_n > 0 and len(records) > sample_n:
         records = rng.sample(records, sample_n)
@@ -400,7 +408,8 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
     for rec in records:
         s = make_sample(rec, fmt, shuffle, distractor_ratio, show_score, rng,
                         path_format=path_format, entity_map=entity_map,
-                        include_rejection=include_rejection)
+                        include_rejection=include_rejection,
+                        dedupe_tail_paths=dedupe_tail_paths)
         if s is None:
             skipped += 1
         else:
@@ -418,7 +427,8 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
             for rec in rejection_records:
                 s = make_sample(rec, fmt, shuffle, distractor_ratio, show_score, rng,
                                 path_format=path_format, entity_map=entity_map,
-                                include_rejection=True)
+                                include_rejection=True,
+                                dedupe_tail_paths=dedupe_tail_paths)
                 if s is not None:
                     samples.append(s)
                     n_oversampled += 1
@@ -439,7 +449,8 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
             s = make_sample(rec, fmt, shuffle, distractor_ratio, show_score, rng,
                             path_format=path_format, entity_map=entity_map,
                             include_rejection=True,
-                            synthetic_rejection=True)
+                            synthetic_rejection=True,
+                            dedupe_tail_paths=dedupe_tail_paths)
             if s is not None:
                 samples.append(s)
                 n_synthetic += 1
@@ -518,6 +529,8 @@ def parse_args():
                    help="路径字符串中包含 [score=S]（默认不含）")
     p.add_argument("--distractor_ratio", type=float, default=None,
                    help="干扰路径占比上限 0~1，None=不调整")
+    p.add_argument("--dedupe_tail_paths", action="store_true",
+                   help="按原始路径 tail entity 去重，保留首次出现的路径")
     p.add_argument("--path_format", default="arrow",
                    choices=["arrow", "nl", "tuple", "chain", "schema", "schema_gloss"],
                    help=("路径表示方式: arrow=符号格式(默认) nl=自然语言格式 tuple=三元组 "
@@ -553,17 +566,12 @@ def main():
         entity_map = load_entity_map(args.entity_map)
         log.info("加载实体映射: %s (%d 条)", args.entity_map, len(entity_map))
 
-    log.info("shuffle=%s  show_score=%s  path_format=%s  entity_map=%s  include_rejection=%s",
+    log.info("shuffle=%s  show_score=%s  path_format=%s  entity_map=%s  include_rejection=%s  dedupe_tail_paths=%s",
              shuffle, show_score, path_format, args.entity_map,
-             args.include_rejection)
+             args.include_rejection, args.dedupe_tail_paths)
 
     # all 模式：生成 v1-v4 全部主格式（不含 v0/v11）
     ALL_FORMATS = ["v1", "v2", "v3", "v4"]
-
-    if args.format == "all" and entity_map:
-        log.warning("--format all + --entity_map: 仅 v2 使用 v2_name system prompt，"
-                    "其他格式（v1/v3/v4）system prompt 仍说 'entity IDs'，"
-                    "建议在使用 entity_map 时单独指定 --format v2")
 
     if args.format == "all":
         base, ext = os.path.splitext(args.output)
@@ -576,7 +584,8 @@ def main():
                          entity_map=entity_map,
                          include_rejection=args.include_rejection,
                          rejection_oversample=args.rejection_oversample,
-                         synthetic_rejection_ratio=args.synthetic_rejection_ratio)
+                         synthetic_rejection_ratio=args.synthetic_rejection_ratio,
+                         dedupe_tail_paths=args.dedupe_tail_paths)
             stats_list.append(stat)
         log.info("=" * 50)
         for st in stats_list:
@@ -592,7 +601,8 @@ def main():
                    entity_map=entity_map,
                    include_rejection=args.include_rejection,
                    rejection_oversample=args.rejection_oversample,
-                   synthetic_rejection_ratio=args.synthetic_rejection_ratio)
+                   synthetic_rejection_ratio=args.synthetic_rejection_ratio,
+                   dedupe_tail_paths=args.dedupe_tail_paths)
         if args.include_rejection:
             log.info("total=%d (rejection=%d synthetic=%d) skip=%d avg_golden=%.2f avg_distractor=%.2f"
                      " seq_len_avg=%d seq_len_p90=%d",
