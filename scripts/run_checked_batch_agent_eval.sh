@@ -7,6 +7,7 @@ cd "${PROJECT_DIR}"
 INPUT="${INPUT:-data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt}"
 OUTPUT_DIR="${OUTPUT_DIR:-data/output/WebQSP/checked_batch_agent/full_$(date +%Y%m%d_%H%M)}"
 LIMIT="${LIMIT:-0}"
+DEDUPE_TAIL_PATHS="${DEDUPE_TAIL_PATHS:-0}"
 
 ./scripts/path_retrieve_server.sh status
 ./scripts/llm_server.sh status
@@ -16,6 +17,10 @@ CMD=(
   --input "${INPUT}"
   --output "${OUTPUT_DIR}"
 )
+
+if [[ "${DEDUPE_TAIL_PATHS}" != "0" ]]; then
+  CMD+=(--dedupe_tail_paths)
+fi
 
 if [[ "${LIMIT}" != "0" ]]; then
   CMD+=(--limit "${LIMIT}")

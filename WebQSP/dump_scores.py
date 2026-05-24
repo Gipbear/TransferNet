@@ -14,7 +14,10 @@
       --topk 500
 """
 import argparse
+import datetime as _dt
+import logging
 import os
+import sys
 
 import torch
 from tqdm import tqdm
@@ -24,6 +27,41 @@ from utils.path_utils import filter_tensor
 from .predict import id_score_pairs
 from .data import DataLoader, load_data
 from .model import TransferNet
+
+
+LOG_FORMAT = "%(asctime)s %(levelname)-8s %(message)s"
+log = logging.getLogger(__name__)
+
+
+def _default_log_path(output_path: str) -> str:
+    output_abs = os.path.abspath(output_path)
+    output_dir = os.path.dirname(output_abs)
+    stem = os.path.splitext(os.path.basename(output_abs))[0] or "webqsp_scores"
+    timestamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    return os.path.join(output_dir, f"{stem}_dump_{timestamp}.log")
+
+
+def _setup_logging(log_path: str) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+
+    for handler in list(root_logger.handlers):
+        if getattr(handler, "_dump_scores_handler", False):
+            root_logger.removeHandler(handler)
+            handler.close()
+
+    formatter = logging.Formatter(LOG_FORMAT)
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    file_handler._dump_scores_handler = True
+
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
+    stream_handler._dump_scores_handler = True
+
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(stream_handler)
 
 
 def _load_raw_questions(qa_file: str) -> list[str]:
@@ -168,7 +206,7 @@ def main():
                         choices=["val", "test", "train"],
                         help="使用哪个数据集分割（默认: val）")
     parser.add_argument("--bert_name",  default="bert-base-uncased",
-                        choices=["bert-base-uncased", "roberta-base"])
+                        choices=["bert-base-uncased", "BAAI/bge-base-en-v1.5", "roberta-base"])
     parser.add_argument("--output",     default="output/score_cache/webqsp_scores.pt",
                         help="缓存输出路径（.pt 文件）")
     parser.add_argument("--topk",       type=int, default=500,
@@ -176,12 +214,19 @@ def main():
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--qa_file",    required=True,
                         help="QA 文件路径（用于读取原始问题文本并构建 test loader）")
+    parser.add_argument("--log_path",   default=None,
+                        help="dump 日志输出路径；默认写入 --output 所在目录")
     args = parser.parse_args()
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"[INFO] device={device}", flush=True)
+    log_path = args.log_path or _default_log_path(args.output)
+    _setup_logging(log_path)
+    log.info("dump log: %s", log_path)
+    log.info("dump args: %s", vars(args))
 
-    print("[INFO] 加载数据 ...", flush=True)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    log.info("device=%s", device)
+
+    log.info("加载数据 ...")
     ent2id, rel2id, triples, train_loader, val_loader = load_data(
         args.input_dir, args.bert_name, args.batch_size
     )
@@ -189,20 +234,20 @@ def main():
         qa_file = args.qa_file
         if not os.path.isabs(qa_file):
             qa_file = os.path.join(args.input_dir, qa_file)
-        print(f"[INFO] 使用指定 QA 文件: {qa_file}", flush=True)
+        log.info("使用指定 QA 文件: %s", qa_file)
         val_loader = DataLoader(
             args.input_dir, qa_file, args.bert_name, ent2id, rel2id, args.batch_size
         )
 
-    print("[INFO] 加载模型 ...", flush=True)
+    log.info("加载模型 ...")
     model = TransferNet(args, ent2id, rel2id, triples)
     missing, unexpected = model.load_state_dict(
         torch.load(args.ckpt, map_location="cpu"), strict=False
     )
     if missing:
-        print("Missing keys: {}".format("; ".join(missing)))
+        log.warning("Missing keys: %s", "; ".join(missing))
     if unexpected:
-        print("Unexpected keys: {}".format("; ".join(unexpected)))
+        log.warning("Unexpected keys: %s", "; ".join(unexpected))
     model = model.to(device)
     model.Msubj = model.Msubj.to(device)
     model.Mobj  = model.Mobj.to(device)
@@ -216,6 +261,7 @@ def main():
         input_dir=args.input_dir,
         qa_file=args.qa_file,
     )
+    log.info("dump log written: %s", log_path)
 
 
 if __name__ == "__main__":

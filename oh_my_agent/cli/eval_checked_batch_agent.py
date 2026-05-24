@@ -405,6 +405,7 @@ def _write_archive(args: argparse.Namespace, summary: dict[str, Any], summary_pa
         f"- beam_size: `{args.beam_size}`",
         f"- lambda_val: `{args.lambda_val}`",
         f"- batch_size: `{args.batch_size}`",
+        f"- dedupe_tail_paths: `{args.dedupe_tail_paths}`",
         f"- sample_index: `{args.sample_index}`",
         f"- sample_indices: `{summary.get('sample_indices', [])}`",
         f"- output_dir: `{summary.get('output_dir', args.output)}`",
@@ -555,6 +556,7 @@ def main(argv: list[str] | None = None) -> int:
             "beam_size": args.beam_size,
             "lambda_val": args.lambda_val,
             "batch_size": args.batch_size,
+            "dedupe_tail_paths": args.dedupe_tail_paths,
             "sample_index": args.sample_index,
             "sample_indices": selected_sample_indices,
         }

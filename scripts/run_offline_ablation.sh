@@ -125,6 +125,31 @@ fmt_num() {
     printf '%s' "$v"
 }
 
+# eval_output_complete EVAL_JSON NUM_RUNS
+# num_runs>1 时 eval_faithfulness.py 只写 *_runN.jsonl，聚合完成标记在日志末尾。
+eval_output_complete() {
+    local eval_json="$1"
+    local num_runs="$2"
+
+    if [[ "${num_runs}" -le 1 ]]; then
+        [[ -f "${eval_json}" ]]
+        return
+    fi
+
+    local stem log_path i run_path
+    stem="${eval_json%.jsonl}"
+    log_path="${stem}.log"
+
+    [[ -f "${log_path}" ]] || return 1
+    grep -Fq "finish_time:" "${log_path}" || return 1
+    grep -Fq "多轮汇总 (num_runs=${num_runs})" "${log_path}" || return 1
+
+    for ((i = 0; i < num_runs; i++)); do
+        run_path="${stem}_run${i}.jsonl"
+        [[ -s "${run_path}" ]] || return 1
+    done
+}
+
 # try_resolve_adapter CONFIG_NAME
 # 查找 adapter；找不到时打印 WARN 并返回空串（不中断脚本）
 try_resolve_adapter() {
@@ -163,8 +188,8 @@ eval_one() {
     if [[ ! -f "${input}" ]]; then
         echo "[WARN] 文件不存在，跳过: ${input}"; return 0
     fi
-    if [[ -f "${eval_json}" ]]; then
-        echo "[SKIP] ${variant}: ${eval_json}"; return 0
+    if eval_output_complete "${eval_json}" "${NUM_RUNS}"; then
+        echo "[SKIP] ${variant}: 评估已完成: ${eval_json}"; return 0
     fi
 
     echo ""
@@ -255,7 +280,7 @@ run_offline_experiment() {
     # ── Step 3: 评估 ─────────────────────────────────────────────────────────
     if [[ "${RUN_PHASE}" == "train" ]]; then
         echo "[SKIP] phase=train，跳过评估"
-    elif [[ -f "${eval_json}" ]]; then
+    elif eval_output_complete "${eval_json}" "${NUM_RUNS}"; then
         echo "[SKIP] 评估结果已存在: ${eval_json}"
     else
         if [[ "${RUN_PHASE}" == "eval" ]]; then

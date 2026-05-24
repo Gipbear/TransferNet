@@ -43,6 +43,7 @@ from datetime import datetime
 def setup_logger(log_path: str) -> logging.Logger:
     logger = logging.getLogger("train_sft")
     logger.setLevel(logging.DEBUG)
+    logger.propagate = False
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s",
                             datefmt="%Y-%m-%d %H:%M:%S")
     sh = logging.StreamHandler(sys.stdout)
@@ -55,6 +56,44 @@ def setup_logger(log_path: str) -> logging.Logger:
     fh.setFormatter(fmt)
     logger.addHandler(fh)
     return logger
+
+
+def _jsonable_metric(value):
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return value
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+class MetricsJsonlCallback:
+    def __init__(self, metrics_path: str):
+        self.metrics_path = metrics_path
+        os.makedirs(os.path.dirname(os.path.abspath(metrics_path)), exist_ok=True)
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if not logs or not getattr(state, "is_local_process_zero", True):
+            return
+        record = {
+            "time": datetime.now().isoformat(timespec="seconds"),
+            "step": getattr(state, "global_step", 0),
+        }
+        epoch = getattr(state, "epoch", None)
+        if epoch is not None:
+            record["epoch"] = _jsonable_metric(epoch)
+        for key, value in logs.items():
+            if key != "total_flos":
+                record[key] = _jsonable_metric(value)
+        with open(self.metrics_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 # ─── 参数 ─────────────────────────────────────────────────────────────────────
@@ -253,6 +292,7 @@ def main():
 
     run_id   = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = os.path.join(args.output_dir, f"train_{run_id}.log")
+    metrics_path = os.path.join(args.output_dir, f"metrics_{run_id}.jsonl")
     log      = setup_logger(log_path)
     log.info("命令: %s", " ".join(sys.argv))
     log.info("模型: %s", args.model)
@@ -332,8 +372,10 @@ def main():
         eval_dataset=eval_dataset,
         args=training_args,
     )
+    trainer.add_callback(MetricsJsonlCallback(metrics_path))
 
     log.info("开始训练...")
+    log.info("训练指标将写入: %s", metrics_path)
     trainer_stats = trainer.train()
     log.info("训练完成: %s", trainer_stats)
 
@@ -342,6 +384,7 @@ def main():
     tokenizer.save_pretrained(args.output_dir)
     log.info("模型已保存至: %s", args.output_dir)
     log.info("日志: %s", log_path)
+    log.info("训练指标: %s", metrics_path)
 
 
 if __name__ == "__main__":
