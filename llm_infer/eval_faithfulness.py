@@ -244,22 +244,6 @@ def parse_output(raw: str, fmt: str) -> dict:
         answers = _parse_answers(answer_m.group(1).strip().splitlines()[0]) if answer_m else []
         return {"answers": answers, "cited_indices": cited_indices, "format_ok": format_ok}
 
-    elif fmt == "v5":
-        # V5 输出格式与 V2 完全相同（仅输入路径为自然语言格式）
-        cite_m   = _CITE_RE.search(raw)
-        answer_m = _ANSWER_RE.search(raw)
-        format_ok = bool(cite_m and answer_m)
-
-        cited_indices = set()
-        if cite_m:
-            for tok in re.split(r"[,\s]+", cite_m.group(1)):
-                tok = tok.strip()
-                if tok.isdigit():
-                    cited_indices.add(int(tok))
-
-        answers = _parse_answers(answer_m.group(1).strip().splitlines()[0]) if answer_m else []
-        return {"answers": answers, "cited_indices": cited_indices, "format_ok": format_ok}
-
     elif fmt == "v11":
         # V11 Full CoT（备用）: [Reasoning]...[Answer]\nSupporting Paths: ...\nAnswer: ...
         cite_m   = _CITE_RE.search(raw)
@@ -555,7 +539,7 @@ def parse_args():
     p.add_argument("--model",         default="unsloth/meta-llama-3.1-8b-instruct-bnb-4bit")
     p.add_argument("--adapter",       default=None,  help="LoRA adapter 目录（微调模型）")
     p.add_argument("--output_format", default="v2",
-                   choices=["v0", "v1", "v2", "v3", "v4", "v5", "v11"],
+                   choices=["v0", "v1", "v2", "v3", "v4", "v11"],
                    help="模型输出格式（决定 prompt 和解析方式）")
     p.add_argument("--max_new_tokens", type=int, default=256)
     p.add_argument("--batch_size",     type=int, default=4,
@@ -631,9 +615,6 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
             )
     show_score    = args.show_score
     path_format   = getattr(args, "path_format", "arrow")
-    # V5 若未显式指定，自动切换为自然语言路径
-    if args.output_format == "v5" and path_format == "arrow":
-        path_format = "nl"
 
     def prepare_sample(sample):
         question  = clean_question_text(sample.get("question", ""))

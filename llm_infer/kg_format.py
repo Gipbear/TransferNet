@@ -60,10 +60,6 @@ SYSTEM_PROMPT_V4 = (
     "Answer: <entity_id> | <entity_id>"
 )
 
-# V5: Natural Language Path Input —— 路径用自然语言表示（输出格式与 V2 相同）
-# System Prompt 与 V2 完全相同，变化在 build_user_content 的路径格式化方式
-SYSTEM_PROMPT_V5 = SYSTEM_PROMPT_V2
-
 # V11: Full CoT（备用，暂不纳入主消融）—— 带 [Reasoning]/[Answer] 双段结构
 SYSTEM_PROMPT_V11 = (
     "You are a KGQA assistant. "
@@ -139,7 +135,6 @@ FORMAT_PROMPTS = {
     "v2":           SYSTEM_PROMPT_V2,
     "v3":           SYSTEM_PROMPT_V3,
     "v4":           SYSTEM_PROMPT_V4,          # Compact CoT
-    "v5":           SYSTEM_PROMPT_V5,          # Natural Language Path（同 V2 prompt，输入格式不同）
     "v11":          SYSTEM_PROMPT_V11,         # Full CoT（备用）
     "v2_name":      SYSTEM_PROMPT_V2_NAME,     # Entity-name variant
     "v2_reject":      SYSTEM_PROMPT_V2_REJECT,      # Rejection-aware MID variant（Group F）
@@ -225,7 +220,7 @@ def _rel_to_schema_gloss_label(rel: str) -> str:
 
 def format_path_str_nl(path_edges: list, log_score: float, idx: int,
                        show_score: bool = False) -> str:
-    """将路径序列化为自然语言句子（供 V5 使用）。
+    """将路径序列化为自然语言句子。
 
     单跳: 'N: subject rel object'
     多跳: 'N: s1 r1 o1; s2 r2 o2; ...'

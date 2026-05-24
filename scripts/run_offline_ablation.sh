@@ -5,9 +5,9 @@
 # 离线消融实验：基于 offline_search/paths/ 的路径文件运行 build→train→eval 流程
 #
 # 四组实验：
-#   Group A (eval-only): 检索参数扫描 (beam/lambda/alpha × schema × MID/name, v2)
-#   Group B (train+eval): 路径序列化格式 (arrow/chain/tuple/nl × MID/name, v2)
-#   Group C (train+eval): 输出格式 (v1/v2/v3/v4 × MID/name, chain)
+#   Group A (eval-only): 检索参数扫描 (beam/lambda/alpha × schema × name, v2)
+#   Group B (train+eval): 路径序列化格式 (arrow/chain/tuple/nl/schema/schema_gloss × name, v2)
+#   Group C (train+eval): 输出格式 (v1/v2/v3/v4 × name, chain)
 #   Group D (train+eval): 训练轮数 (epoch 1-5, chain+name, v2)
 #
 # 特性：
@@ -48,7 +48,7 @@ MODEL_DATASET="webqsp"
 # ── 运行参数 ──────────────────────────────────────────────────────────────────
 RUN_GROUP="ALL"
 RUN_PHASE="all"        # all | train | eval
-RUN_VARIANT="both"     # both | mid | name  （仅 Group A 生效）
+RUN_VARIANT="name"     # 兼容旧参数；当前离线消融仅跑 name
 NUM_RUNS="${NUM_RUNS:-2}"
 EPOCHS="${EPOCHS:-2}"
 EVAL_LIMIT="${EVAL_LIMIT:-500}"
@@ -94,8 +94,8 @@ if [[ "${RUN_PHASE}" != "all" && "${RUN_PHASE}" != "train" && "${RUN_PHASE}" != 
     echo "[ERROR] --phase 仅支持: all | train | eval"
     exit 1
 fi
-if [[ "${RUN_VARIANT}" != "both" && "${RUN_VARIANT}" != "mid" && "${RUN_VARIANT}" != "name" ]]; then
-    echo "[ERROR] --variant 仅支持: both | mid | name"
+if [[ "${RUN_VARIANT}" != "name" ]]; then
+    echo "[ERROR] 当前离线消融仅支持 --variant name；MID/name 正交请使用单独实验"
     exit 1
 fi
 
@@ -166,10 +166,10 @@ try_resolve_adapter() {
 # ── eval_one ──────────────────────────────────────────────────────────────────
 # eval_one INPUT VARIANT ADAPTER OUTPUT_FORMAT PATH_FORMAT [EXTRA_ARGS...]
 #   INPUT         : 路径 JSONL 文件
-#   VARIANT       : 输出子目录名（如 groupA, offB_chain_mid）
+#   VARIANT       : 输出子目录名（如 groupA, offB_chain_name）
 #   ADAPTER       : LoRA adapter 目录
 #   OUTPUT_FORMAT : v1/v2/v3/v4
-#   PATH_FORMAT   : arrow/chain/tuple/nl
+#   PATH_FORMAT   : arrow/chain/tuple/nl/schema/schema_gloss
 #   EXTRA_ARGS    : 追加参数（如 --entity_map ...）
 eval_one() {
     local input="$1"
@@ -387,38 +387,27 @@ echo "======================================================"
 # Group A: 检索参数扫描 (eval-only)
 # ─────────────────────────────────────────────────────────────────────────────
 if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "A" ]]; then
-    log_section "Group A: 检索参数扫描 (beam/lambda/alpha × schema × MID/name, v2, eval-only)"
+    log_section "Group A: 检索参数扫描 (beam/lambda/alpha × schema × name, v2, eval-only)"
 
-    ADAPTER_A_SCHEMA_MID="$(try_resolve_adapter "groupJ_schema_mid")"
     ADAPTER_A_SCHEMA_NAME="$(try_resolve_adapter "groupJ_schema_name")"
 
-    if [[ "${RUN_VARIANT}" != "name" && -z "${ADAPTER_A_SCHEMA_MID}" ]]; then
-        echo "[ERROR] Group A MID 评估需要 groupJ_schema_mid adapter"; exit 1
-    fi
-    if [[ "${RUN_VARIANT}" != "mid" && -z "${ADAPTER_A_SCHEMA_NAME}" ]]; then
+    if [[ -z "${ADAPTER_A_SCHEMA_NAME}" ]]; then
         echo "[ERROR] Group A name 评估需要 groupJ_schema_name adapter"; exit 1
     fi
 
     build_group_a_inputs
-    echo "  adapter_schema_mid : ${ADAPTER_A_SCHEMA_MID:-（未找到）}"
     echo "  adapter_schema_name: ${ADAPTER_A_SCHEMA_NAME:-（未找到）}"
-    echo "  serialization      : output_format=v2, path_format=schema, entity=MID/name"
+    echo "  serialization      : output_format=v2, path_format=schema, entity=name"
     echo "  文件数             : ${#GROUP_A_INPUTS[@]}"
 
-    if [[ "${RUN_VARIANT}" != "mid" && ! -f "${ENTITY_MAP}" ]]; then
+    if [[ ! -f "${ENTITY_MAP}" ]]; then
         echo "[ERROR] 实体映射文件不存在: ${ENTITY_MAP}"; exit 1
     fi
 
     WALL_A=$(date +%s)
     for input in "${GROUP_A_INPUTS[@]}"; do
-        if [[ "${RUN_VARIANT}" != "name" ]]; then
-            [[ -n "${ADAPTER_A_SCHEMA_MID}" ]] && eval_one "${input}" "groupA/schema_mid" \
-                "${ADAPTER_A_SCHEMA_MID}" "v2" "schema"
-        fi
-        if [[ "${RUN_VARIANT}" != "mid" ]]; then
-            [[ -n "${ADAPTER_A_SCHEMA_NAME}" ]] && eval_one "${input}" "groupA/schema_name" \
-                "${ADAPTER_A_SCHEMA_NAME}" "v2" "schema" --entity_map "${ENTITY_MAP}"
-        fi
+        eval_one "${input}" "groupA/schema_name" \
+            "${ADAPTER_A_SCHEMA_NAME}" "v2" "schema" --entity_map "${ENTITY_MAP}"
     done
     echo ""
     echo "  [Group A 完成，耗时 $(($(date +%s) - WALL_A))s]"
@@ -426,10 +415,10 @@ fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Group B: 路径序列化格式 (train+eval)
-# arrow/chain/tuple/nl × mid/name, 固定 v2 输出
+# arrow/chain/tuple/nl/schema/schema_gloss × name, 固定 v2 输出
 # ─────────────────────────────────────────────────────────────────────────────
 if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "B" ]]; then
-    log_section "Group B: 路径序列化格式 (arrow/chain/tuple/nl × MID/name, v2, train+eval)"
+    log_section "Group B: 路径序列化格式 (arrow/chain/tuple/nl/schema/schema_gloss × name, v2, train+eval)"
 
     if [[ "${RUN_PHASE}" != "train" && ! -f "${DEFAULT_INPUT}" ]]; then
         echo "[ERROR] Group B 评估需要 default_input: ${DEFAULT_INPUT}"; exit 1
@@ -439,15 +428,7 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "B" ]]; then
     fi
 
     WALL_B=$(date +%s)
-    for pfmt in arrow chain tuple nl; do
-        # MID 变体
-        run_offline_experiment \
-            "offB_${pfmt}_mid" "v2" \
-            "--path_format ${pfmt}" \
-            "${DEFAULT_INPUT}" \
-            "--path_format ${pfmt}"
-
-        # Name 变体
+    for pfmt in arrow chain tuple nl schema schema_gloss; do
         run_offline_experiment \
             "offB_${pfmt}_name" "v2" \
             "--path_format ${pfmt} --entity_map ${ENTITY_MAP}" \
@@ -460,10 +441,10 @@ fi
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Group C: 输出格式 (train+eval)
-# chain × mid/name, v1/v2/v3/v4 输出格式
+# chain × name, v1/v2/v3/v4 输出格式
 # ─────────────────────────────────────────────────────────────────────────────
 if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "C" ]]; then
-    log_section "Group C: 输出格式 (v1/v2/v3/v4 × MID/name, chain, train+eval)"
+    log_section "Group C: 输出格式 (v1/v2/v3/v4 × name, chain, train+eval)"
 
     if [[ "${RUN_PHASE}" != "train" && ! -f "${DEFAULT_INPUT}" ]]; then
         echo "[ERROR] Group C 评估需要 default_input: ${DEFAULT_INPUT}"; exit 1
@@ -474,14 +455,6 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "C" ]]; then
 
     WALL_C=$(date +%s)
     for fmt in v1 v2 v3 v4; do
-        # MID 变体
-        run_offline_experiment \
-            "offC_mid_${fmt}" "${fmt}" \
-            "--path_format chain" \
-            "${DEFAULT_INPUT}" \
-            "--path_format chain"
-
-        # Name 变体
         run_offline_experiment \
             "offC_name_${fmt}" "${fmt}" \
             "--path_format chain --entity_map ${ENTITY_MAP}" \

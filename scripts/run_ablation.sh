@@ -322,7 +322,7 @@ WALL_START=$(date +%s)
 
 # ── Group A: 输出格式消融 ─────────────────────────────────────────────────────
 if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "A" ]]; then
-    log_section "Group A: 输出格式消融 (v1 / v2 / v3 / v4 / v5)"
+    log_section "Group A: 输出格式消融 (v1 / v2 / v3 / v4)"
 
     # v1: answer-only，无 citation
     run_experiment "groupA_v1" "v1" "" ""
@@ -336,8 +336,6 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "A" ]]; then
     # v4: CoT 推理链
     run_experiment "groupA_v4" "v4" "" ""
 
-    # v5: Natural Language Path 输入（输出格式同 v2，路径用自然语言表示）
-    run_experiment "groupA_v5" "v5" "" ""
 fi
 
 # ── Group Amid: 链式路径 + MID 实体表示，v1-v4 ────────────────────────────────

@@ -166,7 +166,7 @@ The `follow(e, r)` operation: `Mobj^T @ (Msubj @ e^T * Mrel @ r^T)` — differen
 - `scripts/model_server.py`: HTTP 模型服务器，一次加载多次复用（避免重复启动开销）
 
 ### LLM Layer (`llm_infer/`)
-- `kg_format.py`: Path formatting (arrow/tuple/chain × MID/name) and system prompts for output formats (V1-V5)
+- `kg_format.py`: Path formatting (arrow/tuple/chain × MID/name) and system prompts for output formats (V1-V4, V11)
 - `train_sft.py`: QLoRA via Unsloth + HuggingFace SFTTrainer. Smart truncation preserves golden paths. Prompt masking (loss only on assistant replies)
 - `build_kgcot_dataset.py`: Builds training JSONL from TransferNet MMR paths
 - `eval_faithfulness.py`: Citation accuracy, hallucination rate, F1 evaluation

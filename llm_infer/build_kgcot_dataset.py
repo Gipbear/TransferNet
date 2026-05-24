@@ -3,7 +3,7 @@
 
 功能：
   1. Golden Path 标注：判断路径尾实体是否在 golden 答案中
-  2. 多版本输出格式生成（V1-V5，v11)
+  2. 多版本输出格式生成（V1-V4，v11)
   3. 数据增强：路径顺序打乱、干扰路径比例控制、MetaQA 子集采样
 
 输入：predict.py 输出的 JSONL（含 mmr_reason_paths 和 golden 字段）
@@ -161,11 +161,6 @@ def output_v4(paths_with_meta: list, golden_indices: list, answers: list) -> str
         f"Supporting Paths: {cited}\n"
         f"Answer: {' | '.join(answers)}"
     )
-
-
-def output_v5(golden_indices: list, answers: list) -> str:
-    """V5 Natural Language Path Input：输出格式与 V2 相同，路径输入格式为自然语言。"""
-    return output_v2(golden_indices, answers)
 
 
 def output_v11(paths_with_meta: list, golden_indices: list, answers: list) -> str:
@@ -351,8 +346,6 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
         asst = output_v3(golden_indices, answer_entities)
     elif fmt == "v4":
         asst = output_v4(paths_with_meta, golden_indices, answer_entities)
-    elif fmt == "v5":
-        asst = output_v5(golden_indices, answer_entities)
     elif fmt == "v11":
         asst = output_v11(paths_with_meta, golden_indices, answer_entities)
     else:
@@ -516,9 +509,9 @@ def parse_args():
     p.add_argument("--input",  required=True)
     p.add_argument("--output", required=True)
     p.add_argument("--format", default="v2",
-                   choices=["v1", "v2", "v3", "v4", "v5", "v11", "all"],
+                   choices=["v1", "v2", "v3", "v4", "v11", "all"],
                    help=("v1=仅答案 v2=路径引用(主方法) v3=JSON v4=精简CoT "
-                         "v5=自然语言路径 v11=完整CoT(备用) all=全部"))
+                         "v11=完整CoT(备用) all=全部"))
     p.add_argument("--no_shuffle", action="store_true",
                    help="关闭路径顺序随机打乱（默认开启，用于防止 positional bias）")
     p.add_argument("--show_score", action="store_true",
@@ -564,12 +557,12 @@ def main():
              shuffle, show_score, path_format, args.entity_map,
              args.include_rejection)
 
-    # all 模式：生成 v1-v5 全部格式（不含 v0/v11）
-    ALL_FORMATS = ["v1", "v2", "v3", "v4", "v5"]
+    # all 模式：生成 v1-v4 全部主格式（不含 v0/v11）
+    ALL_FORMATS = ["v1", "v2", "v3", "v4"]
 
     if args.format == "all" and entity_map:
         log.warning("--format all + --entity_map: 仅 v2 使用 v2_name system prompt，"
-                    "其他格式（v1/v3/v4/v5）system prompt 仍说 'entity IDs'，"
+                    "其他格式（v1/v3/v4）system prompt 仍说 'entity IDs'，"
                     "建议在使用 entity_map 时单独指定 --format v2")
 
     if args.format == "all":
@@ -577,11 +570,9 @@ def main():
         ext = ext or ".jsonl"
         stats_list = []
         for fmt in ALL_FORMATS:
-            # V5 强制使用 nl 路径格式
-            pf = "nl" if fmt == "v5" else path_format
             stat = build(args.input, f"{base}_{fmt}{ext}", fmt,
                          shuffle, args.distractor_ratio, args.sample,
-                         show_score, rng, log, path_format=pf,
+                         show_score, rng, log, path_format=path_format,
                          entity_map=entity_map,
                          include_rejection=args.include_rejection,
                          rejection_oversample=args.rejection_oversample,
@@ -595,10 +586,6 @@ def main():
                      st["avg_golden"], st["avg_distractor"],
                      st.get("seq_len_avg", 0), st.get("seq_len_p90", 0))
     else:
-        # V5 若未显式指定 --path_format nl，自动切换
-        if args.format == "v5" and path_format == "arrow":
-            log.info("V5 格式自动切换路径表示为 nl")
-            path_format = "nl"
         st = build(args.input, args.output, args.format,
                    shuffle, args.distractor_ratio, args.sample,
                    show_score, rng, log, path_format=path_format,

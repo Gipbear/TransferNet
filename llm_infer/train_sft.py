@@ -37,6 +37,8 @@ os.environ['UNSLOTH_DISABLE_STATS'] = '1'
 import sys
 from datetime import datetime
 
+from transformers import TrainerCallback
+
 
 # ─── 日志 ─────────────────────────────────────────────────────────────────────
 
@@ -74,7 +76,7 @@ def _jsonable_metric(value):
         return str(value)
 
 
-class MetricsJsonlCallback:
+class MetricsJsonlCallback(TrainerCallback):
     def __init__(self, metrics_path: str):
         self.metrics_path = metrics_path
         os.makedirs(os.path.dirname(os.path.abspath(metrics_path)), exist_ok=True)
