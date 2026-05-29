@@ -4,16 +4,17 @@
 #
 # 离线消融实验：基于 offline_search/paths/ 的路径文件运行 build→train→eval 流程
 #
-# 六组实验：
+# 七组实验：
 #   Group A (eval-only): 检索参数扫描 (beam/lambda/alpha × schema × name, v2)
 #   Group B (train+eval): 路径序列化格式 (arrow/chain/tuple/nl/schema/schema_gloss × name, v2)
 #   Group C (train+eval): 输出格式 (v1/v2/v3/v4 × name, chain)
 #   Group D (train+eval): 训练轮数 (epoch 1-5, chain+name, v2)
 #   Group E (train+eval): chain+name+v2 固定下的路径顺序/score/去重/干扰比例消融
-#   Group F (eval-only): base model 无 adapter，固定 4 组检索参数，chain+name+v2
+#   Group F (eval-only): base model 无 adapter，固定 12 组检索参数，chain+name+v2
+#   Group G (train+eval): 拒答训练策略 (no rejection / real / random synthetic 10% / random synthetic 15%)
 #
 # 特性：
-#   - Group A 仅 eval，复用已有 adapter；Group B/C/D 支持完整三步流程
+#   - Group A/F 仅 eval；Group B/C/D/E/G 支持完整三步流程
 #   - 断点续跑（数据集/adapter/eval_jsonl 已存在则跳过）
 #   - --phase all|train|eval 控制跑哪些步骤
 #   - EVAL_LIMIT 默认 500
@@ -28,6 +29,8 @@
 #   bash scripts/run_offline_ablation.sh --group E
 #   bash scripts/run_offline_ablation.sh --group E --configs base,score
 #   bash scripts/run_offline_ablation.sh --group F
+#   bash scripts/run_offline_ablation.sh --group G
+#   bash scripts/run_offline_ablation.sh --group G --configs base,real,syn10,syn15
 #   bash scripts/run_offline_ablation.sh --group ALL
 #   bash scripts/run_offline_ablation.sh --group ALL --limit 10   # 快速冒烟测试
 #
@@ -71,7 +74,7 @@ GRID_ALPHAS=""
 
 # GroupB/C/D 使用的固定路径文件（空=自动推导）
 DEFAULT_INPUT=""
-# GroupE 配置选择（逗号分隔；空=全部）
+# GroupE/G 配置选择（逗号分隔；空=全部）
 E_CONFIGS=""
 
 while [[ $# -gt 0 ]]; do
@@ -443,21 +446,46 @@ group_e_config_selected() {
     return 1
 }
 
-validate_group_e_configs() {
+group_g_config_selected() {
+    local name="$1"
     [[ -z "${E_CONFIGS}" ]] && return 0
+    local token
+    local -a _g_selected
+    IFS=',' read -r -a _g_selected <<< "${E_CONFIGS}"
+    for token in "${_g_selected[@]}"; do
+        token="${token//[[:space:]]/}"
+        [[ "${token}" == "${name}" ]] && return 0
+    done
+    return 1
+}
+
+validate_selected_configs() {
+    [[ -z "${E_CONFIGS}" ]] && return 0
+    case "${RUN_GROUP}" in
+        E|G|ALL) ;;
+        *) return 0 ;;
+    esac
     local token
     local -a _e_selected
     IFS=',' read -r -a _e_selected <<< "${E_CONFIGS}"
     for token in "${_e_selected[@]}"; do
         token="${token//[[:space:]]/}"
-        case "${token}" in
-            base|eval_shuffle|train_noshuffle|train_noshuffle_eval_shuffle|score|dist0.3|dist0.5|dist03|dist05|dedupe_tail) ;;
-            *) echo "[ERROR] 未知 Group E config: ${token}"; exit 1 ;;
-        esac
+        if [[ "${RUN_GROUP}" == "E" || "${RUN_GROUP}" == "ALL" ]]; then
+            case "${token}" in
+                base|eval_shuffle|train_noshuffle|train_noshuffle_eval_shuffle|score|dist0.3|dist0.5|dist03|dist05|dedupe_tail) continue ;;
+            esac
+        fi
+        if [[ "${RUN_GROUP}" == "G" || "${RUN_GROUP}" == "ALL" ]]; then
+            case "${token}" in
+                base|real|syn10|syn15) continue ;;
+            esac
+        fi
+        echo "[ERROR] 未知 config: ${token} (group=${RUN_GROUP})"
+        exit 1
     done
 }
 
-validate_group_e_configs
+validate_selected_configs
 
 # ── 自动推导 DEFAULT_INPUT ────────────────────────────────────────────────────
 if [[ -z "${DEFAULT_INPUT}" ]]; then
@@ -723,10 +751,10 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "E" ]]; then
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Group F: base model 无 adapter，固定 4 组检索参数，chain+name+v2
+# Group F: base model 无 adapter，固定 12 组检索参数，chain+name+v2
 # ─────────────────────────────────────────────────────────────────────────────
 if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "F" ]]; then
-    log_section "Group F: base model 无 adapter (4 retrieval configs, chain × name, v2, eval-only)"
+    log_section "Group F: base model 无 adapter (12 retrieval configs, chain × name, v2, eval-only)"
 
     if [[ ! -f "${ENTITY_MAP}" ]]; then
         echo "[ERROR] 实体映射文件不存在: ${ENTITY_MAP}"; exit 1
@@ -738,12 +766,28 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "F" ]]; then
     NUM_RUNS=1
     EVAL_LIMIT=0
     GROUP_F_INPUTS=(
+        "${PATHS_DIR}/tail_blend_beam3_alpha1_lam0.2.jsonl"
+        "${PATHS_DIR}/tail_blend_beam3_alpha0_lam0.2.jsonl"
+        "${PATHS_DIR}/tail_blend_beam3_alpha1_lam0.jsonl"
+        "${PATHS_DIR}/tail_blend_beam3_alpha0_lam0.jsonl"
+        "${PATHS_DIR}/tail_blend_beam10_alpha1_lam0.2.jsonl"
+        "${PATHS_DIR}/tail_blend_beam10_alpha0_lam0.2.jsonl"
+        "${PATHS_DIR}/tail_blend_beam10_alpha1_lam0.jsonl"
+        "${PATHS_DIR}/tail_blend_beam10_alpha0_lam0.jsonl"
         "${PATHS_DIR}/tail_blend_beam20_alpha1_lam0.2.jsonl"
         "${PATHS_DIR}/tail_blend_beam20_alpha0_lam0.2.jsonl"
         "${PATHS_DIR}/tail_blend_beam20_alpha1_lam0.jsonl"
         "${PATHS_DIR}/tail_blend_beam20_alpha0_lam0.jsonl"
     )
     echo "  configs:"
+    echo "    alpha=1 lambda=0.2 beam=3"
+    echo "    alpha=0 lambda=0.2 beam=3"
+    echo "    alpha=1 lambda=0   beam=3"
+    echo "    alpha=0 lambda=0   beam=3"
+    echo "    alpha=1 lambda=0.2 beam=10"
+    echo "    alpha=0 lambda=0.2 beam=10"
+    echo "    alpha=1 lambda=0   beam=10"
+    echo "    alpha=0 lambda=0   beam=10"
     echo "    alpha=1 lambda=0.2 beam=20"
     echo "    alpha=0 lambda=0.2 beam=20"
     echo "    alpha=1 lambda=0   beam=20"
@@ -763,6 +807,58 @@ if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "F" ]]; then
     EVAL_LIMIT="${SAVED_EVAL_LIMIT}"
     echo ""
     echo "  [Group F 完成，耗时 $(($(date +%s) - WALL_F))s]"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Group G: chain+name+v2 固定下的拒答训练策略消融
+# ─────────────────────────────────────────────────────────────────────────────
+if [[ "${RUN_GROUP}" == "ALL" || "${RUN_GROUP}" == "G" ]]; then
+    log_section "Group G: 拒答训练策略消融 (chain × name, v2, epoch=${EPOCHS})"
+
+    if [[ "${RUN_PHASE}" != "train" && ! -f "${DEFAULT_INPUT}" ]]; then
+        echo "[ERROR] Group G 评估需要 default_input: ${DEFAULT_INPUT}"; exit 1
+    fi
+    if [[ ! -f "${ENTITY_MAP}" ]]; then
+        echo "[ERROR] 实体映射文件不存在: ${ENTITY_MAP}"; exit 1
+    fi
+
+    WALL_G=$(date +%s)
+    GROUP_G_BASE_ARGS="--path_format chain --entity_map ${ENTITY_MAP}"
+
+    if group_g_config_selected "base"; then
+        run_offline_experiment \
+            "offG_base" "v2" \
+            "${GROUP_G_BASE_ARGS}" \
+            "${DEFAULT_INPUT}" \
+            "${GROUP_G_BASE_ARGS}"
+    fi
+
+    if group_g_config_selected "real"; then
+        run_offline_experiment \
+            "offG_real_rejection" "v2" \
+            "${GROUP_G_BASE_ARGS} --include_rejection" \
+            "${DEFAULT_INPUT}" \
+            "${GROUP_G_BASE_ARGS} --reject_prompt"
+    fi
+
+    if group_g_config_selected "syn10"; then
+        run_offline_experiment \
+            "offG_synthetic_rejection_10" "v2" \
+            "${GROUP_G_BASE_ARGS} --include_rejection --synthetic_rejection_ratio 0.10" \
+            "${DEFAULT_INPUT}" \
+            "${GROUP_G_BASE_ARGS} --reject_prompt"
+    fi
+
+    if group_g_config_selected "syn15"; then
+        run_offline_experiment \
+            "offG_synthetic_rejection_15" "v2" \
+            "${GROUP_G_BASE_ARGS} --include_rejection --synthetic_rejection_ratio 0.15" \
+            "${DEFAULT_INPUT}" \
+            "${GROUP_G_BASE_ARGS} --reject_prompt"
+    fi
+
+    echo ""
+    echo "  [Group G 完成，耗时 $(($(date +%s) - WALL_G))s]"
 fi
 
 # ── 完成 ──────────────────────────────────────────────────────────────────────

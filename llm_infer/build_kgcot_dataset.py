@@ -444,16 +444,27 @@ def build(input_path: str, output_path: str, fmt: str, shuffle: bool,
             ceil((synthetic_rejection_ratio * len(samples) - current_rej)
                  / (1 - synthetic_rejection_ratio)),
         )
-        for i in range(target_extra):
-            rec = synthetic_candidates[i % len(synthetic_candidates)]
-            s = make_sample(rec, fmt, shuffle, distractor_ratio, show_score, rng,
-                            path_format=path_format, entity_map=entity_map,
-                            include_rejection=True,
-                            synthetic_rejection=True,
-                            dedupe_tail_paths=dedupe_tail_paths)
-            if s is not None:
+        remaining = target_extra
+        while remaining > 0:
+            batch = list(synthetic_candidates)
+            rng.shuffle(batch)
+            produced = 0
+            for rec in batch:
+                s = make_sample(rec, fmt, shuffle, distractor_ratio, show_score, rng,
+                                path_format=path_format, entity_map=entity_map,
+                                include_rejection=True,
+                                synthetic_rejection=True,
+                                dedupe_tail_paths=dedupe_tail_paths)
+                if s is None:
+                    continue
                 samples.append(s)
                 n_synthetic += 1
+                remaining -= 1
+                produced += 1
+                if remaining == 0:
+                    break
+            if produced == 0:
+                break
         if n_synthetic:
             rng.shuffle(samples)
 
@@ -545,7 +556,7 @@ def parse_args():
     p.add_argument("--rejection_oversample", type=int, default=1,
                    help="拒答样本上采样倍数（默认 1=不上采样）；每次重复 make_sample 以获得不同 shuffle 顺序")
     p.add_argument("--synthetic_rejection_ratio", type=float, default=0.0,
-                   help="合成 hard-negative 拒答样本目标占比（0=关闭；建议 0.10~0.15 起步）")
+                   help="随机合成 hard-negative 拒答样本目标占比（0=关闭；建议 0.10~0.15 起步；受 --seed 控制）")
     return p.parse_args()
 
 
