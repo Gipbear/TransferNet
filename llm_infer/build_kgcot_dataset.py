@@ -246,7 +246,9 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
             show_score=show_score, path_format=path_format,
             entity_map=entity_map,
         )
-        system_prompt = select_format_prompt("v2", bool(entity_map), reject_prompt=True)
+        system_prompt = select_format_prompt(
+            "v2", bool(entity_map), reject_prompt=True, path_format=path_format
+        )
         return {
             "messages": [
                 {"role": "system",    "content": system_prompt},
@@ -286,7 +288,9 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
             show_score=show_score, path_format=path_format,
             entity_map=entity_map,
         )
-        system_prompt = select_format_prompt("v2", bool(entity_map), reject_prompt=True)
+        system_prompt = select_format_prompt(
+            "v2", bool(entity_map), reject_prompt=True, path_format=path_format
+        )
         asst = output_v2_reject()
         return {
             "messages": [
@@ -320,7 +324,7 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
     is_golden_flags = [is_g for _, _, is_g in labeled]
     golden_indices  = [i + 1 for i, is_g in enumerate(is_golden_flags) if is_g]
 
-    # 答案使用路径中 tail entity 的原文（保证与路径内容忠实一致）
+    # 答案使用路径终点实体的原文（保证与路径内容忠实一致）
     # 若与 golden 列表存在大小写差异，以路径为准；保序去重
     path_answers = list(dict.fromkeys(
         edges[-1][2] for edges, _, is_g in labeled if is_g and edges
@@ -340,9 +344,11 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
 
     if include_rejection:
         # 拒答训练模式：所有样本使用含拒答规则的 system prompt
-        system_prompt = select_format_prompt("v2", bool(entity_map), reject_prompt=True)
+        system_prompt = select_format_prompt(
+            "v2", bool(entity_map), reject_prompt=True, path_format=path_format
+        )
     else:
-        system_prompt = select_format_prompt(fmt, bool(entity_map))
+        system_prompt = select_format_prompt(fmt, bool(entity_map), path_format=path_format)
 
     if fmt == "v1":
         asst = output_v1(answer_entities)

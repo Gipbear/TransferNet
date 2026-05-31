@@ -140,6 +140,34 @@ SYSTEM_PROMPT_V2_NAME = (
     "Answer: <entity_name> | <entity_name>"
 )
 
+# V2_ENDPOINT: 用于箭头方向可能不等同于路径遍历方向的路径表示。
+# 避免使用内部格式名，只要求从支持路径的最终端点实体中取答案。
+SYSTEM_PROMPT_V2_ENDPOINT = (
+    "You are a KGQA assistant. "
+    "Given reasoning paths from a knowledge graph and a question, "
+    "identify which paths support the answer, then extract the answer "
+    "from the final endpoint entities of those supporting paths.\n"
+    "Rules:\n"
+    "- Only output entity IDs that appear in the provided paths.\n"
+    "- Do not generate or fabricate new entity IDs.\n"
+    "Output format:\n"
+    "Supporting Paths: <path numbers>\n"
+    "Answer: <entity_id> | <entity_id>"
+)
+
+SYSTEM_PROMPT_V2_ENDPOINT_NAME = (
+    "You are a KGQA assistant. "
+    "Given reasoning paths from a knowledge graph and a question, "
+    "identify which paths support the answer, then extract the answer "
+    "from the final endpoint entities of those supporting paths.\n"
+    "Rules:\n"
+    "- Only output entity names that appear in the provided paths.\n"
+    "- Do not generate or fabricate new entity names.\n"
+    "Output format:\n"
+    "Supporting Paths: <path numbers>\n"
+    "Answer: <entity_name> | <entity_name>"
+)
+
 # V2_REJECT: 与 V2 相同，但新增拒答规则（Group F）
 SYSTEM_PROMPT_V2_REJECT = (
     "You are a KGQA assistant. "
@@ -174,6 +202,38 @@ SYSTEM_PROMPT_V2_NAME_REJECT = (
     "Answer: <entity_name> | <entity_name>"
 )
 
+SYSTEM_PROMPT_V2_ENDPOINT_REJECT = (
+    "You are a KGQA assistant. "
+    "Given reasoning paths from a knowledge graph and a question, "
+    "identify which paths support the answer, then extract the answer "
+    "from the final endpoint entities of those supporting paths.\n"
+    "Rules:\n"
+    "- Only output entity IDs that appear in the provided paths.\n"
+    "- Do not generate or fabricate new entity IDs.\n"
+    "- If none of the path endpoint entities could reasonably answer the question, output:\n"
+    "  Supporting Paths: (none)\n"
+    "  Answer: (none)\n"
+    "Output format:\n"
+    "Supporting Paths: <path numbers>\n"
+    "Answer: <entity_id> | <entity_id>"
+)
+
+SYSTEM_PROMPT_V2_ENDPOINT_NAME_REJECT = (
+    "You are a KGQA assistant. "
+    "Given reasoning paths from a knowledge graph and a question, "
+    "identify which paths support the answer, then extract the answer "
+    "from the final endpoint entities of those supporting paths.\n"
+    "Rules:\n"
+    "- Only output entity names that appear in the provided paths.\n"
+    "- Do not generate or fabricate new entity names.\n"
+    "- If none of the path endpoint entities could reasonably answer the question, output:\n"
+    "  Supporting Paths: (none)\n"
+    "  Answer: (none)\n"
+    "Output format:\n"
+    "Supporting Paths: <path numbers>\n"
+    "Answer: <entity_name> | <entity_name>"
+)
+
 FORMAT_PROMPTS = {
     "v0":           SYSTEM_PROMPT_ANSWER_ONLY,
     "v1":           SYSTEM_PROMPT_ANSWER_ONLY,
@@ -189,13 +249,26 @@ FORMAT_PROMPTS = {
     "v11_name":     SYSTEM_PROMPT_V11_NAME,
     "v2_reject":      SYSTEM_PROMPT_V2_REJECT,      # Rejection-aware MID variant（Group F）
     "v2_name_reject": SYSTEM_PROMPT_V2_NAME_REJECT, # Rejection-aware name variant（Group F）
+    "v2_endpoint":      SYSTEM_PROMPT_V2_ENDPOINT,
+    "v2_endpoint_name": SYSTEM_PROMPT_V2_ENDPOINT_NAME,
+    "v2_endpoint_reject":      SYSTEM_PROMPT_V2_ENDPOINT_REJECT,
+    "v2_endpoint_name_reject": SYSTEM_PROMPT_V2_ENDPOINT_NAME_REJECT,
     "no_paths":     SYSTEM_PROMPT_NO_PATHS,    # 无路径输入（Group H）
 }
 
 
 def select_format_prompt(fmt: str, use_entity_names: bool = False,
-                         reject_prompt: bool = False) -> str:
+                         reject_prompt: bool = False,
+                         path_format: str | None = None) -> str:
     """按输出格式和实体表示选择 system prompt。"""
+    use_endpoint_prompt = fmt == "v2" and path_format in {"schema", "schema_gloss"}
+    if use_endpoint_prompt:
+        if reject_prompt:
+            return FORMAT_PROMPTS[
+                "v2_endpoint_name_reject" if use_entity_names else "v2_endpoint_reject"
+            ]
+        return FORMAT_PROMPTS["v2_endpoint_name" if use_entity_names else "v2_endpoint"]
+
     if reject_prompt:
         return FORMAT_PROMPTS["v2_name_reject" if use_entity_names else "v2_reject"]
 

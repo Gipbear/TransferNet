@@ -610,16 +610,20 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
     rev_entity_map = getattr(args, "rev_entity_map", None)
     use_reject_prompt = getattr(args, "reject_prompt", False)
     use_no_paths      = getattr(args, "no_paths", False)
+    path_format   = getattr(args, "path_format", "arrow")
     if use_no_paths:
         # Group H: 无路径输入，使用专用 system prompt
         system_prompt = FORMAT_PROMPTS["no_paths"]
     elif use_reject_prompt:
         # Group F: 使用含拒答规则的 system prompt
-        system_prompt = select_format_prompt("v2", bool(entity_map_dict), reject_prompt=True)
+        system_prompt = select_format_prompt(
+            "v2", bool(entity_map_dict), reject_prompt=True, path_format=path_format
+        )
     else:
-        system_prompt = select_format_prompt(args.output_format, bool(entity_map_dict))
+        system_prompt = select_format_prompt(
+            args.output_format, bool(entity_map_dict), path_format=path_format
+        )
     show_score    = args.show_score
-    path_format   = getattr(args, "path_format", "arrow")
 
     def prepare_sample(sample):
         question  = clean_question_text(sample.get("question", ""))
