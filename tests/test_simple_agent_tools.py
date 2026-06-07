@@ -122,7 +122,18 @@ class SimpleAgentToolTests(unittest.TestCase):
 
         result = tool(
             "who was vice president after kennedy died",
-            [{"path": [["John F. Kennedy", "government.role", "Lyndon B. Johnson"]], "log_score": -1.0}],
+            [
+                {
+                    "path": [
+                        [
+                            "John F. Kennedy",
+                            "government.us_vice_president.to_president_reverse",
+                            "Lyndon B. Johnson",
+                        ]
+                    ],
+                    "log_score": -1.0,
+                }
+            ],
         )
 
         self.assertTrue(result.format_ok)
@@ -130,6 +141,11 @@ class SimpleAgentToolTests(unittest.TestCase):
         self.assertEqual(result.answer_names, ["Lyndon B. Johnson"])
         self.assertIn("Question: who was vice president after kennedy died", result.prompt)
         self.assertIn("Reasoning Paths:", result.prompt)
+        self.assertIn(
+            "1: John F. Kennedy -> government.us_vice_president.to_president_reverse -> Lyndon B. Johnson",
+            result.prompt,
+        )
+        self.assertNotIn("<- [government.us_vice_president.to_president] -", result.prompt)
 
 
 if __name__ == "__main__":

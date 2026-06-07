@@ -44,14 +44,25 @@ import os
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 os.environ['HF_HUB_DISABLE_XET'] = '1'
 os.environ['UNSLOTH_DISABLE_STATS'] = '1'
+os.environ.setdefault('PYTHONHASHSEED', '0')
+import random
 import re
 import sys
 import warnings
 from collections import defaultdict
 from datetime import datetime
 
+import numpy as np
 import torch
 from tqdm import tqdm
+
+
+def set_global_seed(seed: int = 0) -> None:
+    """统一固定随机源，配合 do_sample=False 让 eval 跨进程可复现。"""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
 logging.getLogger("transformers").setLevel(logging.ERROR)
@@ -556,6 +567,8 @@ def parse_args():
     p.add_argument("--output_format", default="v2",
                    choices=["v0", "v1", "v2", "v3", "v4", "v11"],
                    help="模型输出格式（决定 prompt 和解析方式）")
+    p.add_argument("--max_seq_length", type=int, default=2048,
+                   help="模型上下文窗口长度；大 beam 输入可适当增大")
     p.add_argument("--max_new_tokens", type=int, default=256)
     p.add_argument("--batch_size",     type=int, default=4,
                    help="批量推理大小（越大越快，受显存限制；建议 4~16）")
@@ -581,7 +594,7 @@ def parse_args():
     p.add_argument("--reject_prompt", action="store_true",
                    help="使用含拒答规则的 system prompt（Group F）")
     p.add_argument("--no_paths", action="store_true",
-                   help="忽略输入中的检索路径，直接以问题裸文本推理（Group H）")
+                   help="忽略输入中的检索路径，直接以问题裸文本推理（无路径基线）")
     return p.parse_args()
 
 
@@ -612,7 +625,7 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
     use_no_paths      = getattr(args, "no_paths", False)
     path_format   = getattr(args, "path_format", "arrow")
     if use_no_paths:
-        # Group H: 无路径输入，使用专用 system prompt
+        # 无路径输入，使用专用 system prompt
         system_prompt = FORMAT_PROMPTS["no_paths"]
     elif use_reject_prompt:
         # Group F: 使用含拒答规则的 system prompt
@@ -631,7 +644,7 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
         golden    = sample.get("golden", [])
 
         if use_no_paths:
-            # Group H: 丢弃所有检索路径，仅以问题本身作为输入
+            # 丢弃所有检索路径，仅以问题本身作为输入
             mmr_paths = []
             user_content = build_user_content_no_paths(question)
         else:
@@ -700,6 +713,7 @@ def run_single(samples: list, model, tokenizer, args, log: logging.Logger,
             output_ids = model.generate(
                 **inputs,
                 max_new_tokens=args.max_new_tokens,
+                do_sample=False,
                 use_cache=True,
                 pad_token_id=tokenizer.eos_token_id,
             )
@@ -848,6 +862,7 @@ def _log_stratified(log: logging.Logger, results: list):
 
 def main():
     args = parse_args()
+    set_global_seed(0)
 
     output_path = resolve_output(args.input, args.output, args.output_format, args.adapter,
                                  no_paths=getattr(args, "no_paths", False))
@@ -862,6 +877,7 @@ def main():
     log.info("  model         : %s", args.model)
     log.info("  adapter       : %s", args.adapter or "None（零样本）")
     log.info("  output_format : %s", args.output_format)
+    log.info("  max_seq_length: %d", args.max_seq_length)
     log.info("  max_new_tokens: %d", args.max_new_tokens)
     log.info("  limit         : %s", args.limit if args.limit > 0 else "全部")
     log.info("  batch_size    : %d", args.batch_size)
@@ -883,7 +899,7 @@ def main():
 
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=args.model,
-        max_seq_length=2048,
+        max_seq_length=args.max_seq_length,
         dtype=None,
         load_in_4bit=True,
         local_files_only=True,

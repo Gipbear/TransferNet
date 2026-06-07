@@ -4,17 +4,20 @@
 #
 # 离线消融实验：基于 offline_search/paths/ 的路径文件运行 build→train→eval 流程
 #
-# 七组实验：
-#   Group A (eval-only): 检索参数扫描 (beam/lambda/alpha × schema × name, v2)
+# 十组实验：
+#   Group A (eval-only): 检索参数扫描 (beam/lambda/alpha × chain × name, v2)
 #   Group B (train+eval): 路径序列化格式 (arrow/chain/tuple/nl/schema/schema_gloss × name, v2)
+#   Group BBase (eval-only): base model 路径序列化格式 (arrow/chain/tuple/nl/schema/schema_gloss × name, v2)
 #   Group C (train+eval): 输出格式 (v1/v2/v3/v4 × name, chain)
+#   Group CBase (eval-only): base model 输出格式 (v1/v2/v3/v4 × name, chain)
 #   Group D (train+eval): 训练轮数 (epoch 1-5, chain+name, v2)
 #   Group E (train+eval): chain+name+v2 固定下的路径顺序/score/去重/干扰比例消融
 #   Group F (eval-only): base model 无 adapter，固定 12 组检索参数，chain+name+v2
 #   Group G (train+eval): 拒答训练策略 (no rejection / real / random synthetic 10% / random synthetic 15%)
+#   Group H (train+eval): beam 匹配训练/推理 (B=5/10/15/20 × chain × name, v2)
 #
 # 特性：
-#   - Group A/F 仅 eval；Group B/C/D/E/G 支持完整三步流程
+#   - Group A/F 仅 eval；Group B/C/D/E/G/H 支持完整三步流程
 #   - 断点续跑（数据集/adapter/eval_jsonl 已存在则跳过）
 #   - --phase all|train|eval 控制跑哪些步骤
 #   - EVAL_LIMIT 默认 500
@@ -22,17 +25,23 @@
 # 用法：
 #   bash scripts/run_offline_ablation.sh --group A
 #   bash scripts/run_offline_ablation.sh --group A --all          # 扫描所有路径文件
-#   bash scripts/run_offline_ablation.sh --group A --beam 20 --lam 0 --alpha 1
+#   bash scripts/run_offline_ablation.sh --group A --beam 20 --lam 0.2 --alpha 1
 #   bash scripts/run_offline_ablation.sh --group B
 #   bash scripts/run_offline_ablation.sh --group B --configs schema,schema_gloss
+#   bash scripts/run_offline_ablation.sh --group BBase
+#   bash scripts/run_offline_ablation.sh --group BBase --configs chain,schema
 #   bash scripts/run_offline_ablation.sh --group C --phase eval
 #   bash scripts/run_offline_ablation.sh --group C --configs v2,v4
+#   bash scripts/run_offline_ablation.sh --group CBase
+#   bash scripts/run_offline_ablation.sh --group CBase --configs v2,v4
 #   bash scripts/run_offline_ablation.sh --group D --phase train
 #   bash scripts/run_offline_ablation.sh --group E
 #   bash scripts/run_offline_ablation.sh --group E --configs base,score
 #   bash scripts/run_offline_ablation.sh --group F
 #   bash scripts/run_offline_ablation.sh --group G
 #   bash scripts/run_offline_ablation.sh --group G --configs base,real,syn10,syn15
+#   bash scripts/run_offline_ablation.sh --group H
+#   bash scripts/run_offline_ablation.sh --group H --grid_beams "5 10 15 20"
 #   bash scripts/run_offline_ablation.sh --group ALL
 #   bash scripts/run_offline_ablation.sh --group ALL --limit 10   # 快速冒烟测试
 #
@@ -78,6 +87,20 @@ GRID_ALPHAS=""
 DEFAULT_INPUT=""
 # 多配置 Group 的配置选择（逗号分隔；空=全部）
 E_CONFIGS=""
+
+# GroupH: beam 匹配训练/推理。要求提供真实 per-beam train split 路径文件，
+# 不从 beam20/predict_train 前缀裁剪，避免把 MMR beam 实验伪装成前缀实验。
+GROUPH_BEAMS="${GROUPH_BEAMS:-5 10 15 20}"
+GROUPH_ALPHA="${GROUPH_ALPHA:-1}"
+GROUPH_LAM="${GROUPH_LAM:-0.2}"
+GROUPH_AUTO_PATH_SEARCH="${GROUPH_AUTO_PATH_SEARCH:-1}"
+GROUPH_TRAIN_OFFLINE_DIR="${GROUPH_TRAIN_OFFLINE_DIR:-${PROJ_DIR}/data/output/WebQSP/offline_search_train}"
+GROUPH_TRAIN_PATHS_DIR="${GROUPH_TRAIN_PATHS_DIR:-${PROJ_DIR}/data/output/WebQSP/offline_search_train/paths}"
+GROUPH_TRAIN_CACHE="${GROUPH_TRAIN_CACHE:-${GROUPH_TRAIN_OFFLINE_DIR}/score_cache/webqsp_train.pt}"
+GROUPH_TRAIN_INPUT_DIR="${GROUPH_TRAIN_INPUT_DIR:-${PROJ_DIR}/data/input/WebQSP}"
+GROUPH_TRAIN_QA_FILE="${GROUPH_TRAIN_QA_FILE:-${GROUPH_TRAIN_INPUT_DIR}/QA_data/WebQuestionsSP/qa_train_webqsp.txt}"
+GROUPH_TRAIN_CKPT="${GROUPH_TRAIN_CKPT:-}"
+GROUPH_MAX_SEQ_LEN="${GROUPH_MAX_SEQ_LEN:-2048}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -227,18 +250,22 @@ eval_one() {
 
 # ── run_offline_experiment ───────────────────────────────────────────────────
 # 完整三步流程：build_data → train → eval
-# run_offline_experiment CONFIG_NAME FMT BUILD_EXTRA EVAL_INPUT EVAL_EXTRA...
+# run_offline_experiment CONFIG_NAME FMT BUILD_EXTRA EVAL_INPUT EVAL_EXTRA [TRAIN_INPUT_OVERRIDE] [TRAIN_EXTRA]
 #   CONFIG_NAME : 实验标识（决定数据和模型子目录）
 #   FMT         : v1/v2/v3/v4（输出格式）
 #   BUILD_EXTRA : 额外的 build_kgcot_dataset 参数（字符串，空格分隔）
 #   EVAL_INPUT  : 评估用路径 JSONL 文件
 #   EVAL_EXTRA  : 额外的 eval_faithfulness 参数（字符串，空格分隔）
+#   TRAIN_INPUT_OVERRIDE: 可选，覆盖默认训练路径文件
+#   TRAIN_EXTRA : 可选，额外的 train_sft 参数（字符串，空格分隔）
 run_offline_experiment() {
     local config_name="$1"
     local fmt="$2"
     local build_extra="${3:-}"
     local eval_input="$4"
     local eval_extra="${5:-}"
+    local train_input="${6:-${TRAIN_INPUT}}"
+    local train_extra="${7:-}"
 
     local data_dir="${ABLATION_DATA}/${config_name}"
     local model_dir="${ABLATION_MODELS}/${config_name}"
@@ -260,15 +287,15 @@ run_offline_experiment() {
     elif [[ -f "${dataset}" ]]; then
         echo "[SKIP] 数据集已存在: ${dataset}"
     else
-        if [[ ! -f "${TRAIN_INPUT}" ]]; then
-            echo "[ERROR] 训练输入不存在: ${TRAIN_INPUT}"
+        if [[ ! -f "${train_input}" ]]; then
+            echo "[ERROR] 训练输入不存在: ${train_input}"
             exit 1
         fi
         log_step "Step 1/3: 构建训练数据"
         local T0; T0=$(date +%s)
         # shellcheck disable=SC2086
         python "${BUILD_SCRIPT}" \
-            --input  "${TRAIN_INPUT}" \
+            --input  "${train_input}" \
             --output "${dataset}" \
             --format "${fmt}" \
             ${build_extra}
@@ -286,7 +313,8 @@ run_offline_experiment() {
         python "${TRAIN_SCRIPT}" \
             --train      "${dataset}" \
             --output_dir "${model_dir}" \
-            --epochs     "${EPOCHS}"
+            --epochs     "${EPOCHS}" \
+            ${train_extra}
         echo "[INFO] 训练完成，耗时 $(($(date +%s) - T0))s"
     fi
 
@@ -456,9 +484,19 @@ group_b_config_selected() {
     [[ "${RUN_GROUP}" != "B" ]] || config_selected "${name}"
 }
 
+group_bbase_config_selected() {
+    local name="$1"
+    [[ "${RUN_GROUP}" != "BBase" ]] || config_selected "${name}"
+}
+
 group_c_config_selected() {
     local name="$1"
     [[ "${RUN_GROUP}" != "C" ]] || config_selected "${name}"
+}
+
+group_cbase_config_selected() {
+    local name="$1"
+    [[ "${RUN_GROUP}" != "CBase" ]] || config_selected "${name}"
 }
 
 group_e_config_selected() {
@@ -473,6 +511,23 @@ group_e_config_selected() {
 group_g_config_selected() {
     local name="$1"
     config_selected "${name}"
+}
+
+build_group_h_beams() {
+    GROUP_H_BEAMS=()
+
+    # --beam/--grid_beams 优先；未指定时使用 GROUPH_BEAMS 默认值。
+    for beam in "${BEAM_VALS[@]+"${BEAM_VALS[@]}"}"; do
+        GROUP_H_BEAMS+=("${beam}")
+    done
+    if [[ -n "${GRID_BEAMS}" ]]; then
+        local -a _ghb
+        read -r -a _ghb <<< "${GRID_BEAMS}"
+        GROUP_H_BEAMS+=("${_ghb[@]}")
+    fi
+    if [[ ${#GROUP_H_BEAMS[@]} -eq 0 ]]; then
+        read -r -a GROUP_H_BEAMS <<< "${GROUPH_BEAMS}"
+    fi
 }
 
 config_token_allowed() {
@@ -491,8 +546,8 @@ validate_selected_configs() {
     local -a _selected _allowed
 
     case "${RUN_GROUP}" in
-        B)   _allowed=(arrow chain tuple nl schema schema_gloss) ;;
-        C)   _allowed=(v1 v2 v3 v4) ;;
+        B|BBase) _allowed=(arrow chain tuple nl schema schema_gloss) ;;
+        C|CBase) _allowed=(v1 v2 v3 v4) ;;
         E)   _allowed=(base eval_shuffle train_noshuffle train_noshuffle_eval_shuffle score dist0.3 dist0.5 dist03 dist05 dedupe_tail) ;;
         G)   _allowed=(base real syn10 syn15) ;;
         ALL) _allowed=(base eval_shuffle train_noshuffle train_noshuffle_eval_shuffle score dist0.3 dist0.5 dist03 dist05 dedupe_tail real syn10 syn15) ;;
@@ -512,7 +567,7 @@ validate_selected_configs
 
 # ── 自动推导 DEFAULT_INPUT ────────────────────────────────────────────────────
 if [[ -z "${DEFAULT_INPUT}" ]]; then
-    DEFAULT_INPUT="${PATHS_DIR}/tail_blend_beam20_alpha1_lam0.jsonl"
+    DEFAULT_INPUT="${PATHS_DIR}/tail_blend_beam20_alpha1_lam0.2.jsonl"
     if [[ ! -f "${DEFAULT_INPUT}" ]]; then
         # 回退：PATHS_DIR 下第一个 .jsonl
         DEFAULT_INPUT="$(find "${PATHS_DIR}" -maxdepth 1 -name '*.jsonl' -print0 \
@@ -609,18 +664,21 @@ print_banner() {
 }
 
 run_group_a() {
-    log_section "Group A: 检索参数扫描 (beam/lambda/alpha × schema × name, v2, eval-only)"
+    log_section "Group A: 检索参数扫描 (beam/lambda/alpha × chain × name, v2, eval-only)"
 
     local adapter
-    adapter="$(try_resolve_adapter "groupJ_schema_name")"
+    adapter="${ABLATION_MODELS}/offB_chain_name"
+    if [[ ! -d "${adapter}" ]]; then
+        adapter="$(try_resolve_adapter "groupAname_v2")"
+    fi
     if [[ -z "${adapter}" ]]; then
-        echo "[ERROR] Group A name 评估需要 groupJ_schema_name adapter"
+        echo "[ERROR] Group A chain/name 评估需要 offB_chain_name 或 groupAname_v2 adapter"
         exit 1
     fi
 
     build_group_a_inputs
-    echo "  adapter_schema_name: ${adapter:-（未找到）}"
-    echo "  serialization      : output_format=v2, path_format=schema, entity=name"
+    echo "  adapter_chain_name: ${adapter:-（未找到）}"
+    echo "  serialization     : output_format=v2, path_format=chain, entity=name"
     echo "  文件数             : ${#GROUP_A_INPUTS[@]}"
 
     require_entity_map
@@ -629,8 +687,8 @@ run_group_a() {
     wall=$(date +%s)
     local input
     for input in "${GROUP_A_INPUTS[@]}"; do
-        eval_one "${input}" "groupA/schema_name" \
-            "${adapter}" "v2" "schema" --entity_map "${ENTITY_MAP}"
+        eval_one "${input}" "groupA/chain_name" \
+            "${adapter}" "v2" "chain" --entity_map "${ENTITY_MAP}"
     done
     finish_group "A" "${wall}"
 }
@@ -653,6 +711,23 @@ run_group_b() {
     finish_group "B" "${wall}"
 }
 
+run_group_bbase() {
+    log_section "Group BBase: base model 路径序列化格式 (arrow/chain/tuple/nl/schema/schema_gloss × name, v2, eval-only)"
+    require_default_input "BBase"
+    require_entity_map
+
+    local wall pfmt
+    wall=$(date +%s)
+    for pfmt in arrow chain tuple nl schema schema_gloss; do
+        group_bbase_config_selected "${pfmt}" || continue
+        run_offline_base_eval \
+            "offBBase_${pfmt}_name" "v2" \
+            "${DEFAULT_INPUT}" \
+            "--path_format ${pfmt} --entity_map ${ENTITY_MAP}"
+    done
+    finish_group "BBase" "${wall}"
+}
+
 run_group_c() {
     log_section "Group C: 输出格式 (v1/v2/v3/v4 × name, chain, train+eval)"
     require_default_input "C"
@@ -669,6 +744,23 @@ run_group_c() {
             "--path_format chain --entity_map ${ENTITY_MAP}"
     done
     finish_group "C" "${wall}"
+}
+
+run_group_cbase() {
+    log_section "Group CBase: base model 输出格式 (v1/v2/v3/v4 × name, chain, eval-only)"
+    require_default_input "CBase"
+    require_entity_map
+
+    local wall fmt
+    wall=$(date +%s)
+    for fmt in v1 v2 v3 v4; do
+        group_cbase_config_selected "${fmt}" || continue
+        run_offline_base_eval \
+            "offCBase_name_${fmt}" "${fmt}" \
+            "${DEFAULT_INPUT}" \
+            "--path_format chain --entity_map ${ENTITY_MAP}"
+    done
+    finish_group "CBase" "${wall}"
 }
 
 run_group_d() {
@@ -807,6 +899,96 @@ run_group_g() {
     finish_group "G" "${wall}"
 }
 
+ensure_group_h_train_paths() {
+    local beam="$1"
+    local train_paths="$2"
+
+    [[ -f "${train_paths}" ]] && return 0
+
+    if [[ "${GROUPH_AUTO_PATH_SEARCH}" != "1" ]]; then
+        echo "[ERROR] GroupH 训练路径文件不存在: ${train_paths}"
+        echo "        可设置 GROUPH_AUTO_PATH_SEARCH=1 自动生成，或设置 GROUPH_TRAIN_PATHS_DIR 指向已生成目录。"
+        exit 1
+    fi
+
+    log_step "GroupH: 生成 train split 检索路径 (beam=${beam})"
+    echo "[INFO] output: ${train_paths}"
+    echo "[INFO] cache : ${GROUPH_TRAIN_CACHE}"
+    echo "[INFO] qa    : ${GROUPH_TRAIN_QA_FILE}"
+
+    local -a search_args=(
+        --dataset "${MODEL_DATASET}"
+        --phase all
+        --mode train
+        --input_dir "${GROUPH_TRAIN_INPUT_DIR}"
+        --qa_file "${GROUPH_TRAIN_QA_FILE}"
+        --cache "${GROUPH_TRAIN_CACHE}"
+        --offline_dir "${GROUPH_TRAIN_OFFLINE_DIR}"
+        --paths_dir "${GROUPH_TRAIN_PATHS_DIR}"
+        --summary_file "${GROUPH_TRAIN_OFFLINE_DIR}/summary.csv"
+        --grid
+        --grid_alphas "${GROUPH_ALPHA}"
+        --grid_lambdas "${GROUPH_LAM}"
+        --grid_thresholds "0.01"
+        --grid_beams "${beam}"
+    )
+    if [[ -n "${GROUPH_TRAIN_CKPT}" ]]; then
+        search_args+=(--ckpt "${GROUPH_TRAIN_CKPT}")
+    fi
+
+    bash "${PROJ_DIR}/scripts/run_offline_path_search.sh" "${search_args[@]}"
+
+    if [[ ! -f "${train_paths}" ]]; then
+        echo "[ERROR] GroupH train path 生成后仍未找到: ${train_paths}"
+        exit 1
+    fi
+}
+
+run_group_h() {
+    log_section "Group H: beam 匹配训练/推理 (chain × name, v2, epoch=${EPOCHS})"
+    require_entity_map
+    build_group_h_beams
+
+    local alpha_fmt lam_fmt wall beam train_paths eval_input config_name base_args eval_args train_args
+    alpha_fmt="$(fmt_num "${GROUPH_ALPHA}")"
+    lam_fmt="$(fmt_num "${GROUPH_LAM}")"
+    base_args="--path_format chain --entity_map ${ENTITY_MAP}"
+    eval_args="${base_args} --max_seq_length ${GROUPH_MAX_SEQ_LEN}"
+    train_args="--max_seq_len ${GROUPH_MAX_SEQ_LEN}"
+    wall=$(date +%s)
+
+    echo "  beams             : ${GROUP_H_BEAMS[*]}"
+    echo "  alpha/lambda      : alpha=${alpha_fmt}, lambda=${lam_fmt}"
+    echo "  auto_path_search  : ${GROUPH_AUTO_PATH_SEARCH}"
+    echo "  train_offline_dir : ${GROUPH_TRAIN_OFFLINE_DIR}"
+    echo "  train_paths_dir   : ${GROUPH_TRAIN_PATHS_DIR}"
+    echo "  eval_paths_dir    : ${PATHS_DIR}"
+    echo "  max_seq_len       : ${GROUPH_MAX_SEQ_LEN}"
+
+    for beam in "${GROUP_H_BEAMS[@]}"; do
+        train_paths="${GROUPH_TRAIN_PATHS_DIR}/tail_blend_beam${beam}_alpha${alpha_fmt}_lam${lam_fmt}.jsonl"
+        eval_input="${PATHS_DIR}/tail_blend_beam${beam}_alpha${alpha_fmt}_lam${lam_fmt}.jsonl"
+        config_name="offH_beam${beam}_chain_name"
+
+        if [[ "${RUN_PHASE}" != "eval" ]]; then
+            ensure_group_h_train_paths "${beam}" "${train_paths}"
+        fi
+        if [[ ! -f "${eval_input}" && "${RUN_PHASE}" != "train" ]]; then
+            echo "[ERROR] GroupH 评估输入不存在: ${eval_input}"
+            exit 1
+        fi
+
+        run_offline_experiment \
+            "${config_name}" "v2" \
+            "${base_args}" \
+            "${eval_input}" \
+            "${eval_args}" \
+            "${train_paths}" \
+            "${train_args}"
+    done
+    finish_group "H" "${wall}"
+}
+
 print_summary() {
     echo ""
     echo "======================================================"
@@ -820,9 +1002,12 @@ print_summary() {
 print_banner
 group_enabled "A" && run_group_a
 group_enabled "B" && run_group_b
+group_enabled "BBase" && run_group_bbase
 group_enabled "C" && run_group_c
+group_enabled "CBase" && run_group_cbase
 group_enabled "D" && run_group_d
 group_enabled "E" && run_group_e
 group_enabled "F" && run_group_f
 group_enabled "G" && run_group_g
+group_enabled "H" && run_group_h
 print_summary

@@ -113,7 +113,9 @@ while [[ $# -gt 0 ]]; do
         --grid_lambdas) GRID_LAMBDAS="$2"; shift 2 ;;
         --grid_thresholds) GRID_THRESHOLDS="$2"; shift 2 ;;
         --grid_beams)  GRID_BEAMS="$2";  shift 2 ;;
+        --offline_dir) OFFLINE_DIR="$2"; shift 2 ;;
         --output_dir)  OUTPUT_DIR="$2";  shift 2 ;;
+        --log_dir)     LOG_DIR="$2";     shift 2 ;;
         --paths_dir)   PATHS_DIR="$2";   shift 2 ;;
         --summary_file) SUMMARY_FILE="$2"; shift 2 ;;
         *) echo "[ERROR] 未知参数: $1"; exit 1 ;;
@@ -155,7 +157,11 @@ if [[ -z "$CACHE" ]]; then
     CACHE="${OUTPUT_DIR}/${CACHE_PREFIX}_${MODE}.pt"
 fi
 if [[ "$DATASET" == "webqsp" && -z "$QA_FILE" ]]; then
-    QA_FILE="${INPUT_DIR}/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"
+    if [[ "$MODE" == "train" ]]; then
+        QA_FILE="${INPUT_DIR}/QA_data/WebQuestionsSP/qa_train_webqsp.txt"
+    else
+        QA_FILE="${INPUT_DIR}/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"
+    fi
 fi
 
 # 将路径归一成绝对路径，避免 dump_scores 对相对 qa_file 再拼 input_dir，

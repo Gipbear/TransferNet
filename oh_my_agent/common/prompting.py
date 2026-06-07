@@ -39,10 +39,20 @@ def _format_schema_chain(path_edges: list) -> str:
     return " ".join(parts)
 
 
+def _format_chain(path_edges: list) -> str:
+    """Serialize path edges as a plain chain."""
+    if not path_edges:
+        return ""
+    parts = [path_edges[0][0]]
+    for _, rel, tail in path_edges:
+        parts.extend([rel, tail])
+    return " -> ".join(parts)
+
+
 def build_reasoning_prompt(question: str, named_paths: list[dict]) -> str:
-    """Render the user prompt with named reasoning paths (schema format)."""
+    """Render the user prompt with named reasoning paths (plain chain format)."""
     lines = [f"Question: {question}", "", "Reasoning Paths:"]
     for index, path_dict in enumerate(named_paths, start=1):
-        chain = _format_schema_chain(path_dict.get("path", []))
+        chain = _format_chain(path_dict.get("path", []))
         lines.append(f"{index}: {chain}")
     return "\n".join(lines)
