@@ -1,5 +1,5 @@
-"""Simple WebQSP QA agent package."""
+"""Checked-batch WebQSP QA agent package."""
 
-from .agent import SimpleWebQAgent, SimpleWebQAgentResult
+from .agent import CheckedBatchWebQAgent, CheckedBatchWebQAgentResult
 
-__all__ = ["SimpleWebQAgent", "SimpleWebQAgentResult"]
+__all__ = ["CheckedBatchWebQAgent", "CheckedBatchWebQAgentResult"]

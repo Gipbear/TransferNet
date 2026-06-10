@@ -6,21 +6,25 @@ import argparse
 import json
 import os
 import time
-from collections import Counter
 from typing import Any
 
 from oh_my_agent.agent import CheckedBatchWebQAgent
 from oh_my_agent.common import (
-    aggregate_metrics,
+    build_eval_record,
+    build_initial_answer_record,
+    build_initial_retrieval_record,
     build_reverse_entity_map,
     compute_answer_metrics,
     compute_faithfulness,
-    expand_pred_answers_with_path_constraint,
     get_all_path_entities,
     label_golden_indices,
     load_webqsp_qa_samples,
+    mean_metric,
+    record_answer_counts,
+    summarize_checked_batch_records,
 )
-from oh_my_agent.tools import AnswerWithPathsTool, CitedPathCheckTool, PathRetrieveTool
+from oh_my_agent.llm_server.client import LLMClient, SILICONFLOW_MODEL, SiliconFlowLLMClient
+from oh_my_agent.tools import AnswerWithPathsTool, PathRetrieveTool, RejectedAnswerCheckTool
 
 
 DEFAULT_INPUT_PATH = "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"
@@ -62,24 +66,62 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Deduplicate retrieved paths by final raw tail entity before batching",
     )
+    parser.add_argument(
+        "--min_log_score",
+        type=float,
+        default=None,
+        help="Drop accepted paths whose log_score is below this value from final answers "
+        "(post-filter on top of the LLM check; None disables it)",
+    )
+    parser.add_argument(
+        "--no_relation_expansion",
+        action="store_true",
+        help="Disable relation expansion (do not re-add cited-but-not-accepted paths "
+        "that share a relation sequence with accepted paths)",
+    )
     parser.add_argument("--max_new_tokens", type=int, default=256)
-    parser.add_argument("--check_max_new_tokens", type=int, default=2)
+    parser.add_argument(
+        "--check_mode",
+        choices=["reject-answer-list", "hybrid-reject-list"],
+        default="reject-answer-list",
+        help=(
+            "How to validate cited answers: reject-answer-list removes bad candidates; "
+            "hybrid-reject-list uses loose reject-list on the first batch and strict "
+            "reject-list on later batches."
+        ),
+    )
+    parser.add_argument(
+        "--check_max_new_tokens",
+        type=int,
+        default=0,
+        help="Max new tokens for validation. Default 0 uses 48.",
+    )
     parser.add_argument("--path_retrieve_url", default="http://localhost:8789")
     parser.add_argument("--llm_server_url", default="http://localhost:8788")
+    parser.add_argument(
+        "--check_backend",
+        choices=["server", "siliconflow"],
+        default="server",
+        help="LLM backend for validation only. Answer generation still uses --llm_server_url.",
+    )
+    parser.add_argument(
+        "--check_llm_server_url",
+        default="",
+        help="Optional /generate server URL for validation when --check_backend server. "
+        "Defaults to --llm_server_url.",
+    )
+    parser.add_argument(
+        "--check_siliconflow_model",
+        default=SILICONFLOW_MODEL,
+        help="SiliconFlow model used only for validation when --check_backend siliconflow.",
+    )
     parser.add_argument(
         "--entity_map",
         default="data/resources/WebQSP/fbwq_full/mapped_entities.txt",
         help="MID->name mapping file",
     )
     parser.add_argument("--no_adapter", action="store_true", help="Use the base model for answering")
-    parser.add_argument("--check_use_adapter", action="store_true", help="Use the adapter for path checks")
     parser.add_argument("--skip_server_check", action="store_true", help="Skip service health checks")
-    parser.add_argument("--no_archive", action="store_true", help="Do not write data/analysis README")
-    parser.add_argument(
-        "--analysis_dir",
-        default="",
-        help="Optional explicit analysis archive directory",
-    )
     return parser
 
 
@@ -122,308 +164,16 @@ def _requested_sample_indices(args: argparse.Namespace) -> list[int]:
     return indices
 
 
-def _path_tail(path_dict: dict[str, Any]) -> str:
-    edges = path_dict.get("path", [])
-    return str(edges[-1][2]) if edges else ""
+def _resolve_check_max_new_tokens(args: argparse.Namespace) -> int:
+    if args.check_max_new_tokens > 0:
+        return args.check_max_new_tokens
+    return 48
 
 
-def _path_mid_entities(paths: list[dict[str, Any]]) -> set[str]:
-    entities: set[str] = set()
-    for path_dict in paths:
-        for edge in path_dict.get("path", []):
-            if len(edge) >= 3:
-                entities.add(str(edge[0]))
-                entities.add(str(edge[2]))
-    return entities
-
-
-def _path_metrics(paths: list[dict[str, Any]], gold_mids: list[str]) -> dict[str, float | bool]:
-    gold_set = {str(mid).lower().strip() for mid in gold_mids}
-    tail_set = {tail.lower().strip() for tail in (_path_tail(path) for path in paths) if tail}
-    hit_count = len(tail_set & gold_set)
-    precision = hit_count / len(tail_set) if tail_set else 0.0
-    recall = hit_count / len(gold_set) if gold_set else 0.0
-    f1 = 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0.0
-    top1_tail = _path_tail(paths[0]).lower().strip() if paths else ""
-    return {
-        "mmr_answer_path_hit": bool(hit_count),
-        "mmr_top1_hit": bool(top1_tail and top1_tail in gold_set),
-        "mmr_answer_recall": round(recall, 4),
-        "mmr_precision": round(precision, 4),
-        "mmr_f1": round(f1, 4),
-        "hit": bool(hit_count),
-    }
-
-
-def _path_diversity(paths: list[dict[str, Any]]) -> dict[str, float]:
-    if len(paths) < 2:
-        return {
-            "jaccard_diversity": 0.0,
-            "tail_diversity": 0.0,
-            "edge_coverage": 0.0,
-        }
-
-    edge_sets = [
-        {tuple(edge[:3]) for edge in path_dict.get("path", []) if len(edge) >= 3}
-        for path_dict in paths
-    ]
-    pair_distances: list[float] = []
-    for left_index, left_edges in enumerate(edge_sets):
-        for right_edges in edge_sets[left_index + 1 :]:
-            union = left_edges | right_edges
-            similarity = len(left_edges & right_edges) / len(union) if union else 0.0
-            pair_distances.append(1.0 - similarity)
-
-    tails = [_path_tail(path) for path in paths if _path_tail(path)]
-    all_edges = set().union(*edge_sets) if edge_sets else set()
-    total_edges = sum(len(edge_set) for edge_set in edge_sets)
-    return {
-        "jaccard_diversity": round(sum(pair_distances) / len(pair_distances), 4),
-        "tail_diversity": round(len(set(tails)) / len(paths), 4) if tails else 0.0,
-        "edge_coverage": round(len(all_edges) / total_edges, 4) if total_edges else 0.0,
-    }
-
-
-def _build_record(sample_index: int, sample, result, answer_metrics, faith_metrics) -> dict[str, Any]:
-    return {
-        "sample_index": sample_index,
-        "question_raw": sample.question_raw,
-        "question": sample.question,
-        "topic_mid": sample.topic_mid,
-        "gold_mids": sample.gold_mids,
-        **answer_metrics,
-        **faith_metrics,
-        "raw_topics": result.raw_topics,
-        "named_topics": result.named_topics,
-        "raw_mmr_reason_paths": result.raw_mmr_reason_paths,
-        "named_mmr_reason_paths": result.named_mmr_reason_paths,
-        "raw_prediction": result.raw_prediction,
-        "named_prediction": result.named_prediction,
-        "iterations": [item.to_dict() for item in result.iterations],
-        "final_accepted_path_indices": result.final_accepted_path_indices,
-        "cited_path_indices": result.cited_path_indices,
-        "relation_expanded_path_indices": result.relation_expanded_path_indices,
-        "golden_path_indices": sorted(label_golden_indices(result.raw_mmr_reason_paths, sample.gold_mids)),
-        "pred_answer_names": result.pred_answer_names,
-        "pred_answer_expanded_mids": result.pred_answer_expanded_mids,
-        "pred_answer_disambiguated_mids": result.pred_answer_disambiguated_mids,
-        "hop": result.hop,
-        "batches_used": result.batches_used,
-        "checked_paths_count": result.checked_paths_count,
-        "accepted_paths_count": result.accepted_paths_count,
-        "final_answer_count": result.final_answer_count,
-        "stop_reason": result.stop_reason,
-        "format_ok": result.format_ok,
-        "used_adapter": result.used_adapter,
-        "tokens_generated": result.tokens_generated,
-        "answer_tokens_generated": result.answer_tokens_generated,
-        "check_tokens_generated": result.check_tokens_generated,
-        "retrieval_elapsed_ms": result.retrieval_elapsed_ms,
-        "llm_elapsed_ms": result.llm_elapsed_ms,
-        "check_elapsed_ms": result.check_elapsed_ms,
-    }
-
-
-def _build_initial_retrieval_record(sample, result) -> dict[str, Any]:
-    raw_paths = result.raw_mmr_reason_paths
-    return {
-        "question": sample.question_raw,
-        "topics": result.raw_topics,
-        "hop": result.hop,
-        "mmr_reason_paths": raw_paths,
-        "path_diversity": _path_diversity(raw_paths),
-        "golden": sample.gold_mids,
-        "prediction": result.raw_prediction,
-        **_path_metrics(raw_paths, sample.gold_mids),
-    }
-
-
-def _build_initial_answer_record(
-    sample_index: int,
-    sample,
-    result,
-    batch_size: int,
-    reverse_entity_map: dict[str, set[str]],
-) -> dict[str, Any]:
-    first_iteration = result.iterations[0] if result.iterations else None
-    raw_paths = result.raw_mmr_reason_paths[:batch_size]
-    named_paths = result.named_mmr_reason_paths[:batch_size]
-    answer_names = first_iteration.answer_names if first_iteration else []
-    cited_indices = first_iteration.local_cited_path_indices if first_iteration else []
-    expanded_mids, disambiguated_mids = expand_pred_answers_with_path_constraint(
-        pred_answers=answer_names,
-        rev_entity_map=reverse_entity_map,
-        path_mid_entities=_path_mid_entities(raw_paths),
-    )
-    answer_metrics = compute_answer_metrics(disambiguated_mids, sample.gold_mids)
-    golden_indices = label_golden_indices(raw_paths, sample.gold_mids)
-    faith_metrics = compute_faithfulness(
-        cited_indices=set(cited_indices),
-        golden_indices=golden_indices,
-        pred_answers=answer_names,
-        path_entities=get_all_path_entities(named_paths),
-    )
-    return {
-        "sample_index": sample_index,
-        "question": sample.question_raw,
-        "topics": result.raw_topics,
-        "hop": result.hop,
-        "mmr_reason_paths": raw_paths,
-        "named_mmr_reason_paths": named_paths,
-        "path_diversity": _path_diversity(raw_paths),
-        "golden": sample.gold_mids,
-        "prediction": result.raw_prediction,
-        "hit": bool(golden_indices),
-        "llm_raw_input": first_iteration.answer_prompt if first_iteration else "",
-        "llm_raw_output": first_iteration.raw_llm_output if first_iteration else "",
-        "llm_pred": answer_names,
-        "is_rejection": not answer_names,
-        "llm_pred_expanded_mids": expanded_mids,
-        "llm_pred_disambiguated_mids": disambiguated_mids,
-        "cited_indices": cited_indices,
-        "golden_path_indices": sorted(golden_indices),
-        "format_ok": first_iteration.format_ok if first_iteration else False,
-        "used_adapter": first_iteration.used_adapter if first_iteration else False,
-        "tokens_generated": (
-            first_iteration.answer_tokens_generated if first_iteration else 0
-        ),
-        "llm_elapsed_ms": first_iteration.answer_elapsed_ms if first_iteration else 0.0,
-        **answer_metrics,
-        **faith_metrics,
-    }
-
-
-def _mean(records: list[dict[str, Any]], key: str) -> float:
-    if not records:
-        return 0.0
-    return sum(float(record.get(key, 0.0)) for record in records) / len(records)
-
-
-def _norm_value(value: Any) -> str:
-    return str(value).lower().strip()
-
-
-def _record_cited_answers(record: dict[str, Any]) -> set[str]:
-    raw_paths = record.get("raw_mmr_reason_paths", [])
-    cited_answers: set[str] = set()
-    for index in record.get("cited_path_indices", []):
-        if not isinstance(index, int):
-            continue
-        path_offset = index - 1
-        if 0 <= path_offset < len(raw_paths):
-            tail = _path_tail(raw_paths[path_offset])
-            if tail:
-                cited_answers.add(_norm_value(tail))
-    return cited_answers
-
-
-def _path_tail_mid_by_name(record: dict[str, Any]) -> dict[str, set[str]]:
-    name_to_mids: dict[str, set[str]] = {}
-    raw_paths = record.get("raw_mmr_reason_paths", [])
-    named_paths = record.get("named_mmr_reason_paths", [])
-    for raw_path, named_path in zip(raw_paths, named_paths):
-        name_tail = _path_tail(named_path)
-        raw_tail = _path_tail(raw_path)
-        if name_tail and raw_tail:
-            name_to_mids.setdefault(_norm_value(name_tail), set()).add(_norm_value(raw_tail))
-    return name_to_mids
-
-
-def _record_model_answers(record: dict[str, Any]) -> dict[str, set[str]]:
-    name_to_mids = _path_tail_mid_by_name(record)
-    answers: dict[str, set[str]] = {}
-    for iteration in record.get("iterations", []):
-        for answer in iteration.get("answer_names", []):
-            answer_key = _norm_value(answer)
-            if not answer_key:
-                continue
-            answers.setdefault(answer_key, set()).update(
-                name_to_mids.get(answer_key, {answer_key})
-            )
-    return answers
-
-
-def _record_answer_counts(record: dict[str, Any]) -> dict[str, int]:
-    gold = {
-        _norm_value(mid)
-        for mid in record.get("gold_mids", [])
-        if str(mid).strip()
-    }
-    model_answers = _record_model_answers(record)
-    cited_answers = _record_cited_answers(record)
-    return {
-        "model_answer_count": len(model_answers),
-        "model_correct_count": sum(1 for mids in model_answers.values() if mids & gold),
-        "cited_answer_count": len(cited_answers),
-        "cited_correct_count": len(cited_answers & gold),
-        "golden_answer_count": len(gold),
-    }
-
-
-def _summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
-    summary = dict(aggregate_metrics(records))
-    if not records:
-        return summary
-
-    stop_counts = Counter(str(record.get("stop_reason", "")) for record in records)
-    summary.update(
-        {
-            "avg_batches_used": round(_mean(records, "batches_used"), 4),
-            "stop_reason_counts": dict(sorted(stop_counts.items())),
-            "avg_checked_paths": round(_mean(records, "checked_paths_count"), 4),
-            "avg_accepted_paths": round(_mean(records, "accepted_paths_count"), 4),
-            "avg_final_answer_count": round(_mean(records, "final_answer_count"), 4),
-            "avg_retrieval_elapsed_ms": round(_mean(records, "retrieval_elapsed_ms"), 2),
-            "avg_answer_elapsed_ms": round(_mean(records, "llm_elapsed_ms"), 2),
-            "avg_check_elapsed_ms": round(_mean(records, "check_elapsed_ms"), 2),
-        }
-    )
-    return summary
-
-
-def _write_archive(args: argparse.Namespace, summary: dict[str, Any], summary_path: str) -> str:
-    analysis_dir = args.analysis_dir
-    if not analysis_dir:
-        stamp = time.strftime("%Y%m%d_%H%M")
-        analysis_dir = f"data/analysis/{stamp}__checked_batch_agent_eval"
-    os.makedirs(analysis_dir, exist_ok=True)
-    readme_path = os.path.join(analysis_dir, "README.md")
-    lines = [
-        "# checked_batch_agent_eval",
-        "",
-        "## Command",
-        "",
-        "```bash",
-        "python -m oh_my_agent.cli.eval_checked_batch_agent "
-        f"--input {args.input} --output {args.output}",
-        "```",
-        "",
-        "## Config",
-        "",
-        f"- path_method: `{args.path_method}`",
-        f"- alpha_final: `{args.alpha_final}`",
-        f"- beam_size: `{args.beam_size}`",
-        f"- lambda_val: `{args.lambda_val}`",
-        f"- batch_size: `{args.batch_size}`",
-        f"- dedupe_tail_paths: `{args.dedupe_tail_paths}`",
-        f"- sample_index: `{args.sample_index}`",
-        f"- sample_indices: `{summary.get('sample_indices', [])}`",
-        f"- output_dir: `{summary.get('output_dir', args.output)}`",
-        f"- result_jsonl: `{summary.get('output_path', '')}`",
-        f"- initial_retrieval_jsonl: `{summary.get('initial_retrieval_path', '')}`",
-        f"- initial_answer_jsonl: `{summary.get('initial_answer_path', '')}`",
-        f"- summary: `{summary_path}`",
-        "",
-        "## Summary",
-        "",
-        "```json",
-        json.dumps(summary, ensure_ascii=False, indent=2),
-        "```",
-        "",
-    ]
-    with open(readme_path, "w", encoding="utf-8") as handle:
-        handle.write("\n".join(lines))
-    return readme_path
+def _build_check_client(args: argparse.Namespace):
+    if args.check_backend == "siliconflow":
+        return SiliconFlowLLMClient(model=args.check_siliconflow_model)
+    return LLMClient(args.check_llm_server_url or args.llm_server_url)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -452,19 +202,42 @@ def main(argv: list[str] | None = None) -> int:
         default_use_adapter=not args.no_adapter,
         default_max_new_tokens=args.max_new_tokens,
     )
-    check_tool = CitedPathCheckTool(
-        base_url=args.llm_server_url,
-        default_use_adapter=args.check_use_adapter,
-        default_max_new_tokens=args.check_max_new_tokens,
-    )
+    check_client = _build_check_client(args)
+    check_max_new_tokens = _resolve_check_max_new_tokens(args)
+    check_tool_after_first = None
+    if args.check_mode == "hybrid-reject-list":
+        check_tool = RejectedAnswerCheckTool(
+            client=check_client,
+            default_use_adapter=False,
+            default_max_new_tokens=check_max_new_tokens,
+            reject_policy="loose",
+        )
+        check_tool_after_first = RejectedAnswerCheckTool(
+            client=check_client,
+            default_use_adapter=False,
+            default_max_new_tokens=check_max_new_tokens,
+            reject_policy="strict",
+        )
+    else:
+        check_tool = RejectedAnswerCheckTool(
+            client=check_client,
+            default_use_adapter=False,
+            default_max_new_tokens=check_max_new_tokens,
+            reject_policy="loose",
+        )
     if not args.skip_server_check:
         print("path_retrieve:", path_tool.client.health(), flush=True)
         print("llm         :", answer_tool.client.health(), flush=True)
+        if args.check_backend != "server" or (
+            args.check_llm_server_url and args.check_llm_server_url != args.llm_server_url
+        ):
+            print("check_llm   :", check_client.health(), flush=True)
 
     agent = CheckedBatchWebQAgent(
         path_tool=path_tool,
         answer_tool=answer_tool,
         check_tool=check_tool,
+        check_tool_after_first=check_tool_after_first,
     )
     reverse_entity_map = build_reverse_entity_map(path_tool.entity_map)
 
@@ -488,6 +261,8 @@ def main(argv: list[str] | None = None) -> int:
                 batch_size=args.batch_size,
                 sample_index=sample_index if selected_sample_indices else None,
                 dedupe_tail_paths=args.dedupe_tail_paths,
+                min_log_score=args.min_log_score,
+                enable_relation_expansion=not args.no_relation_expansion,
             )
             answer_metrics = compute_answer_metrics(
                 result.pred_answer_disambiguated_mids,
@@ -500,14 +275,14 @@ def main(argv: list[str] | None = None) -> int:
                 pred_answers=result.pred_answer_names,
                 path_entities=get_all_path_entities(result.named_mmr_reason_paths),
             )
-            record = _build_record(sample_index, sample, result, answer_metrics, faith_metrics)
+            record = build_eval_record(sample_index, sample, result, answer_metrics, faith_metrics)
             records.append(record)
             output_handle.write(json.dumps(record, ensure_ascii=False) + "\n")
             output_handle.flush()
-            retrieval_record = _build_initial_retrieval_record(sample, result)
+            retrieval_record = build_initial_retrieval_record(sample, result)
             retrieval_handle.write(json.dumps(retrieval_record, ensure_ascii=False) + "\n")
             retrieval_handle.flush()
-            answer_record = _build_initial_answer_record(
+            answer_record = build_initial_answer_record(
                 sample_index,
                 sample,
                 result,
@@ -522,27 +297,27 @@ def main(argv: list[str] | None = None) -> int:
                 elapsed = time.monotonic() - t_start
                 eta_s = elapsed / n * (total - n) if n else 0.0
                 eta_str = time.strftime("%H:%M:%S", time.gmtime(eta_s))
-                answer_counts = _record_answer_counts(record)
+                answer_counts = record_answer_counts(record)
                 print(
                     f"[{progress_index + 1}/{total}] "
                     f"sample={sample_index} "
-                    f"hit1={_mean(records, 'hit1'):.4f} "
-                    f"hit_any={_mean(records, 'hit_any'):.4f} "
-                    f"P={_mean(records, 'precision'):.4f} "
-                    f"R={_mean(records, 'recall'):.4f} "
-                    f"macro_f1={_mean(records, 'f1'):.4f} "
+                    f"hit1={mean_metric(records, 'hit1'):.4f} "
+                    f"hit_any={mean_metric(records, 'hit_any'):.4f} "
+                    f"P={mean_metric(records, 'precision'):.4f} "
+                    f"R={mean_metric(records, 'recall'):.4f} "
+                    f"macro_f1={mean_metric(records, 'f1'):.4f} "
                     f"A/A_ok={answer_counts['model_answer_count']}/"
                     f"{answer_counts['model_correct_count']} "
                     f"B/B_ok={answer_counts['cited_answer_count']}/"
                     f"{answer_counts['cited_correct_count']} "
                     f"C={answer_counts['golden_answer_count']} "
-                    f"batches={_mean(records, 'batches_used'):.2f} "
-                    f"accepted={_mean(records, 'accepted_paths_count'):.2f} "
+                    f"batches={mean_metric(records, 'batches_used'):.2f} "
+                    f"accepted={mean_metric(records, 'accepted_paths_count'):.2f} "
                     f"ETA={eta_str}",
                     flush=True,
                 )
 
-    summary = _summarize(records)
+    summary = summarize_checked_batch_records(records)
     summary.update(
         {
             "input_path": args.input,
@@ -557,6 +332,17 @@ def main(argv: list[str] | None = None) -> int:
             "lambda_val": args.lambda_val,
             "batch_size": args.batch_size,
             "dedupe_tail_paths": args.dedupe_tail_paths,
+            "min_log_score": args.min_log_score,
+            "relation_expansion": not args.no_relation_expansion,
+            "check_mode": args.check_mode,
+            "check_backend": args.check_backend,
+            "check_llm_server_url": args.check_llm_server_url or args.llm_server_url,
+            "check_siliconflow_model": (
+                args.check_siliconflow_model
+                if args.check_backend == "siliconflow"
+                else None
+            ),
+            "check_max_new_tokens": check_max_new_tokens,
             "sample_index": args.sample_index,
             "sample_indices": selected_sample_indices,
         }
@@ -564,11 +350,6 @@ def main(argv: list[str] | None = None) -> int:
     summary_path = output_paths["summary"]
     with open(summary_path, "w", encoding="utf-8") as summary_handle:
         json.dump(summary, summary_handle, ensure_ascii=False, indent=2)
-
-    if not args.no_archive:
-        summary["analysis_readme"] = _write_archive(args, summary, summary_path)
-        with open(summary_path, "w", encoding="utf-8") as summary_handle:
-            json.dump(summary, summary_handle, ensure_ascii=False, indent=2)
 
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0

@@ -7,6 +7,7 @@ set -euo pipefail
 #   ./scripts/llm_server.sh restart
 #   ./scripts/llm_server.sh status
 #   PORT=8790 ./scripts/llm_server.sh start
+#   SILICONFLOW_API_KEY=... LLM_BACKEND=siliconflow ./scripts/llm_server.sh start
 #   PORT_BUSY_ACTION=kill ./scripts/llm_server.sh start
 #
 # Logs:
@@ -21,11 +22,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ACTION="${1:-start}"
 
+LLM_BACKEND="${LLM_BACKEND:-local}"
 MODEL_ID="${MODEL_ID:-unsloth/meta-llama-3.1-8b-instruct-bnb-4bit}"
 MODEL_CACHE_ROOT="${MODEL_CACHE_ROOT:-$HOME/.cache/huggingface/hub}"
 MODEL_CACHE_KEY="${MODEL_ID//\//--}"
 MODEL_SNAPSHOT="${MODEL_SNAPSHOT:-}"
-ADAPTER_PATH="${ADAPTER_PATH:-${PROJECT_DIR}/models/webqsp/ablation/groupJ_schema_name}"
+ADAPTER_PATH="${ADAPTER_PATH:-${PROJECT_DIR}/models/webqsp/offline_ablation/offC_name_v2}"
+SILICONFLOW_BASE_URL="${SILICONFLOW_BASE_URL:-https://api.siliconflow.cn/v1}"
+SILICONFLOW_MODEL="${SILICONFLOW_MODEL:-zai-org/GLM-4.5-Air}"
 LLM_SERVER_HOST="${LLM_SERVER_HOST:-0.0.0.0}"
 PORT="${PORT:-8788}"
 LOG_ROOT="${LOG_ROOT:-${PROJECT_DIR}/data/output/WebQSP/llm_server}"
@@ -53,6 +57,7 @@ Usage:
   ./scripts/llm_server.sh restart
   ./scripts/llm_server.sh status
   PORT=8790 ./scripts/llm_server.sh start
+  SILICONFLOW_API_KEY=... LLM_BACKEND=siliconflow ./scripts/llm_server.sh start
   PORT_BUSY_ACTION=kill ./scripts/llm_server.sh start
 
 Logs:
@@ -205,7 +210,14 @@ choose_port_busy_action() {
 }
 
 start_server() {
-  resolve_start_inputs
+  if [[ "${LLM_BACKEND}" != "local" && "${LLM_BACKEND}" != "siliconflow" ]]; then
+    echo "[ERROR] Unsupported LLM_BACKEND: ${LLM_BACKEND}" >&2
+    exit 1
+  fi
+
+  if [[ "${LLM_BACKEND}" == "local" ]]; then
+    resolve_start_inputs
+  fi
   resolve_log_path
   printf '%s\n' "${LOG_PATH}" > "${LOG_PATH_FILE}"
 
@@ -224,18 +236,34 @@ start_server() {
   fi
 
   cd "${PROJECT_DIR}"
-  nohup python -m oh_my_agent.llm_server.server \
-    --model "${MODEL_SNAPSHOT}" \
-    --adapter "${ADAPTER_PATH}" \
-    --host "${LLM_SERVER_HOST}" \
-    --port "${PORT}" \
-    > "${LOG_PATH}" 2>&1 &
+  if [[ "${LLM_BACKEND}" == "siliconflow" ]]; then
+    nohup python -m oh_my_agent.llm_server.server \
+      --backend siliconflow \
+      --siliconflow-base-url "${SILICONFLOW_BASE_URL}" \
+      --siliconflow-model "${SILICONFLOW_MODEL}" \
+      --host "${LLM_SERVER_HOST}" \
+      --port "${PORT}" \
+      > "${LOG_PATH}" 2>&1 &
+  else
+    nohup python -m oh_my_agent.llm_server.server \
+      --model "${MODEL_SNAPSHOT}" \
+      --adapter "${ADAPTER_PATH}" \
+      --host "${LLM_SERVER_HOST}" \
+      --port "${PORT}" \
+      > "${LOG_PATH}" 2>&1 &
+  fi
 
   local new_pid
   new_pid=$!
   echo "[INFO] Started llm_server PID=${new_pid} port=${PORT}"
-  echo "[INFO] Model snapshot: ${MODEL_SNAPSHOT}"
-  echo "[INFO] Adapter path : ${ADAPTER_PATH}"
+  echo "[INFO] Backend      : ${LLM_BACKEND}"
+  if [[ "${LLM_BACKEND}" == "siliconflow" ]]; then
+    echo "[INFO] SiliconFlow model: ${SILICONFLOW_MODEL}"
+    echo "[INFO] SiliconFlow base : ${SILICONFLOW_BASE_URL}"
+  else
+    echo "[INFO] Model snapshot: ${MODEL_SNAPSHOT}"
+    echo "[INFO] Adapter path : ${ADAPTER_PATH}"
+  fi
   echo "[INFO] Log path     : ${LOG_PATH}"
 
   if [[ "${WAIT_FOR_HEALTH}" != "1" ]]; then

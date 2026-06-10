@@ -6,7 +6,7 @@ import argparse
 import json
 
 from oh_my_agent.agent import CheckedBatchWebQAgent
-from oh_my_agent.tools import AnswerWithPathsTool, CitedPathCheckTool, PathRetrieveTool
+from oh_my_agent.tools import AnswerWithPathsTool, PathRetrieveTool, RejectedAnswerCheckTool
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,7 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Deduplicate retrieved paths by final raw tail entity before batching",
     )
     parser.add_argument("--max_new_tokens", type=int, default=256)
-    parser.add_argument("--check_max_new_tokens", type=int, default=2)
+    parser.add_argument("--check_max_new_tokens", type=int, default=48)
     parser.add_argument("--path_retrieve_url", default="http://localhost:8789")
     parser.add_argument("--llm_server_url", default="http://localhost:8788")
     parser.add_argument(
@@ -34,7 +34,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="MID->name mapping file",
     )
     parser.add_argument("--no_adapter", action="store_true", help="Use the base model for answering")
-    parser.add_argument("--check_use_adapter", action="store_true", help="Use the adapter for path checks")
     return parser
 
 
@@ -49,15 +48,23 @@ def main(argv: list[str] | None = None) -> int:
         default_use_adapter=not args.no_adapter,
         default_max_new_tokens=args.max_new_tokens,
     )
-    check_tool = CitedPathCheckTool(
+    check_tool = RejectedAnswerCheckTool(
         base_url=args.llm_server_url,
-        default_use_adapter=args.check_use_adapter,
+        default_use_adapter=False,
         default_max_new_tokens=args.check_max_new_tokens,
+        reject_policy="loose",
+    )
+    check_tool_after_first = RejectedAnswerCheckTool(
+        base_url=args.llm_server_url,
+        default_use_adapter=False,
+        default_max_new_tokens=args.check_max_new_tokens,
+        reject_policy="strict",
     )
     agent = CheckedBatchWebQAgent(
         path_tool=path_tool,
         answer_tool=answer_tool,
         check_tool=check_tool,
+        check_tool_after_first=check_tool_after_first,
     )
     result = agent.run(
         args.question,

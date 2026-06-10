@@ -7,7 +7,9 @@ from typing import Any
 
 from oh_my_agent.common import apply_entity_map, load_entity_map, map_entities
 from oh_my_agent.path_retrieve_server import PathRetrieveClient, PathRetrieveResponse
-from oh_my_agent.tools.path_retrieval import DEFAULT_ENTITY_MAP_PATH
+
+
+DEFAULT_ENTITY_MAP_PATH = "data/resources/WebQSP/fbwq_full/mapped_entities.txt"
 
 
 @dataclass(frozen=True)

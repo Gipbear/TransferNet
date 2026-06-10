@@ -92,3 +92,62 @@ def create_app(engine: ModelEngine, scheduler: BatchScheduler) -> FastAPI:
         return engine.info()
 
     return app
+
+
+def create_remote_app(client, info_payload: dict) -> FastAPI:
+    """创建远程 API 代理应用，保持 /generate 协议与本地服务一致。"""
+
+    app = FastAPI(title="LLM Remote API Proxy", version="2.0")
+
+    @app.post("/generate", response_model=GenerateResponse)
+    async def generate(req: GenerateRequest):
+        req_id = next(_req_counter)
+        log.info(
+            "[req#%d] REMOTE_INPUT use_adapter=%s max_new_tokens=%s temperature=%s"
+            " system_prompt=%r prompt=%r",
+            req_id, req.use_adapter, req.max_new_tokens, req.temperature,
+            req.system_prompt, req.prompt,
+        )
+
+        try:
+            result: _ClientGenerateResponse = await asyncio.to_thread(
+                client.generate,
+                req.prompt,
+                use_adapter=req.use_adapter,
+                max_new_tokens=req.max_new_tokens,
+                temperature=req.temperature,
+                system_prompt=req.system_prompt,
+            )
+        except ValueError as exc:
+            log.warning("[req#%d] REMOTE_ERROR %s", req_id, exc)
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            log.warning("[req#%d] REMOTE_ERROR %s", req_id, exc)
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        log.info(
+            "[req#%d] REMOTE_OUTPUT tokens=%s elapsed_ms=%.1f used_adapter=%s text=%r",
+            req_id, result.tokens_generated, result.elapsed_ms,
+            result.used_adapter, result.text,
+        )
+
+        return GenerateResponse(
+            text=result.text,
+            used_adapter=result.used_adapter,
+            tokens_generated=result.tokens_generated,
+            elapsed_ms=result.elapsed_ms,
+        )
+
+    @app.get("/health")
+    def health():
+        try:
+            client.health()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {"status": "ok", "provider": info_payload.get("provider")}
+
+    @app.get("/info")
+    def info():
+        return info_payload
+
+    return app

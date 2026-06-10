@@ -86,52 +86,39 @@ python run_agent_eval.py --ckpt <CKPT> --input_dir <DATA_DIR> \
 ```
 
 ### oh_my_agent Services & Evaluation
-当前 `oh_my_agent` 的评测入口是 `python -m oh_my_agent.cli.eval_webqsp`。它不是单独的 HTTP eval service，而是一个批量 CLI：先调用常驻 `path_server` 检索 TransferNet MMR 路径，再调用常驻 `llm_server` 用本地 LLM + LoRA adapter 生成答案，最后写出逐样本 JSONL 和 summary。
+当前 `oh_my_agent` 的评测入口是 `python -m oh_my_agent.cli.eval_checked_batch_agent`（checked-batch agent：分批答题 + LLM reject 检查，首批 loose、后续批 strict）。它是批量 CLI：先调用常驻 `path_retrieve_server`（score 缓存检索，仅覆盖 WebQSP test 1581 条），再调用常驻 `llm_server` 答题与校验，写出逐样本 JSONL、summary 与初始检索/答题记录。
 
 ```bash
 # 推荐：启动两个常驻服务
-./scripts/path_server.sh start
+./scripts/path_retrieve_server.sh start
 ./scripts/llm_server.sh start
 
 # 检查服务状态
-./scripts/path_server.sh status
+./scripts/path_retrieve_server.sh status
 ./scripts/llm_server.sh status
-
-# 如果端口被旧服务占用且明确要替换
-PORT_BUSY_ACTION=kill ./scripts/path_server.sh start
-PORT_BUSY_ACTION=kill ./scripts/llm_server.sh start
 ```
 
 默认服务地址：
-- `path_server`: `http://localhost:8787`
+- `path_retrieve_server`: `http://localhost:8789`
 - `llm_server`: `http://localhost:8788`
 
 快速小样本评测：
 ```bash
-python -m oh_my_agent.cli.eval_webqsp \
+python -m oh_my_agent.cli.eval_checked_batch_agent \
     --input data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt \
-    --output data/output/WebQSP/simple_agent_eval_20.jsonl \
-    --limit 20 \
-    --beam_size 20 \
-    --lambda_val 0.2 \
-    --path_server_url http://localhost:8787 \
+    --output data/output/WebQSP/checked_batch_agent/quick_50 \
+    --limit 50 \
+    --check_mode hybrid-reject-list \
+    --path_retrieve_url http://localhost:8789 \
     --llm_server_url http://localhost:8788
 ```
 
-完整评测：
-```bash
-python -m oh_my_agent.cli.eval_webqsp \
-    --input data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt \
-    --output data/output/WebQSP/simple_agent_eval_full.jsonl \
-    --beam_size 20 \
-    --lambda_val 0.2 \
-    --path_server_url http://localhost:8787 \
-    --llm_server_url http://localhost:8788
-```
+一键脚本（自动确保服务在线）：`bash scripts/run_checked_batch_agent_eval.sh`，环境变量 `LIMIT`/`OUTPUT_DIR`/`BEAM_SIZE` 等可覆盖。
 
-输出文件：
-- `*.jsonl`: 逐样本记录，包含检索路径、LLM 输出、答案解析、citation 与 answer metrics。
-- `*_summary.json`: 聚合指标，如 `hit1`、`hit_any`、`macro_f1`、`exact_match`、`citation_accuracy`、`hallucination_rate`、`format_compliance`。
+输出文件（写入 `--output` 目录）：
+- `checked_batch_eval.jsonl`: 逐样本记录，含检索路径、各批答题/检查轨迹、答案与 citation metrics。
+- `checked_batch_eval_summary.json`: 聚合指标，如 `hit1`、`hit_any`、`macro_f1`、`exact_match`、`citation_accuracy`、`stop_reason_counts`。
+- `initial_retrieval.jsonl` / `initial_answer.jsonl`: 初始检索与首批答题记录。
 
 ## Architecture
 

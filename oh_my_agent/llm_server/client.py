@@ -17,11 +17,16 @@ Usage:
 
 from __future__ import annotations
 
+import os
+import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 import requests
-import time
+
+
+SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
+SILICONFLOW_MODEL = "zai-org/GLM-4.5-Air"
 
 
 @dataclass
@@ -83,6 +88,7 @@ class OpenAICompatibleLLMClient:
         timeout: int = 120,
         api_key: str = "EMPTY",
         adapter_model: str | None = None,
+        extra_body: dict[str, Any] | None = None,
     ):
         if not model:
             raise ValueError("model is required for OpenAI-compatible LLM client")
@@ -91,6 +97,7 @@ class OpenAICompatibleLLMClient:
         self.timeout = timeout
         self.api_key = api_key
         self.adapter_model = adapter_model
+        self.extra_body = dict(extra_body or {})
 
     def generate(
         self,
@@ -113,15 +120,17 @@ class OpenAICompatibleLLMClient:
             "max_tokens": max_new_tokens,
             "temperature": temperature,
         }
+        payload.update(self.extra_body)
         headers = {"Authorization": f"Bearer {self.api_key}"}
 
         t0 = time.perf_counter()
-        resp = requests.post(
-            f"{self.base_url}/chat/completions",
-            json=payload,
-            headers=headers,
-            timeout=self.timeout,
-        )
+        for attempt in range(4):
+            resp = requests.post(f"{self.base_url}/chat/completions", json=payload,
+                                 headers=headers, timeout=self.timeout)
+            if getattr(resp, "status_code", None) == 429 and attempt < 3:
+                time.sleep(60.0)
+                continue
+            break
         elapsed_ms = (time.perf_counter() - t0) * 1000
         resp.raise_for_status()
         data = resp.json()
@@ -147,3 +156,26 @@ class OpenAICompatibleLLMClient:
 
     def info(self) -> dict:
         return self.health()
+
+
+class SiliconFlowLLMClient(OpenAICompatibleLLMClient):
+    """SiliconFlow chat client in non-thinking mode."""
+
+    def __init__(
+        self,
+        base_url: str | None = None,
+        *,
+        model: str = SILICONFLOW_MODEL,
+        timeout: int = 120,
+        api_key: str | None = None,
+    ):
+        resolved_api_key = api_key or os.environ.get("SILICONFLOW_API_KEY")
+        if not resolved_api_key:
+            raise ValueError("SILICONFLOW_API_KEY is required for SiliconFlow LLM client")
+        super().__init__(
+            base_url or os.environ.get("SILICONFLOW_BASE_URL", SILICONFLOW_BASE_URL),
+            model=model,
+            timeout=timeout,
+            api_key=resolved_api_key,
+            extra_body={"enable_thinking": False},
+        )

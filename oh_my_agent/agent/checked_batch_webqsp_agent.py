@@ -8,13 +8,14 @@ from typing import Any
 from oh_my_agent.common import (
     build_reverse_entity_map,
     expand_pred_answers_with_path_constraint,
+    tail_from_path_dict,
 )
 from oh_my_agent.common.metrics import norm_entity
 from oh_my_agent.tools import (
     AnswerWithPathsTool,
-    CitedPathCheckTool,
     PathRetrieveTool,
     PathRetrieveToolResult,
+    RejectedAnswerCheckTool,
 )
 
 
@@ -83,13 +84,6 @@ class CheckedBatchWebQAgentResult:
         return data
 
 
-def _tail_from_path(path_dict: dict[str, Any]) -> str:
-    edges = path_dict.get("path", [])
-    if not edges:
-        return ""
-    return str(edges[-1][-1])
-
-
 def _path_entity_sequence(path_dict: dict[str, Any]) -> list[str]:
     edges = path_dict.get("path", [])
     if not edges:
@@ -114,8 +108,8 @@ def _answer_pair_from_paths(
     answer_names: list[str],
 ) -> tuple[str, str]:
     raw_path_dict = raw_path_dict or named_path_dict
-    named_answer = _tail_from_path(named_path_dict)
-    raw_answer = _tail_from_path(raw_path_dict)
+    named_answer = tail_from_path_dict(named_path_dict)
+    raw_answer = tail_from_path_dict(raw_path_dict)
 
     answer_keys = {norm_entity(answer) for answer in answer_names if norm_entity(answer)}
     if not answer_keys:
@@ -133,7 +127,7 @@ def _answer_pair_from_paths(
 
 
 def _tail_entity_count(paths: list[dict[str, Any]]) -> int:
-    return len({norm_entity(_tail_from_path(path)) for path in paths if _tail_from_path(path)})
+    return len({norm_entity(tail_from_path_dict(path)) for path in paths if tail_from_path_dict(path)})
 
 
 def _tail_entity_count_for_indices(raw_paths: list[dict[str, Any]], indices: set[int]) -> int:
@@ -141,7 +135,7 @@ def _tail_entity_count_for_indices(raw_paths: list[dict[str, Any]], indices: set
     for index in indices:
         path_offset = index - 1
         if 0 <= path_offset < len(raw_paths):
-            tail = _tail_from_path(raw_paths[path_offset])
+            tail = tail_from_path_dict(raw_paths[path_offset])
             if tail:
                 tails.add(norm_entity(tail))
     return len(tails)
@@ -156,7 +150,7 @@ def _dedupe_paths_by_tail(
     seen_tails: set[str] = set()
 
     for raw_path, named_path in zip(raw_paths, named_paths):
-        raw_tail = norm_entity(_tail_from_path(raw_path))
+        raw_tail = norm_entity(tail_from_path_dict(raw_path))
         if raw_tail:
             if raw_tail in seen_tails:
                 continue
@@ -173,6 +167,16 @@ def _relation_sequence_from_path(path_dict: dict[str, Any]) -> tuple[str, ...]:
         for edge in path_dict.get("path", [])
         if isinstance(edge, (list, tuple)) and len(edge) >= 2
     )
+
+
+def _log_score_from_path(path_dict: dict[str, Any]) -> float | None:
+    value = path_dict.get("log_score")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _classify_batch(batch_size: int, accepted_count: int) -> str:
@@ -211,13 +215,17 @@ class CheckedBatchWebQAgent:
         *,
         path_tool: PathRetrieveTool,
         answer_tool: AnswerWithPathsTool,
-        check_tool: CitedPathCheckTool,
+        check_tool: RejectedAnswerCheckTool,
+        check_tool_after_first: RejectedAnswerCheckTool | None = None,
     ) -> None:
         self.path_tool = path_tool
         self.answer_tool = answer_tool
         self.check_tool = check_tool
+        self.check_tool_after_first = check_tool_after_first
         self.entity_map = path_tool.entity_map
         self.reverse_entity_map = build_reverse_entity_map(self.entity_map)
+        self._min_log_score: float | None = None
+        self._enable_relation_expansion: bool = True
 
     def run(
         self,
@@ -236,9 +244,13 @@ class CheckedBatchWebQAgent:
         check_max_new_tokens: int | None = None,
         sample_index: int | None = None,
         dedupe_tail_paths: bool = False,
+        min_log_score: float | None = None,
+        enable_relation_expansion: bool = True,
     ) -> CheckedBatchWebQAgentResult:
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
+        self._min_log_score = min_log_score
+        self._enable_relation_expansion = enable_relation_expansion
 
         retrieval = self.path_tool(
             question,
@@ -281,6 +293,14 @@ class CheckedBatchWebQAgent:
             if batch_status == "mixed" and accepted_entity_count <= batch_entity_count / 3:
                 state.stop_reason = "mixed"
                 break
+            if (
+                self.check_tool_after_first is not None
+                and start > 0
+                and batch_status == "all_wrong"
+                and state.accepted_indices
+            ):
+                state.stop_reason = "all_wrong_after_answer"
+                break
 
         return self._build_result(
             question=question,
@@ -316,7 +336,12 @@ class CheckedBatchWebQAgent:
         state.answer_tokens += answer.tokens_generated
         state.answer_elapsed_ms += answer.elapsed_ms
 
-        check = self.check_tool(
+        check_tool = (
+            self.check_tool_after_first
+            if state.iterations and self.check_tool_after_first is not None
+            else self.check_tool
+        )
+        check = check_tool(
             question,
             batch_named,
             cited_path_indices=answer.cited_path_indices,
@@ -340,15 +365,17 @@ class CheckedBatchWebQAgent:
             state=state,
         )
 
-        batch_relation_expanded = self._add_relation_expanded_answers(
-            global_cited=global_cited,
-            global_accepted=global_accepted,
-            raw_paths=raw_paths,
-            named_paths=named_paths,
-            raw_prediction_mids=raw_prediction_mids,
-            answer_names=answer.answer_names,
-            state=state,
-        )
+        batch_relation_expanded: list[int] = []
+        if self._enable_relation_expansion:
+            batch_relation_expanded = self._add_relation_expanded_answers(
+                global_cited=global_cited,
+                global_accepted=global_accepted,
+                raw_paths=raw_paths,
+                named_paths=named_paths,
+                raw_prediction_mids=raw_prediction_mids,
+                answer_names=answer.answer_names,
+                state=state,
+            )
         accepted_count = len(set(global_accepted) | set(batch_relation_expanded))
         accepted_entity_count = _tail_entity_count_for_indices(
             raw_paths,
@@ -408,6 +435,9 @@ class CheckedBatchWebQAgent:
                 named_answer=named_answer,
                 raw_answer=raw_answer,
                 state=state,
+                log_score=_log_score_from_path(named_paths[path_offset])
+                if path_offset < len(named_paths)
+                else None,
             )
 
     def _add_relation_expanded_answers(
@@ -455,6 +485,9 @@ class CheckedBatchWebQAgent:
                 named_answer=named_answer,
                 raw_answer=raw_answer,
                 state=state,
+                log_score=_log_score_from_path(named_paths[path_offset])
+                if path_offset < len(named_paths)
+                else None,
             )
         return batch_relation_expanded
 
@@ -464,7 +497,14 @@ class CheckedBatchWebQAgent:
         named_answer: str,
         raw_answer: str,
         state: _CheckedBatchState,
+        log_score: float | None = None,
     ) -> None:
+        if (
+            self._min_log_score is not None
+            and log_score is not None
+            and log_score < self._min_log_score
+        ):
+            return
         dedupe_key = norm_entity(raw_answer or named_answer)
         if not dedupe_key or dedupe_key in state.seen_answer_keys:
             return

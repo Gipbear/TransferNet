@@ -9,8 +9,7 @@ if str(ROOT) not in sys.path:
 
 from oh_my_agent.llm_server.client import GenerateResponse
 from oh_my_agent.path_retrieve_server.client import PathRetrieveResponse
-from oh_my_agent.path_server.client import PathRetrievalResponse
-from oh_my_agent.tools import AnswerWithPathsTool, PathRetrievalTool, PathRetrieveTool
+from oh_my_agent.tools import AnswerWithPathsTool, PathRetrieveTool
 
 
 class FakePathClient:
@@ -33,40 +32,7 @@ class FakeLLMClient:
         return self.response
 
 
-class SimpleAgentToolTests(unittest.TestCase):
-    def test_path_retrieval_tool_returns_raw_and_named_views(self):
-        response = PathRetrievalResponse(
-            question="who was vice president after kennedy died",
-            topics=["John F. Kennedy"],
-            hop=2,
-            mmr_reason_paths=[
-                {"path": [["John F. Kennedy", "government.role", "Lyndon B. Johnson"]], "log_score": -1.0}
-            ],
-            prediction={"Lyndon B. Johnson": 0.99},
-            elapsed_ms=12.5,
-            raw_topics=["m.0d3k14"],
-            raw_mmr_reason_paths=[
-                {"path": [["m.0d3k14", "government.role", "m.0f7fy"]], "log_score": -1.0}
-            ],
-            raw_prediction={"m.0f7fy": 0.99},
-        )
-        tool = PathRetrievalTool(
-            client=FakePathClient(response),
-            entity_map={
-                "m.0d3k14": "John F. Kennedy",
-                "m.0f7fy": "Lyndon B. Johnson",
-            },
-        )
-
-        result = tool("who was vice president after kennedy died", "m.0d3k14")
-
-        self.assertEqual(result.raw_topics, ["m.0d3k14"])
-        self.assertEqual(result.named_topics, ["John F. Kennedy"])
-        self.assertEqual(result.raw_mmr_reason_paths[0]["path"][0][2], "m.0f7fy")
-        self.assertEqual(result.named_mmr_reason_paths[0]["path"][0][2], "Lyndon B. Johnson")
-        self.assertEqual(result.raw_prediction, {"m.0f7fy": 0.99})
-        self.assertEqual(result.named_prediction, {"Lyndon B. Johnson": 0.99})
-
+class AgentToolTests(unittest.TestCase):
     def test_path_retrieve_tool_wraps_cached_retrieve_server(self):
         response = PathRetrieveResponse(
             question="[CLS] who was vice president after kennedy died [SEP]",
