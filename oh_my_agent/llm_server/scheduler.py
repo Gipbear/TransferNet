@@ -25,6 +25,7 @@ class _GenerateJob:
     system_prompt: Optional[str]
     future: Future
     queued_at: float
+    max_option_index: Optional[int] = None
 
 
 class BatchScheduler:
@@ -71,6 +72,7 @@ class BatchScheduler:
         max_new_tokens: int,
         temperature: float,
         system_prompt: Optional[str],
+        max_option_index: Optional[int] = None,
     ) -> Future:
         """提交生成请求，返回 Future[GenerateResponse]。"""
         future: Future = Future()
@@ -83,6 +85,7 @@ class BatchScheduler:
                 system_prompt=system_prompt,
                 future=future,
                 queued_at=time.perf_counter(),
+                max_option_index=max_option_index,
             )
         )
         return future
@@ -92,13 +95,14 @@ class BatchScheduler:
     def _compatible(self, left: _GenerateJob, right: _GenerateJob) -> bool:
         """两个 job 是否可以合并到同一批次。
 
-        use_adapter/temperature/system_prompt 必须相同。
+        use_adapter/temperature/system_prompt/max_option_index 必须相同。
         max_new_tokens 允许不同（批内取 max，各 job 输出按原值截断）。
         """
         return (
             left.use_adapter == right.use_adapter
             and left.temperature == right.temperature
             and left.system_prompt == right.system_prompt
+            and left.max_option_index == right.max_option_index
         )
 
     def _collect_batch(self, first_job: _GenerateJob) -> list[_GenerateJob]:
@@ -174,7 +178,8 @@ class BatchScheduler:
 
         t0 = time.perf_counter()
         texts, token_counts = self._engine.generate_batch(
-            rendered, first.use_adapter, effective_max, first.temperature
+            rendered, first.use_adapter, effective_max, first.temperature,
+            max_option_index=first.max_option_index,
         )
         elapsed_ms = (time.perf_counter() - t0) * 1000
 

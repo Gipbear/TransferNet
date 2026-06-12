@@ -230,6 +230,7 @@ class RejectedAnswerCheckTool:
         default_max_new_tokens: int = 48,
         system_prompt: str | None = None,
         reject_policy: str = "loose",
+        constrained_decoding: bool = False,
     ) -> None:
         if reject_policy not in {"loose", "strict"}:
             raise ValueError("reject_policy must be 'loose' or 'strict'")
@@ -237,6 +238,7 @@ class RejectedAnswerCheckTool:
         self.default_use_adapter = default_use_adapter
         self.default_max_new_tokens = default_max_new_tokens
         self.reject_policy = reject_policy
+        self.constrained_decoding = constrained_decoding
         default_system_prompt = (
             STRICT_REJECTED_ANSWER_CHECK_SYSTEM
             if reject_policy == "strict"
@@ -282,12 +284,16 @@ class RejectedAnswerCheckTool:
             candidates,
             strict=self.reject_policy == "strict",
         )
+        generate_kwargs: dict[str, Any] = {}
+        if self.constrained_decoding:
+            generate_kwargs["max_option_index"] = len(candidates)
         response = self.client.generate(
             prompt,
             use_adapter=use_adapter,
             max_new_tokens=max_new_tokens,
             temperature=0.0,
             system_prompt=self.system_prompt,
+            **generate_kwargs,
         )
         rejected_indices = parse_rejected_answer_indices(response.text, len(candidates))
         rejected_set = set(rejected_indices)

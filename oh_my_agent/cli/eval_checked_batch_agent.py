@@ -24,7 +24,11 @@ from oh_my_agent.common import (
     summarize_checked_batch_records,
 )
 from oh_my_agent.llm_server.client import LLMClient, SILICONFLOW_MODEL, SiliconFlowLLMClient
-from oh_my_agent.tools import AnswerWithPathsTool, PathRetrieveTool, RejectedAnswerCheckTool
+from oh_my_agent.tools import (
+    AnswerWithPathsTool,
+    PathRetrieveTool,
+    RejectedAnswerCheckTool,
+)
 
 
 DEFAULT_INPUT_PATH = "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"
@@ -67,11 +71,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Deduplicate retrieved paths by final raw tail entity before batching",
     )
     parser.add_argument(
-        "--min_log_score",
+        "--score_margin",
         type=float,
         default=None,
-        help="Drop accepted paths whose log_score is below this value from final answers "
-        "(post-filter on top of the LLM check; None disables it)",
+        help="Drop final answers whose best supporting-path log_score trails the top "
+        "answer by more than this margin (relative post-filter; None disables it)",
     )
     parser.add_argument(
         "--no_relation_expansion",
@@ -95,6 +99,56 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=0,
         help="Max new tokens for validation. Default 0 uses 48.",
+    )
+    parser.add_argument(
+        "--check_use_adapter",
+        action="store_true",
+        help="Run validation calls with the LoRA adapter loaded on the check "
+        "LLM server (e.g. a dedicated checker adapter served via "
+        "--check_llm_server_url)",
+    )
+    parser.add_argument(
+        "--check_constrained_decoding",
+        action="store_true",
+        help="Constrain check output tokens to valid candidate indices or NONE "
+        "(local llm_server backend only)",
+    )
+    parser.add_argument(
+        "--hop_filter",
+        action="store_true",
+        help="Drop final answers supported only by relation chains whose length "
+        "differs from the retrieval-predicted hop count",
+    )
+    parser.add_argument(
+        "--large_answer_expansion",
+        action="store_true",
+        help="For enumeration-type questions (many answers, no selective "
+        "constraint words), expand final answers to all KG tails of the winning "
+        "relation group gated by the TransferNet prediction "
+        "(requires --kg_group_tails_file)",
+    )
+    parser.add_argument(
+        "--kg_group_tails_file",
+        default="",
+        help="JSON file mapping 'topic|rel1[|rel2]' to full KG tail mid lists",
+    )
+    parser.add_argument(
+        "--expansion_min_answers",
+        type=int,
+        default=8,
+        help="Minimum current answer count before large-answer expansion applies",
+    )
+    parser.add_argument(
+        "--expansion_top_groups",
+        type=int,
+        default=1,
+        help="Number of top answer-supporting relation groups to expand",
+    )
+    parser.add_argument(
+        "--no_early_stop",
+        action="store_true",
+        help="Do not stop batching on low-accept mixed batches; check all "
+        "retrieved paths (downstream margin/hop/expansion filters guard precision)",
     )
     parser.add_argument("--path_retrieve_url", default="http://localhost:8789")
     parser.add_argument("--llm_server_url", default="http://localhost:8788")
@@ -204,27 +258,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     check_client = _build_check_client(args)
     check_max_new_tokens = _resolve_check_max_new_tokens(args)
-    check_tool_after_first = None
-    if args.check_mode == "hybrid-reject-list":
-        check_tool = RejectedAnswerCheckTool(
+
+    def build_check_tool(reject_policy: str) -> RejectedAnswerCheckTool:
+        return RejectedAnswerCheckTool(
             client=check_client,
-            default_use_adapter=False,
+            default_use_adapter=args.check_use_adapter,
             default_max_new_tokens=check_max_new_tokens,
-            reject_policy="loose",
+            reject_policy=reject_policy,
+            constrained_decoding=args.check_constrained_decoding,
         )
-        check_tool_after_first = RejectedAnswerCheckTool(
-            client=check_client,
-            default_use_adapter=False,
-            default_max_new_tokens=check_max_new_tokens,
-            reject_policy="strict",
-        )
-    else:
-        check_tool = RejectedAnswerCheckTool(
-            client=check_client,
-            default_use_adapter=False,
-            default_max_new_tokens=check_max_new_tokens,
-            reject_policy="loose",
-        )
+
+    check_tool = build_check_tool("loose")
+    check_tool_after_first = (
+        build_check_tool("strict") if args.check_mode == "hybrid-reject-list" else None
+    )
     if not args.skip_server_check:
         print("path_retrieve:", path_tool.client.health(), flush=True)
         print("llm         :", answer_tool.client.health(), flush=True)
@@ -232,6 +279,13 @@ def main(argv: list[str] | None = None) -> int:
             args.check_llm_server_url and args.check_llm_server_url != args.llm_server_url
         ):
             print("check_llm   :", check_client.health(), flush=True)
+
+    kg_group_tails: dict[str, list[str]] | None = None
+    if args.large_answer_expansion:
+        if not args.kg_group_tails_file:
+            raise ValueError("--kg_group_tails_file is required for --large_answer_expansion")
+        with open(args.kg_group_tails_file, encoding="utf-8") as kg_handle:
+            kg_group_tails = json.load(kg_handle)
 
     agent = CheckedBatchWebQAgent(
         path_tool=path_tool,
@@ -261,8 +315,14 @@ def main(argv: list[str] | None = None) -> int:
                 batch_size=args.batch_size,
                 sample_index=sample_index if selected_sample_indices else None,
                 dedupe_tail_paths=args.dedupe_tail_paths,
-                min_log_score=args.min_log_score,
+                score_margin=args.score_margin,
                 enable_relation_expansion=not args.no_relation_expansion,
+                hop_filter=args.hop_filter,
+                large_answer_expansion=args.large_answer_expansion,
+                kg_group_tails=kg_group_tails,
+                expansion_min_answers=args.expansion_min_answers,
+                expansion_top_groups=args.expansion_top_groups,
+                no_early_stop=args.no_early_stop,
             )
             answer_metrics = compute_answer_metrics(
                 result.pred_answer_disambiguated_mids,
@@ -332,7 +392,7 @@ def main(argv: list[str] | None = None) -> int:
             "lambda_val": args.lambda_val,
             "batch_size": args.batch_size,
             "dedupe_tail_paths": args.dedupe_tail_paths,
-            "min_log_score": args.min_log_score,
+            "score_margin": args.score_margin,
             "relation_expansion": not args.no_relation_expansion,
             "check_mode": args.check_mode,
             "check_backend": args.check_backend,
@@ -343,6 +403,13 @@ def main(argv: list[str] | None = None) -> int:
                 else None
             ),
             "check_max_new_tokens": check_max_new_tokens,
+            "check_constrained_decoding": args.check_constrained_decoding,
+            "hop_filter": args.hop_filter,
+            "large_answer_expansion": args.large_answer_expansion,
+            "kg_group_tails_file": args.kg_group_tails_file or None,
+            "expansion_min_answers": args.expansion_min_answers,
+            "expansion_top_groups": args.expansion_top_groups,
+            "no_early_stop": args.no_early_stop,
             "sample_index": args.sample_index,
             "sample_indices": selected_sample_indices,
         }

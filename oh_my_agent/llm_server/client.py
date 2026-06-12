@@ -57,14 +57,18 @@ class LLMClient:
         max_new_tokens: int = 256,
         temperature: float = 0.0,
         system_prompt: Optional[str] = None,
+        max_option_index: Optional[int] = None,
     ) -> GenerateResponse:
-        return self._post("/generate", {
+        payload = {
             "prompt": prompt,
             "use_adapter": use_adapter,
             "max_new_tokens": max_new_tokens,
             "temperature": temperature,
             "system_prompt": system_prompt,
-        })
+        }
+        if max_option_index is not None:
+            payload["max_option_index"] = max_option_index
+        return self._post("/generate", payload)
 
     def health(self) -> dict:
         resp = requests.get(f"{self.base_url}/health", timeout=10)
@@ -107,7 +111,9 @@ class OpenAICompatibleLLMClient:
         max_new_tokens: int = 256,
         temperature: float = 0.0,
         system_prompt: Optional[str] = None,
+        max_option_index: Optional[int] = None,
     ) -> GenerateResponse:
+        # OpenAI 兼容端点无受限解码能力，max_option_index 仅为接口兼容而接受
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})

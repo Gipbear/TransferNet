@@ -25,6 +25,8 @@ class GenerateRequest(BaseModel):
     max_new_tokens: int = Field(256, ge=1, le=2048)
     temperature: float = Field(0.0, ge=0.0, le=2.0)
     system_prompt: Optional[str] = None
+    # 受限解码：输出限定为 1..max_option_index 的逗号分隔编号或 NONE
+    max_option_index: Optional[int] = Field(None, ge=1)
 
 
 class GenerateResponse(BaseModel):
@@ -52,14 +54,15 @@ def create_app(engine: ModelEngine, scheduler: BatchScheduler) -> FastAPI:
         req_id = next(_req_counter)
         log.info(
             "[req#%d] INPUT use_adapter=%s max_new_tokens=%s temperature=%s"
-            " system_prompt=%r prompt=%r",
+            " max_option_index=%s system_prompt=%r prompt=%r",
             req_id, req.use_adapter, req.max_new_tokens, req.temperature,
-            req.system_prompt, req.prompt,
+            req.max_option_index, req.system_prompt, req.prompt,
         )
 
         future = scheduler.submit(
             req.prompt, req.use_adapter, req.max_new_tokens,
             req.temperature, req.system_prompt,
+            max_option_index=req.max_option_index,
         )
         try:
             result: _ClientGenerateResponse = await asyncio.wrap_future(future)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -64,6 +65,7 @@ class CheckedBatchWebQAgentResult:
     pred_answer_expanded_mids: list[str] = field(default_factory=list)
     pred_answer_disambiguated_mids: list[str] = field(default_factory=list)
     relation_expanded_path_indices: list[int] = field(default_factory=list)
+    large_answer_expanded_mids: list[str] = field(default_factory=list)
     batches_used: int = 0
     checked_paths_count: int = 0
     accepted_paths_count: int = 0
@@ -169,14 +171,13 @@ def _relation_sequence_from_path(path_dict: dict[str, Any]) -> tuple[str, ...]:
     )
 
 
-def _log_score_from_path(path_dict: dict[str, Any]) -> float | None:
-    value = path_dict.get("log_score")
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
+# 含选择性约束(年份/序数/最高级/角色限定)的问题不做大答案集展开:
+# 这类问题的答案是组内子集,展开整组会毁精确率(离线验证 53 升 / 12 降的门控)
+_EXPANSION_CONSTRAINT_WORDS = (
+    "first", "last", "2008", "2009", "2010", "2011", "2012", "2013", "2014",
+    "now", "current", "president", "capital", "main", "biggest", "largest",
+    "before", "after", "died", "death", "won", "initially",
+)
 
 
 def _classify_batch(batch_size: int, accepted_count: int) -> str:
@@ -200,6 +201,7 @@ class _CheckedBatchState:
     final_names: list[str] = field(default_factory=list)
     final_mids: list[str] = field(default_factory=list)
     seen_answer_keys: set[str] = field(default_factory=set)
+    large_answer_expanded_mids: list[str] = field(default_factory=list)
     answer_tokens: int = 0
     check_tokens: int = 0
     answer_elapsed_ms: float = 0.0
@@ -224,8 +226,12 @@ class CheckedBatchWebQAgent:
         self.check_tool_after_first = check_tool_after_first
         self.entity_map = path_tool.entity_map
         self.reverse_entity_map = build_reverse_entity_map(self.entity_map)
-        self._min_log_score: float | None = None
+        self._score_margin: float | None = None
         self._enable_relation_expansion: bool = True
+        self._large_answer_expansion: bool = False
+        self._kg_group_tails: dict[str, list[str]] | None = None
+        self._expansion_min_answers: int = 8
+        self._expansion_top_groups: int = 1
 
     def run(
         self,
@@ -244,13 +250,23 @@ class CheckedBatchWebQAgent:
         check_max_new_tokens: int | None = None,
         sample_index: int | None = None,
         dedupe_tail_paths: bool = False,
-        min_log_score: float | None = None,
+        score_margin: float | None = None,
         enable_relation_expansion: bool = True,
+        hop_filter: bool = False,
+        large_answer_expansion: bool = False,
+        kg_group_tails: dict[str, list[str]] | None = None,
+        expansion_min_answers: int = 8,
+        expansion_top_groups: int = 1,
+        no_early_stop: bool = False,
     ) -> CheckedBatchWebQAgentResult:
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
-        self._min_log_score = min_log_score
+        self._score_margin = score_margin
         self._enable_relation_expansion = enable_relation_expansion
+        self._large_answer_expansion = large_answer_expansion
+        self._kg_group_tails = kg_group_tails
+        self._expansion_min_answers = expansion_min_answers
+        self._expansion_top_groups = expansion_top_groups
 
         retrieval = self.path_tool(
             question,
@@ -290,7 +306,11 @@ class CheckedBatchWebQAgent:
                 check_max_new_tokens=check_max_new_tokens,
             )
 
-            if batch_status == "mixed" and accepted_entity_count <= batch_entity_count / 3:
+            if (
+                not no_early_stop
+                and batch_status == "mixed"
+                and accepted_entity_count <= batch_entity_count / 3
+            ):
                 state.stop_reason = "mixed"
                 break
             if (
@@ -301,6 +321,9 @@ class CheckedBatchWebQAgent:
             ):
                 state.stop_reason = "all_wrong_after_answer"
                 break
+
+        if hop_filter:
+            self._apply_hop_filter(state, raw_paths, hop=retrieval.hop)
 
         return self._build_result(
             question=question,
@@ -435,9 +458,6 @@ class CheckedBatchWebQAgent:
                 named_answer=named_answer,
                 raw_answer=raw_answer,
                 state=state,
-                log_score=_log_score_from_path(named_paths[path_offset])
-                if path_offset < len(named_paths)
-                else None,
             )
 
     def _add_relation_expanded_answers(
@@ -485,9 +505,6 @@ class CheckedBatchWebQAgent:
                 named_answer=named_answer,
                 raw_answer=raw_answer,
                 state=state,
-                log_score=_log_score_from_path(named_paths[path_offset])
-                if path_offset < len(named_paths)
-                else None,
             )
         return batch_relation_expanded
 
@@ -497,20 +514,137 @@ class CheckedBatchWebQAgent:
         named_answer: str,
         raw_answer: str,
         state: _CheckedBatchState,
-        log_score: float | None = None,
     ) -> None:
-        if (
-            self._min_log_score is not None
-            and log_score is not None
-            and log_score < self._min_log_score
-        ):
-            return
         dedupe_key = norm_entity(raw_answer or named_answer)
         if not dedupe_key or dedupe_key in state.seen_answer_keys:
             return
         state.seen_answer_keys.add(dedupe_key)
         state.final_names.append(named_answer)
         state.final_mids.append(raw_answer or named_answer)
+
+    @staticmethod
+    def _support_paths(
+        state: _CheckedBatchState, raw_paths: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """All accepted + relation-expanded paths backing the final answers."""
+        return [
+            raw_paths[idx - 1]
+            for idx in dict.fromkeys(
+                state.accepted_indices + state.relation_expanded_indices
+            )
+            if 0 < idx <= len(raw_paths)
+        ]
+
+    @staticmethod
+    def _keep_final_answers(
+        state: _CheckedBatchState, kept_pairs: list[tuple[str, str]]
+    ) -> None:
+        """Replace the final answers, keeping at least the top-ranked one."""
+        if not kept_pairs:
+            kept_pairs = [(state.final_names[0], state.final_mids[0])]
+        state.final_names = [name for name, _ in kept_pairs]
+        state.final_mids = [mid for _, mid in kept_pairs]
+
+    def _apply_hop_filter(
+        self,
+        state: _CheckedBatchState,
+        raw_paths: list[dict[str, Any]],
+        *,
+        hop: int,
+    ) -> None:
+        """Drop final answers supported only by relation chains whose length
+        differs from the retrieval-predicted hop count."""
+        if not state.final_mids:
+            return
+        mid_seq_lens: dict[str, set[int]] = {}
+        for path_dict in self._support_paths(state, raw_paths):
+            key = norm_entity(tail_from_path_dict(path_dict))
+            seq = _relation_sequence_from_path(path_dict)
+            if key and seq:
+                mid_seq_lens.setdefault(key, set()).add(len(seq))
+        self._keep_final_answers(
+            state,
+            [
+                (name, mid)
+                for name, mid in zip(state.final_names, state.final_mids)
+                if hop in mid_seq_lens.get(norm_entity(mid), {hop})
+            ],
+        )
+
+    def _apply_score_margin(
+        self,
+        state: _CheckedBatchState,
+        raw_paths: list[dict[str, Any]],
+    ) -> None:
+        """Drop final answers whose best supporting-path log_score trails the
+        top answer by more than score_margin (relative post-filter)."""
+        if self._score_margin is None or not state.final_mids:
+            return
+        answer_score: dict[str, float] = {}
+        for path_dict in self._support_paths(state, raw_paths):
+            mid = norm_entity(tail_from_path_dict(path_dict))
+            if not mid:
+                continue
+            score = float(path_dict.get("log_score", float("-inf")))
+            answer_score[mid] = max(answer_score.get(mid, float("-inf")), score)
+
+        scores = [
+            answer_score.get(norm_entity(mid), float("-inf"))
+            for mid in state.final_mids
+        ]
+        top = max(scores)
+        if top == float("-inf"):
+            return
+        self._keep_final_answers(
+            state,
+            [
+                (name, mid)
+                for name, mid, score in zip(state.final_names, state.final_mids, scores)
+                if score >= top - self._score_margin
+            ],
+        )
+
+    def _apply_large_answer_expansion(
+        self,
+        state: _CheckedBatchState,
+        raw_paths: list[dict[str, Any]],
+        *,
+        question: str,
+        topic_mid: str,
+        raw_prediction: dict[str, float],
+    ) -> None:
+        """For enumeration-type questions, expand final answers to all KG tails
+        of the winning relation group, gated by the TransferNet prediction.
+        Must run after the score margin filter: expanded answers have no beam
+        path scores and would otherwise be dropped as -inf."""
+        if self._kg_group_tails is None or not state.final_mids:
+            return
+        if len(state.final_mids) < self._expansion_min_answers:
+            return
+        question_lower = question.lower()
+        if any(word in question_lower for word in _EXPANSION_CONSTRAINT_WORDS):
+            return
+
+        final_keys = {norm_entity(mid) for mid in state.final_mids}
+        seq_counts: Counter[tuple[str, ...]] = Counter()
+        for path_dict in self._support_paths(state, raw_paths):
+            seq = _relation_sequence_from_path(path_dict)
+            if seq and norm_entity(tail_from_path_dict(path_dict)) in final_keys:
+                seq_counts[seq] += 1
+        if not seq_counts:
+            return
+        prediction_keys = _prediction_mid_set(raw_prediction)
+        for winning_seq, _ in seq_counts.most_common(self._expansion_top_groups):
+            kg_tails = self._kg_group_tails.get("|".join((topic_mid, *winning_seq)), [])
+            for mid in kg_tails:
+                mid = str(mid)
+                key = norm_entity(mid)
+                if not key or key not in prediction_keys or key in state.seen_answer_keys:
+                    continue
+                state.seen_answer_keys.add(key)
+                state.final_names.append(self.entity_map.get(mid, mid))
+                state.final_mids.append(mid)
+                state.large_answer_expanded_mids.append(mid)
 
     def _build_result(
         self,
@@ -522,6 +656,15 @@ class CheckedBatchWebQAgent:
         named_paths: list[dict[str, Any]],
         state: _CheckedBatchState,
     ) -> CheckedBatchWebQAgentResult:
+        self._apply_score_margin(state, raw_paths)
+        if self._large_answer_expansion:
+            self._apply_large_answer_expansion(
+                state,
+                raw_paths,
+                question=question,
+                topic_mid=topic_mid,
+                raw_prediction=retrieval.raw_prediction,
+            )
         expanded_mids, disambiguated_mids = expand_pred_answers_with_path_constraint(
             pred_answers=state.final_names,
             rev_entity_map=self.reverse_entity_map,
@@ -547,6 +690,7 @@ class CheckedBatchWebQAgent:
             pred_answer_expanded_mids=expanded_mids,
             pred_answer_disambiguated_mids=disambiguated_mids,
             relation_expanded_path_indices=state.relation_expanded_indices,
+            large_answer_expanded_mids=state.large_answer_expanded_mids,
             batches_used=len(state.iterations),
             checked_paths_count=sum(
                 len(item.local_cited_path_indices) for item in state.iterations

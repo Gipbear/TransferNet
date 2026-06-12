@@ -86,6 +86,7 @@ class ModelEngine:
         use_adapter: bool,
         max_new_tokens: int,
         temperature: float,
+        max_option_index: Optional[int] = None,
     ) -> tuple[list[str], list[int]]:
         """批量生成。返回 (texts, token_counts)。
 
@@ -119,6 +120,11 @@ class ModelEngine:
         )
         if temperature > 0.0:
             gen_kwargs["temperature"] = temperature
+        if max_option_index is not None:
+            from .constraints import build_reject_list_prefix_fn
+            gen_kwargs["prefix_allowed_tokens_fn"] = build_reject_list_prefix_fn(
+                self._tokenizer, n_input, max_option_index
+            )
 
         t0 = time.perf_counter()
         with torch.no_grad():
@@ -138,13 +144,14 @@ class ModelEngine:
 
         log.info(
             "批量生成完成 batch_size=%s input_tokens=%s output_tokens=%s "
-            "elapsed_ms=%.1f use_adapter=%s max_new_tokens=%s",
+            "elapsed_ms=%.1f use_adapter=%s max_new_tokens=%s max_option_index=%s",
             len(prompts),
             n_input,
             token_counts,
             elapsed_ms,
             use_adapter,
             max_new_tokens,
+            max_option_index,
         )
 
         return texts, token_counts

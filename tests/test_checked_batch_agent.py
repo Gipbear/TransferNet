@@ -167,19 +167,25 @@ class CheckedBatchAgentTests(unittest.TestCase):
         self.assertEqual(result.final_accepted_path_indices, [1])
         self.assertEqual(result.pred_answer_disambiguated_mids, ["m.a"])
 
-    def test_min_log_score_filters_low_score_paths_from_final_answers(self):
+    def test_score_margin_drops_answers_far_below_top_score(self):
         raw_paths = [
             {"path": [["m.topic", "rel.a", "m.a"]], "log_score": -1.0},
-            {"path": [["m.topic", "rel.b", "m.b"]], "log_score": -5.0},
+            {"path": [["m.topic", "rel.b", "m.b"]], "log_score": -2.0},
+            {"path": [["m.topic", "rel.c", "m.c"]], "log_score": -6.0},
         ]
-        entity_map = {"m.topic": "Topic", "m.a": "Answer A", "m.b": "Answer B"}
+        entity_map = {
+            "m.topic": "Topic",
+            "m.a": "Answer A",
+            "m.b": "Answer B",
+            "m.c": "Answer C",
+        }
         path_client = FakePathClient(
-            make_response(raw_paths, prediction={"m.a": 0.9, "m.b": 0.9})
+            make_response(raw_paths, prediction={"m.a": 0.9, "m.b": 0.8, "m.c": 0.7})
         )
         llm_client = FakeLLMClient(
             [
                 GenerateResponse(
-                    text="Supporting Paths: 1, 2\nAnswer: Answer A | Answer B",
+                    text="Supporting Paths: 1, 2, 3\nAnswer: Answer A | Answer B | Answer C",
                     used_adapter=True,
                     tokens_generated=8,
                     elapsed_ms=5.0,
@@ -194,13 +200,13 @@ class CheckedBatchAgentTests(unittest.TestCase):
         )
 
         result = agent.run(
-            "where is example from", "m.topic", batch_size=2, min_log_score=-3.0
+            "where is example from", "m.topic", batch_size=3, score_margin=4.0
         )
 
-        # Both paths accepted by the LLM, but the low-score one is dropped from answers.
-        self.assertEqual(result.final_accepted_path_indices, [1, 2])
-        self.assertEqual(result.pred_answer_names, ["Answer A"])
-        self.assertEqual(result.pred_answer_disambiguated_mids, ["m.a"])
+        # 三条路径均被接受，但 m.c 的 log_score 距顶超过 margin 被滤掉。
+        self.assertEqual(result.final_accepted_path_indices, [1, 2, 3])
+        self.assertEqual(result.pred_answer_names, ["Answer A", "Answer B"])
+        self.assertEqual(result.pred_answer_disambiguated_mids, ["m.a", "m.b"])
 
     def test_mixed_stops_when_accepted_entity_count_does_not_exceed_one_third(self):
         raw_paths = [
@@ -238,6 +244,54 @@ class CheckedBatchAgentTests(unittest.TestCase):
         self.assertEqual(result.iterations[0].batch_status, "mixed")
         self.assertEqual(result.stop_reason, "mixed")
         self.assertEqual(result.final_accepted_path_indices, [1])
+
+    def test_no_early_stop_continues_past_low_accept_mixed_batch(self):
+        raw_paths = [
+            {"path": [["m.topic", "rel.a", "m.a"]], "log_score": -1.0},
+            {"path": [["m.topic", "rel.b", "m.b"]], "log_score": -2.0},
+            {"path": [["m.topic", "rel.c", "m.c"]], "log_score": -3.0},
+            {"path": [["m.topic", "rel.d", "m.d"]], "log_score": -4.0},
+        ]
+        llm_client = FakeLLMClient(
+            [
+                GenerateResponse(
+                    text="Supporting Paths: 1, 2, 3\nAnswer: Answer A | Answer B | Answer C",
+                    used_adapter=True,
+                    tokens_generated=8,
+                    elapsed_ms=5.0,
+                ),
+                GenerateResponse(text="2,3", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+                GenerateResponse(
+                    text="Supporting Paths: 1\nAnswer: Answer D",
+                    used_adapter=True,
+                    tokens_generated=4,
+                    elapsed_ms=5.0,
+                ),
+                GenerateResponse(text="NONE", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+            ]
+        )
+        agent = CheckedBatchWebQAgent(
+            path_tool=PathRetrieveTool(
+                client=FakePathClient(make_response(raw_paths)),
+                entity_map={
+                    "m.topic": "Topic",
+                    "m.a": "Answer A",
+                    "m.b": "Answer B",
+                    "m.c": "Answer C",
+                    "m.d": "Answer D",
+                },
+            ),
+            answer_tool=AnswerWithPathsTool(client=llm_client),
+            check_tool=RejectedAnswerCheckTool(client=llm_client),
+        )
+
+        result = agent.run(
+            "where is example from", "m.topic", batch_size=3, no_early_stop=True
+        )
+
+        self.assertEqual(len(result.iterations), 2)
+        self.assertEqual(result.stop_reason, "path_exhausted")
+        self.assertEqual(result.final_accepted_path_indices, [1, 4])
 
     def test_mixed_continues_when_accepted_entity_count_exceeds_one_third(self):
         raw_paths = [
