@@ -105,6 +105,25 @@ class DropLoopbackIntegrationTests(unittest.TestCase):
                 msg=f"绕回 topic 的路径未被剔除: {edges}",
             )
 
+    def test_retrieve_keeps_loopback_when_disabled(self):
+        # drop_loopback=False(消融对照):绕回 topic 的路径应保留
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            write_input(root / "input")
+            write_cache(root / "cache.pt")
+            retriever = CachedPathRetriever(
+                cache_path=str(root / "cache.pt"), input_dir=str(root / "input")
+            )
+            kept = retriever.retrieve(sample_index=0, drop_loopback=True)
+            unfiltered = retriever.retrieve(sample_index=0, drop_loopback=False)
+
+        self.assertGreater(
+            len(unfiltered.mmr_reason_paths), len(kept.mmr_reason_paths)
+        )
+        self.assertTrue(
+            any(p["path"][-1][2] == "m.topic" for p in unfiltered.mmr_reason_paths)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

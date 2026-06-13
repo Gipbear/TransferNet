@@ -162,6 +162,7 @@ class CachedPathRetriever:
         threshold: float = 0.01,
         beam_size: int = 50,
         lambda_val: float = 0.2,
+        drop_loopback: bool = True,
     ) -> CachedRetrievalResult:
         if method not in {"tail_blend", "baseline"}:
             raise ValueError(f"unknown method: {method}")
@@ -202,7 +203,8 @@ class CachedPathRetriever:
             alpha_final=alpha_final,
             lambda_val=lambda_val,
         )
-        paths = drop_loopback_paths([candidate_to_tuple(candidate) for candidate in selected])
+        candidates = [candidate_to_tuple(candidate) for candidate in selected]
+        paths = drop_loopback_paths(candidates) if drop_loopback else candidates
         prediction_ids = {
             int(idx)
             for idx, val in zip(

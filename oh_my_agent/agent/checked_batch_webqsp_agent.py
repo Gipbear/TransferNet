@@ -258,6 +258,7 @@ class CheckedBatchWebQAgent:
         expansion_min_answers: int = 8,
         expansion_top_groups: int = 1,
         no_early_stop: bool = False,
+        drop_topic_self: bool = True,
     ) -> CheckedBatchWebQAgentResult:
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
@@ -267,6 +268,7 @@ class CheckedBatchWebQAgent:
         self._kg_group_tails = kg_group_tails
         self._expansion_min_answers = expansion_min_answers
         self._expansion_top_groups = expansion_top_groups
+        self._drop_topic_self = drop_topic_self
 
         retrieval = self.path_tool(
             question,
@@ -651,6 +653,28 @@ class CheckedBatchWebQAgent:
                 state.final_mids.append(mid)
                 state.large_answer_expanded_mids.append(mid)
 
+    @staticmethod
+    def _drop_topic_self_answers(state: _CheckedBatchState, topic_mid: str) -> None:
+        """剔除最终答案中 == topic 的自指实体。答案=被问实体本身逻辑上不可能成立
+        (测试集 0 gold 反例)。检索层 drop_loopback_paths 只挡"尾==topic 的路径",
+        而 topic 仍可经 _answer_pair_from_paths 的 head 匹配 / large_answer_expansion
+        进入答案——这里在末端统一收口,覆盖所有入口。剔空则答案为空(不保底留 topic)。"""
+        topic_key = norm_entity(topic_mid)
+        if not topic_key or not state.final_mids:
+            return
+        kept = [
+            (name, mid)
+            for name, mid in zip(state.final_names, state.final_mids)
+            if norm_entity(mid) != topic_key
+        ]
+        state.final_names = [name for name, _ in kept]
+        state.final_mids = [mid for _, mid in kept]
+        state.large_answer_expanded_mids = [
+            mid
+            for mid in state.large_answer_expanded_mids
+            if norm_entity(mid) != topic_key
+        ]
+
     def _build_result(
         self,
         *,
@@ -670,6 +694,8 @@ class CheckedBatchWebQAgent:
                 topic_mid=topic_mid,
                 raw_prediction=retrieval.raw_prediction,
             )
+        if getattr(self, "_drop_topic_self", True):
+            self._drop_topic_self_answers(state, topic_mid)
         expanded_mids, disambiguated_mids = expand_pred_answers_with_path_constraint(
             pred_answers=state.final_names,
             rev_entity_map=self.reverse_entity_map,

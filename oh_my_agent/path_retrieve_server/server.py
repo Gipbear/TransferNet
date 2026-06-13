@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from typing import Optional
 
@@ -20,6 +21,8 @@ logging.basicConfig(
 )
 
 _retriever: Optional[CachedPathRetriever] = None
+# 默认在检索层剔除"绕回 topic"的无效路径;设 PATH_DROP_LOOPBACK=0 可关闭(同环境 A/B 消融)
+_DROP_LOOPBACK: bool = os.environ.get("PATH_DROP_LOOPBACK", "1") != "0"
 
 app = FastAPI(title="Cached TransferNet Path Retrieve Server", version="1.0")
 
@@ -38,6 +41,7 @@ def retrieve(req: RetrieveRequest):
             threshold=req.threshold,
             beam_size=req.beam_size,
             lambda_val=req.lambda_val,
+            drop_loopback=_DROP_LOOPBACK,
         )
         return result.to_dict()
     except (KeyError, IndexError) as exc:

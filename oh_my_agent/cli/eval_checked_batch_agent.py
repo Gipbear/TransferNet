@@ -87,12 +87,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max_new_tokens", type=int, default=256)
     parser.add_argument(
         "--check_mode",
-        choices=["reject-answer-list", "hybrid-reject-list"],
+        choices=["reject-answer-list", "hybrid-reject-list", "strict-reject-list"],
         default="reject-answer-list",
         help=(
-            "How to validate cited answers: reject-answer-list removes bad candidates; "
-            "hybrid-reject-list uses loose reject-list on the first batch and strict "
-            "reject-list on later batches."
+            "How to validate cited answers: reject-answer-list = loose on all batches; "
+            "hybrid-reject-list = loose first batch + strict later batches; "
+            "strict-reject-list = strict on all batches (ablation)."
         ),
     )
     parser.add_argument(
@@ -119,6 +119,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Drop final answers supported only by relation chains whose length "
         "differs from the retrieval-predicted hop count",
+    )
+    parser.add_argument(
+        "--no_topic_guard",
+        action="store_true",
+        help="Disable the topic self-answer guard (ablation only). By default the "
+        "pipeline drops any final answer equal to the question topic entity.",
     )
     parser.add_argument(
         "--large_answer_expansion",
@@ -264,7 +270,8 @@ def main(argv: list[str] | None = None) -> int:
             constrained_decoding=args.check_constrained_decoding,
         )
 
-    check_tool = build_check_tool("loose")
+    first_policy = "strict" if args.check_mode == "strict-reject-list" else "loose"
+    check_tool = build_check_tool(first_policy)
     check_tool_after_first = (
         build_check_tool("strict")
         if args.check_mode == "hybrid-reject-list"
@@ -310,6 +317,7 @@ def main(argv: list[str] | None = None) -> int:
                 enable_relation_expansion=not args.no_relation_expansion,
                 hop_filter=args.hop_filter,
                 large_answer_expansion=args.large_answer_expansion,
+                drop_topic_self=not args.no_topic_guard,
                 expansion_min_answers=args.expansion_min_answers,
                 expansion_top_groups=args.expansion_top_groups,
                 no_early_stop=args.no_early_stop,
