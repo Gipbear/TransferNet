@@ -55,12 +55,40 @@ ensure_llm_server() {
   fi
 }
 
-# 用指定的 PATH_DROP_LOOPBACK 值(重)启 path server
+# 轮询 eval 实际访问的地址,直到 cache 真正加载完(restart 自带的 health 是 127.0.0.1,
+# 这里再用 localhost + cache_loaded:true 复核,捕获"起来又被 OOM kill"等情况)
+wait_path_health() {
+  local url="${PATH_RETRIEVE_URL%/}/health"
+  local timeout="${1:-120}"
+  for _ in $(seq 1 "${timeout}"); do
+    if curl -sf "${url}" 2>/dev/null | grep -qE '"cache_loaded":[[:space:]]*true'; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "[ERROR] path_retrieve_server 未在 ${timeout}s 内就绪(cache_loaded=true): ${url}" >&2
+  echo "[HINT ] 可能多个残留 server 占满内存被 OOM。先清理:pkill -f path_retrieve_server.server" >&2
+  exit 1
+}
+
+# 用指定的 PATH_DROP_LOOPBACK 值(重)启 path server,并复核就绪
 start_path_server() {
   local drop="$1"  # 1=剔除 loopback(默认), 0=保留
   echo "[INFO] (重)启动 path_retrieve_server  PATH_DROP_LOOPBACK=${drop}"
   PATH_DROP_LOOPBACK="${drop}" PORT_BUSY_ACTION=kill PORT="${PATH_RETRIEVE_PORT}" \
     ./scripts/path_retrieve_server.sh restart
+  wait_path_health
+}
+
+# 复用已就绪的 path server(默认 loopback 开),仅在未就绪时才启动——避免杀掉
+# 用户手动起的 server、避免叠加重复进程导致 OOM
+ensure_path_server() {
+  if curl -sf "${PATH_RETRIEVE_URL%/}/health" 2>/dev/null | grep -qE '"cache_loaded":[[:space:]]*true'; then
+    echo "[INFO] path_retrieve_server ready(复用已有;loopback 默认开)"
+    return
+  fi
+  echo "[INFO] path_retrieve_server 未就绪，启动(PATH_DROP_LOOPBACK=1)"
+  start_path_server 1
 }
 
 # ---- 单次评测 ----
@@ -94,8 +122,9 @@ FULL_POST=(--check_mode hybrid-reject-list --score_margin "${SCORE_MARGIN}"
            --check_constrained_decoding --hop_filter --large_answer_expansion)
 
 ensure_llm_server
-# 先以 loopback 开启重启 path server(保证加载最新代码 + PATH_DROP_LOOPBACK=1)
-start_path_server 1
+# 复用已就绪的 path server(loopback 默认开);未就绪才启动。不无条件重启,避免
+# 杀掉手动起的 server / 叠加重复进程。注:要确保是最新代码,先自行重启一次 path server。
+ensure_path_server
 
 for g in ${CH5_GROUPS}; do
   case "${g}" in
