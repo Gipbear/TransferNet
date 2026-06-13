@@ -2,8 +2,8 @@
 # 第五章补充实验一键脚本。
 #
 # 跑完后用 scripts/collect_ch5_results.py 汇总成对照表。
-# 每组可用 GROUPS 环境变量挑选，默认全跑：
-#   GROUPS="canonical check constrained loopback ablation"
+# 每组可用 CH5_GROUPS 环境变量挑选，默认全跑(注意:不能用 GROUPS,它是 bash 内置只读变量)：
+#   CH5_GROUPS="canonical check constrained loopback ablation"
 #
 # 各组说明：
 #   canonical   官方完整管线(hybrid + loopback + 守卫 + 全后处理)。也是离线回放源。
@@ -15,7 +15,7 @@
 #
 # 用法：
 #   bash scripts/run_ch5_experiments.sh
-#   GROUPS="canonical check" LIMIT=50 bash scripts/run_ch5_experiments.sh   # 小样本验证
+#   CH5_GROUPS="canonical check" LIMIT=50 bash scripts/run_ch5_experiments.sh   # 小样本验证
 
 set -euo pipefail
 
@@ -32,7 +32,8 @@ LAMBDA_VAL="${LAMBDA_VAL:-0.2}"
 ALPHA_FINAL="${ALPHA_FINAL:-1.0}"
 SCORE_MARGIN="${SCORE_MARGIN:-4.0}"
 EXPANSION_TOP_GROUPS="${EXPANSION_TOP_GROUPS:-2}"
-GROUPS="${GROUPS:-canonical check constrained loopback ablation}"
+# 注意:变量名不能用 GROUPS——那是 bash 内置只读数组(当前用户组 GID),会取到 "0"
+CH5_GROUPS="${CH5_GROUPS:-canonical check constrained loopback ablation}"
 
 PATH_RETRIEVE_PORT="${PATH_RETRIEVE_PORT:-8789}"
 LLM_SERVER_PORT="${LLM_SERVER_PORT:-8788}"
@@ -41,7 +42,7 @@ LLM_SERVER_URL="${LLM_SERVER_URL:-http://localhost:${LLM_SERVER_PORT}}"
 
 mkdir -p "${OUTPUT_ROOT}"
 echo "[INFO] 输出根目录: ${OUTPUT_ROOT}"
-echo "[INFO] 跑的组: ${GROUPS}"
+echo "[INFO] 跑的组: ${CH5_GROUPS}"
 
 # ---- 服务管理 ----
 ensure_llm_server() {
@@ -96,7 +97,7 @@ ensure_llm_server
 # 先以 loopback 开启重启 path server(保证加载最新代码 + PATH_DROP_LOOPBACK=1)
 start_path_server 1
 
-for g in ${GROUPS}; do
+for g in ${CH5_GROUPS}; do
   case "${g}" in
     canonical)
       run_eval canonical "${FULL_POST[@]}"
@@ -140,7 +141,7 @@ for g in ${GROUPS}; do
 done
 
 # ====== loopback off 对照(单独，需要切换 server）======
-if [[ "${GROUPS}" == *loopback* ]]; then
+if [[ "${CH5_GROUPS}" == *loopback* ]]; then
   echo "[INFO] === loopback off 对照：重启 path server (PATH_DROP_LOOPBACK=0) ==="
   start_path_server 0
   run_eval no_loopback "${FULL_POST[@]}"
