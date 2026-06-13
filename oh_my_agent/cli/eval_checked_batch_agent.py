@@ -125,13 +125,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="For enumeration-type questions (many answers, no selective "
         "constraint words), expand final answers to all KG tails of the winning "
-        "relation group gated by the TransferNet prediction "
-        "(requires --kg_group_tails_file)",
-    )
-    parser.add_argument(
-        "--kg_group_tails_file",
-        default="",
-        help="JSON file mapping 'topic|rel1[|rel2]' to full KG tail mid lists",
+        "relation group gated by the TransferNet prediction (KG tails come from "
+        "the path server's online group_tails)",
     )
     parser.add_argument(
         "--expansion_min_answers",
@@ -178,18 +173,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no_adapter", action="store_true", help="Use the base model for answering")
     parser.add_argument("--skip_server_check", action="store_true", help="Skip service health checks")
     return parser
-
-
-def load_file_kg_group_tails(
-    large_answer_expansion: bool, kg_group_tails_file: str
-) -> dict[str, list[str]] | None:
-    """加载文件版 KG sidecar(可选)。在线 group_tails(path server 实时算 + prediction
-    过滤)可用后,文件不再必需:仅当显式传入文件时加载,作为旧 server 的回退/覆盖源。
-    agent.run 内会让在线 group_tails 优先于此文件。"""
-    if not (large_answer_expansion and kg_group_tails_file):
-        return None
-    with open(kg_group_tails_file, encoding="utf-8") as handle:
-        return json.load(handle)
 
 
 def _resolve_output_paths(output: str) -> dict[str, str]:
@@ -295,10 +278,6 @@ def main(argv: list[str] | None = None) -> int:
         ):
             print("check_llm   :", check_client.health(), flush=True)
 
-    kg_group_tails = load_file_kg_group_tails(
-        args.large_answer_expansion, args.kg_group_tails_file
-    )
-
     agent = CheckedBatchWebQAgent(
         path_tool=path_tool,
         answer_tool=answer_tool,
@@ -331,7 +310,6 @@ def main(argv: list[str] | None = None) -> int:
                 enable_relation_expansion=not args.no_relation_expansion,
                 hop_filter=args.hop_filter,
                 large_answer_expansion=args.large_answer_expansion,
-                kg_group_tails=kg_group_tails,
                 expansion_min_answers=args.expansion_min_answers,
                 expansion_top_groups=args.expansion_top_groups,
                 no_early_stop=args.no_early_stop,
@@ -423,7 +401,6 @@ def main(argv: list[str] | None = None) -> int:
             "check_constrained_decoding": args.check_constrained_decoding,
             "hop_filter": args.hop_filter,
             "large_answer_expansion": args.large_answer_expansion,
-            "kg_group_tails_file": args.kg_group_tails_file or None,
             "expansion_min_answers": args.expansion_min_answers,
             "expansion_top_groups": args.expansion_top_groups,
             "no_early_stop": args.no_early_stop,

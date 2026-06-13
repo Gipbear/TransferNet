@@ -286,8 +286,6 @@ class CliFlagTests(unittest.TestCase):
         args = parser.parse_args(
             [
                 "--large_answer_expansion",
-                "--kg_group_tails_file",
-                "tails.json",
                 "--expansion_min_answers",
                 "5",
                 "--expansion_top_groups",
@@ -295,7 +293,6 @@ class CliFlagTests(unittest.TestCase):
             ]
         )
         self.assertTrue(args.large_answer_expansion)
-        self.assertEqual(args.kg_group_tails_file, "tails.json")
         self.assertEqual(args.expansion_min_answers, 5)
         self.assertEqual(args.expansion_top_groups, 2)
 
@@ -303,28 +300,6 @@ class CliFlagTests(unittest.TestCase):
         parser = build_parser()
         self.assertFalse(parser.parse_args([]).check_use_adapter)
         self.assertTrue(parser.parse_args(["--check_use_adapter"]).check_use_adapter)
-
-    def test_kg_group_tails_file_optional_with_online_source(self):
-        # 在线 group_tails 可用后,expansion 不再强制要 sidecar 文件:无文件返回 None(不报错)
-        from oh_my_agent.cli.eval_checked_batch_agent import load_file_kg_group_tails
-
-        self.assertIsNone(load_file_kg_group_tails(True, ""))
-        self.assertIsNone(load_file_kg_group_tails(False, "ignored.json"))
-
-    def test_kg_group_tails_file_loaded_when_provided(self):
-        import json
-        import os
-        import tempfile
-
-        from oh_my_agent.cli.eval_checked_batch_agent import load_file_kg_group_tails
-
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
-            json.dump({"m.t|rel.x": ["m.a"]}, handle)
-            path = handle.name
-        try:
-            self.assertEqual(load_file_kg_group_tails(True, path), {"m.t|rel.x": ["m.a"]})
-        finally:
-            os.unlink(path)
 
 
 if __name__ == "__main__":
