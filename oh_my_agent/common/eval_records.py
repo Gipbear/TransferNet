@@ -113,6 +113,7 @@ def build_eval_record(
         "cited_path_indices": result.cited_path_indices,
         "relation_expanded_path_indices": result.relation_expanded_path_indices,
         "large_answer_expanded_mids": getattr(result, "large_answer_expanded_mids", []),
+        "group_tails": getattr(result, "group_tails", {}),
         "golden_path_indices": sorted(label_golden_indices(result.raw_mmr_reason_paths, sample.gold_mids)),
         "pred_answer_names": result.pred_answer_names,
         "pred_answer_expanded_mids": result.pred_answer_expanded_mids,

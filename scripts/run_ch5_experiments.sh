@@ -10,8 +10,9 @@
 #   check       check 策略对照：loose-only / strict-only(hybrid 即 canonical)。
 #   constrained 受限解码 off 对照。
 #   loopback    同环境 loopback off 对照(重启 path server 设 PATH_DROP_LOOPBACK=0)。
-#   ablation    后处理累积消融:base(check 后,无后处理) → +margin → +hop → +expansion。
-#               (+守卫 = canonical;首答从任一 run 的 initial_answer.jsonl 离线算)
+#   ablation    后处理累积消融:base → +margin → +hop → +expansion(+守卫 = canonical)。
+#               **不重跑 LLM**——这些档与 canonical 的检索/答题/check 完全相同,仅差末端
+#               确定性后处理,故从 canonical 的 jsonl 离线回放(scripts/replay_ch5_ablation.py)。
 #
 # 用法：
 #   bash scripts/run_ch5_experiments.sh
@@ -146,22 +147,8 @@ for g in ${CH5_GROUPS}; do
         --check_mode hybrid-reject-list --score_margin "${SCORE_MARGIN}" \
         --hop_filter --large_answer_expansion
       ;;
-    ablation)
-      # 后处理累积消融:逐层叠加 margin/hop/expansion,守卫留到最后一档(=canonical)
-      # 才加,故前几档统一 --no_topic_guard,保证每档只多一层、归因干净。
-      run_eval ablation_base \
-        --check_mode hybrid-reject-list --no_topic_guard
-      run_eval ablation_margin \
-        --check_mode hybrid-reject-list --score_margin "${SCORE_MARGIN}" --no_topic_guard
-      run_eval ablation_margin_hop \
-        --check_mode hybrid-reject-list --score_margin "${SCORE_MARGIN}" --hop_filter --no_topic_guard
-      run_eval ablation_margin_hop_exp \
-        --check_mode hybrid-reject-list --score_margin "${SCORE_MARGIN}" \
-        --hop_filter --large_answer_expansion --no_topic_guard
-      # +守卫 = canonical(全开)
-      ;;
-    loopback)
-      : # 见下方独立处理
+    ablation|loopback)
+      : # 见下方独立处理(ablation 离线回放;loopback 需切 server)
       ;;
     *)
       echo "[WARN] 未知组: ${g}（忽略）"
@@ -176,6 +163,21 @@ if [[ "${CH5_GROUPS}" == *loopback* ]]; then
   run_eval no_loopback "${FULL_POST[@]}"
   echo "[INFO] === 还原 path server (PATH_DROP_LOOPBACK=1) ==="
   start_path_server 1
+fi
+
+# ====== 后处理消融阶梯(离线回放,不重跑 LLM）======
+# base/+margin/+hop/+expansion 与 canonical 仅差末端确定性后处理,从 canonical 的
+# jsonl 用真 agent + mock 工具回放复现,秒级完成且与重跑逐位等价(内置自校验)。
+if [[ "${CH5_GROUPS}" == *ablation* ]]; then
+  CANON_SUMMARY="${OUTPUT_ROOT}/canonical/checked_batch_eval_summary.json"
+  if [[ -f "${CANON_SUMMARY}" ]]; then
+    echo "[INFO] === 离线回放后处理消融阶梯(源:canonical) ==="
+    python scripts/replay_ch5_ablation.py \
+      --canonical_dir "${OUTPUT_ROOT}/canonical" \
+      --output_root "${OUTPUT_ROOT}"
+  else
+    echo "[WARN] 缺少 canonical(${CANON_SUMMARY}),跳过消融阶梯离线回放" >&2
+  fi
 fi
 
 echo "============================================================"

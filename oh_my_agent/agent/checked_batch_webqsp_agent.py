@@ -66,6 +66,9 @@ class CheckedBatchWebQAgentResult:
     pred_answer_disambiguated_mids: list[str] = field(default_factory=list)
     relation_expanded_path_indices: list[int] = field(default_factory=list)
     large_answer_expanded_mids: list[str] = field(default_factory=list)
+    # 检索期算出的"(topic, 关系组) → 全 KG 尾"(prediction 过滤后),随 record 落盘,
+    # 供离线回放复现 large_answer_expansion(否则离线无法复算组内补答)
+    group_tails: dict[str, list[str]] = field(default_factory=dict)
     batches_used: int = 0
     checked_paths_count: int = 0
     accepted_paths_count: int = 0
@@ -722,6 +725,7 @@ class CheckedBatchWebQAgent:
             pred_answer_disambiguated_mids=disambiguated_mids,
             relation_expanded_path_indices=state.relation_expanded_indices,
             large_answer_expanded_mids=state.large_answer_expanded_mids,
+            group_tails=self._kg_group_tails or {},
             batches_used=len(state.iterations),
             checked_paths_count=sum(
                 len(item.local_cited_path_indices) for item in state.iterations
