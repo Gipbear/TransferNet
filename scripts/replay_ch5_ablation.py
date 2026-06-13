@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from oh_my_agent.agent.checked_batch_replay import replay_record
+from oh_my_agent.agent.checked_batch_replay import _ReplaySession
 from oh_my_agent.common import (
     build_eval_record,
     compute_answer_metrics,
@@ -92,23 +92,21 @@ def _record_for_result(sample_index: int, sample: WebQSPQASample, result) -> dic
 def replay_config(
     records: list[dict[str, Any]],
     *,
-    entity_map: dict[str, str],
+    session: _ReplaySession,
     batch_size: int,
     expansion_min_answers: int,
     expansion_top_groups: int,
-    hybrid_check: bool,
     **flags: Any,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    # 复用同一个 session(agent 只建一次反向映射),逐条回放
     out_records: list[dict[str, Any]] = []
     for record in records:
         sample = _sample_from_record(record)
-        result = replay_record(
+        result = session.replay(
             record,
-            entity_map=entity_map,
             batch_size=batch_size,
             expansion_min_answers=expansion_min_answers,
             expansion_top_groups=expansion_top_groups,
-            hybrid_check=hybrid_check,
             **flags,
         )
         out_records.append(
@@ -126,16 +124,15 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def _verify_canonical(
-    records, entity_map, batch_size, summary, *, score_margin,
-    expansion_min_answers, expansion_top_groups, hybrid_check,
+    records, session, batch_size, summary, *, score_margin,
+    expansion_min_answers, expansion_top_groups,
 ) -> None:
     _, replayed = replay_config(
         records,
-        entity_map=entity_map,
+        session=session,
         batch_size=batch_size,
         expansion_min_answers=expansion_min_answers,
         expansion_top_groups=expansion_top_groups,
-        hybrid_check=hybrid_check,
         score_margin=score_margin,
         hop_filter=True,
         large_answer_expansion=True,
@@ -191,26 +188,28 @@ def main(argv: list[str] | None = None) -> int:
           f"score_margin={score_margin} expansion_top_groups={expansion_top_groups} "
           f"hybrid_check={hybrid_check}")
 
+    # entity_map(近 400 万条)与反向映射只构建一次,所有档位复用同一 session
+    print("[INFO] 加载 entity_map 并构建回放 session(只做一次)...")
+    session = _ReplaySession(load_entity_map(args.entity_map), hybrid_check=hybrid_check)
+
     if not args.skip_verify:
         _verify_canonical(
-            records, summary=summary, entity_map=load_entity_map(args.entity_map),
+            records, session=session, summary=summary,
             batch_size=batch_size, score_margin=score_margin,
             expansion_min_answers=expansion_min_answers,
-            expansion_top_groups=expansion_top_groups, hybrid_check=hybrid_check,
+            expansion_top_groups=expansion_top_groups,
         )
 
-    entity_map = load_entity_map(args.entity_map)
     output_root = Path(args.output_root)
     for name, flags in _ladder_configs(score_margin).items():
         out_dir = output_root / name
         out_dir.mkdir(parents=True, exist_ok=True)
         out_records, out_summary = replay_config(
             records,
-            entity_map=entity_map,
+            session=session,
             batch_size=batch_size,
             expansion_min_answers=expansion_min_answers,
             expansion_top_groups=expansion_top_groups,
-            hybrid_check=hybrid_check,
             **flags,
         )
         out_summary.update(
