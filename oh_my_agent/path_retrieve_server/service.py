@@ -28,11 +28,72 @@ from scripts.offline_path_search import (
 )
 
 
+# TransferNet 实体预测阈值:e_score ≥ 此值视为"预测答案"。group_tails 过滤、
+# _prediction、下游 expansion 门必须共用同一阈值,否则三者集合漂移破坏等价性。
+PREDICTION_SCORE_THRESHOLD = 0.9
+
+
 def normalize_question(question: str) -> str:
     text = question.strip().lower()
     text = re.sub(r"\[(cls|sep|pad)\]", " ", text)
     text = re.sub(r"\s+##", "", text)   # merge BERT WordPiece subword tokens
     return re.sub(r"\s+", " ", text).strip()
+
+
+def drop_loopback_paths(
+    paths: list[tuple[list[int], list[int], float]],
+) -> list[tuple[list[int], list[int], float]]:
+    """剔除"绕回 topic"的无效路径——尾实体(node_ids[-1])等于 topic(node_ids[0])。
+
+    答案=被问的实体本身在逻辑上不可能成立:WebQSP test 全集此类路径 9777 条
+    (占 13.4%),**0 条尾是 gold**。源头剔除后 LLM 看不到这些路径,既不会引用、
+    也不会被诱导产出自指答案,零损失(无 gold 反例)。
+    """
+    return [
+        (node_ids, rel_ids, score)
+        for node_ids, rel_ids, score in paths
+        if not node_ids or node_ids[-1] != node_ids[0]
+    ]
+
+
+def group_tails_from_path(
+    node_ids: list[int],
+    rel_ids: list[int],
+    valid_edges_dict: dict[int, list[tuple[int, int]]],
+    id2ent: dict[int, str],
+    id2rel: dict[int, str],
+    prediction_ids: Optional[set[int]] = None,
+) -> Optional[tuple[str, list[str]]]:
+    """实时算"(topic, 关系序列) → 全 KG 尾实体",在线替代离线 sidecar。
+
+    沿全局 KG 邻接表(已含 _reverse 边)从 topic 节点逐跳遍历,返回与离线
+    sidecar 对齐的 (key, sorted_tail_mids):key = 'topic_mid|rel_name1[|rel_name2]'。
+    关系序列为空返回 None;遍历到死路返回空尾列表(key 仍可拼出)。
+
+    传入 prediction_ids(TransferNet e_score≥0.9 的实体 id)时,在**最后一跳**只收
+    属于 prediction 的尾——下游 expansion 本就只用这些,提前过滤可阻止 frontier 在
+    hub 节点(国家/类型)处膨胀到几十万,语义等价且消除长尾。中间跳不过滤(中间节点
+    不在 prediction 内)。
+    """
+    if not node_ids or not rel_ids:
+        return None
+    last_hop = len(rel_ids) - 1
+    frontier = {node_ids[0]}
+    for hop, rel_id in enumerate(rel_ids):
+        filter_pred = prediction_ids is not None and hop == last_hop
+        frontier = {
+            obj
+            for node in frontier
+            for rel, obj in valid_edges_dict.get(node, [])
+            if rel == rel_id and (not filter_pred or obj in prediction_ids)
+        }
+        if not frontier:
+            break
+    topic_mid = id2ent.get(node_ids[0], str(node_ids[0]))
+    rel_names = [id2rel.get(rel_id, str(rel_id)) for rel_id in rel_ids]
+    key = "|".join([topic_mid, *rel_names])
+    tails = sorted(id2ent.get(tail_id, str(tail_id)) for tail_id in frontier)
+    return key, tails
 
 
 @dataclass
@@ -50,6 +111,7 @@ class CachedRetrievalResult:
     beam_size: int
     lambda_val: float
     cache_path: str
+    group_tails: dict[str, list[str]]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -66,6 +128,7 @@ class CachedRetrievalResult:
             "beam_size": self.beam_size,
             "lambda_val": self.lambda_val,
             "cache_path": self.cache_path,
+            "group_tails": self.group_tails,
         }
 
 
@@ -98,7 +161,7 @@ class CachedPathRetriever:
         alpha_final: float = 1.0,
         threshold: float = 0.01,
         beam_size: int = 50,
-        lambda_val: float = 0.5,
+        lambda_val: float = 0.2,
     ) -> CachedRetrievalResult:
         if method not in {"tail_blend", "baseline"}:
             raise ValueError(f"unknown method: {method}")
@@ -139,7 +202,15 @@ class CachedPathRetriever:
             alpha_final=alpha_final,
             lambda_val=lambda_val,
         )
-        paths = [candidate_to_tuple(candidate) for candidate in selected]
+        paths = drop_loopback_paths([candidate_to_tuple(candidate) for candidate in selected])
+        prediction_ids = {
+            int(idx)
+            for idx, val in zip(
+                sample["e_score_indices"].tolist(), sample["e_score_values"].tolist()
+            )
+            if float(val) >= PREDICTION_SCORE_THRESHOLD
+        }
+        group_tails = self._build_group_tails(paths, prediction_ids)
         elapsed_ms = (time.perf_counter() - t0) * 1000
         return CachedRetrievalResult(
             question=sample["question"],
@@ -155,7 +226,31 @@ class CachedPathRetriever:
             beam_size=beam_size,
             lambda_val=lambda_val,
             cache_path=self.cache_path,
+            group_tails=group_tails,
         )
+
+    def _build_group_tails(
+        self,
+        paths: list[tuple[list[int], list[int], float]],
+        prediction_ids: set[int],
+    ) -> dict[str, list[str]]:
+        """对每条选中路径的关系组(≤2 跳),用全局 KG 邻接表实时算尾实体,key 与
+        离线 sidecar 对齐。最后一跳按 prediction 过滤(下游 expansion 只用这些),
+        阻止 hub 组膨胀。同组只算一次。"""
+        group_tails: dict[str, list[str]] = {}
+        for node_ids, rel_ids, _score in paths:
+            if not 1 <= len(rel_ids) <= 2:
+                continue
+            entry = group_tails_from_path(
+                node_ids, rel_ids, self.valid_edges_dict,
+                self.id2ent, self.id2rel, prediction_ids,
+            )
+            if entry is None:
+                continue
+            key, tails = entry
+            if key not in group_tails:
+                group_tails[key] = tails
+        return group_tails
 
     def _resolve_sample_index(self, question: Optional[str], sample_index: Optional[int]) -> int:
         if sample_index is not None:
@@ -184,7 +279,7 @@ class CachedPathRetriever:
     def _prediction(self, sample: dict) -> dict[str, float]:
         prediction = {}
         for idx, val in zip(sample["e_score_indices"].tolist(), sample["e_score_values"].tolist()):
-            if float(val) >= 0.9:
+            if float(val) >= PREDICTION_SCORE_THRESHOLD:
                 prediction[self.id2ent.get(int(idx), str(idx))] = round(float(val), 4)
         return prediction
 

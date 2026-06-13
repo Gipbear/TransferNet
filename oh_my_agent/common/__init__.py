@@ -24,6 +24,7 @@ from .metrics import (
     compute_answer_metrics,
     compute_faithfulness,
     label_golden_indices,
+    llm_produced_answers,
 )
 from .output_parser import ParsedV2Output, REJECTION_SENTINEL, parse_v2_output
 from .paths import tail_from_edges, tail_from_path_dict
@@ -45,6 +46,7 @@ __all__ = [
     "clean_question_text",
     "compute_answer_metrics",
     "compute_faithfulness",
+    "llm_produced_answers",
     "expand_pred_answers_with_path_constraint",
     "format_chain",
     "get_all_path_entities",

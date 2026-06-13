@@ -39,7 +39,7 @@ def text_response(text, tokens=2):
     )
 
 
-def make_response(question, paths, prediction=None):
+def make_response(question, paths, prediction=None, group_tails=None):
     return PathRetrieveResponse(
         question=question,
         sample_index=0,
@@ -54,6 +54,7 @@ def make_response(question, paths, prediction=None):
         beam_size=50,
         lambda_val=0.5,
         cache_path="cache.pt",
+        group_tails=group_tails or {},
     )
 
 
@@ -202,6 +203,67 @@ class LargeAnswerExpansionTests(unittest.TestCase):
         self.assertEqual(result.pred_answer_disambiguated_mids, ["m.a", "m.b"])
         self.assertEqual(result.large_answer_expanded_mids, [])
 
+    def test_expansion_uses_online_group_tails_from_retrieval(self):
+        # retrieval 自带在线 group_tails(已 prediction 过滤);agent 不传文件 kg_group_tails,
+        # expansion 应直接用在线结果补出 m.c
+        prediction = {"m.a": 1.0, "m.b": 0.9, "m.c": 0.8}
+        response = make_response(
+            "what countries are in example region", RAW_PATHS, prediction,
+            group_tails={"m.topic|rel.contains": ["m.a", "m.b", "m.c"]},
+        )
+        answer_client = FakeLLMClient(
+            [
+                text_response("Supporting Paths: 1, 2\nAnswer: Alpha | Beta"),
+                text_response("NONE"),
+            ]
+        )
+        agent = CheckedBatchWebQAgent(
+            path_tool=PathRetrieveTool(client=FakePathClient(response), entity_map=ENTITY_MAP),
+            answer_tool=AnswerWithPathsTool(client=answer_client),
+            check_tool=RejectedAnswerCheckTool(client=answer_client),
+        )
+
+        result = agent.run(
+            "what countries are in example region",
+            "m.topic",
+            batch_size=10,
+            large_answer_expansion=True,
+            expansion_min_answers=2,
+        )
+
+        self.assertEqual(result.pred_answer_disambiguated_mids, ["m.a", "m.b", "m.c"])
+        self.assertEqual(result.large_answer_expanded_mids, ["m.c"])
+
+    def test_online_group_tails_takes_precedence_over_file(self):
+        # 同时存在在线 group_tails(含 m.c)与文件 kg_group_tails(含 m.d):应优先在线 → 补 m.c
+        prediction = {"m.a": 1.0, "m.b": 0.9, "m.c": 0.8, "m.d": 0.7}
+        response = make_response(
+            "what countries are in example region", RAW_PATHS, prediction,
+            group_tails={"m.topic|rel.contains": ["m.a", "m.b", "m.c"]},
+        )
+        answer_client = FakeLLMClient(
+            [
+                text_response("Supporting Paths: 1, 2\nAnswer: Alpha | Beta"),
+                text_response("NONE"),
+            ]
+        )
+        agent = CheckedBatchWebQAgent(
+            path_tool=PathRetrieveTool(client=FakePathClient(response), entity_map=ENTITY_MAP),
+            answer_tool=AnswerWithPathsTool(client=answer_client),
+            check_tool=RejectedAnswerCheckTool(client=answer_client),
+        )
+
+        result = agent.run(
+            "what countries are in example region",
+            "m.topic",
+            batch_size=10,
+            large_answer_expansion=True,
+            kg_group_tails={"m.topic|rel.contains": ["m.a", "m.b", "m.d"]},
+            expansion_min_answers=2,
+        )
+
+        self.assertEqual(result.large_answer_expanded_mids, ["m.c"])
+
     def test_disabled_by_default(self):
         prediction = {"m.a": 1.0, "m.b": 0.9, "m.c": 0.8}
         agent = build_agent("what countries are in example region", prediction)
@@ -241,6 +303,28 @@ class CliFlagTests(unittest.TestCase):
         parser = build_parser()
         self.assertFalse(parser.parse_args([]).check_use_adapter)
         self.assertTrue(parser.parse_args(["--check_use_adapter"]).check_use_adapter)
+
+    def test_kg_group_tails_file_optional_with_online_source(self):
+        # 在线 group_tails 可用后,expansion 不再强制要 sidecar 文件:无文件返回 None(不报错)
+        from oh_my_agent.cli.eval_checked_batch_agent import load_file_kg_group_tails
+
+        self.assertIsNone(load_file_kg_group_tails(True, ""))
+        self.assertIsNone(load_file_kg_group_tails(False, "ignored.json"))
+
+    def test_kg_group_tails_file_loaded_when_provided(self):
+        import json
+        import os
+        import tempfile
+
+        from oh_my_agent.cli.eval_checked_batch_agent import load_file_kg_group_tails
+
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+            json.dump({"m.t|rel.x": ["m.a"]}, handle)
+            path = handle.name
+        try:
+            self.assertEqual(load_file_kg_group_tails(True, path), {"m.t|rel.x": ["m.a"]})
+        finally:
+            os.unlink(path)
 
 
 if __name__ == "__main__":

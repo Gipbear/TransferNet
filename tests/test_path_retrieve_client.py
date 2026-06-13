@@ -65,7 +65,7 @@ class PathRetrieveClientTests(unittest.TestCase):
                 "alpha_final": 1.0,
                 "threshold": 0.01,
                 "beam_size": 50,
-                "lambda_val": 0.5,
+                "lambda_val": 0.2,
             },
             timeout=120,
         )

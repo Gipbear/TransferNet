@@ -18,6 +18,7 @@ from oh_my_agent.common import (
     compute_faithfulness,
     get_all_path_entities,
     label_golden_indices,
+    llm_produced_answers,
     load_webqsp_qa_samples,
     mean_metric,
     record_answer_counts,
@@ -63,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--alpha_final", type=float, default=1.0)
     parser.add_argument("--path_threshold", type=float, default=0.01)
     parser.add_argument("--beam_size", type=int, default=50)
-    parser.add_argument("--lambda_val", type=float, default=0.5)
+    parser.add_argument("--lambda_val", type=float, default=0.2)
     parser.add_argument("--batch_size", type=int, default=20)
     parser.add_argument(
         "--dedupe_tail_paths",
@@ -179,6 +180,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def load_file_kg_group_tails(
+    large_answer_expansion: bool, kg_group_tails_file: str
+) -> dict[str, list[str]] | None:
+    """加载文件版 KG sidecar(可选)。在线 group_tails(path server 实时算 + prediction
+    过滤)可用后,文件不再必需:仅当显式传入文件时加载,作为旧 server 的回退/覆盖源。
+    agent.run 内会让在线 group_tails 优先于此文件。"""
+    if not (large_answer_expansion and kg_group_tails_file):
+        return None
+    with open(kg_group_tails_file, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
 def _resolve_output_paths(output: str) -> dict[str, str]:
     output_dir = os.path.splitext(output)[0] if output.endswith(".jsonl") else output
     return {
@@ -270,7 +283,9 @@ def main(argv: list[str] | None = None) -> int:
 
     check_tool = build_check_tool("loose")
     check_tool_after_first = (
-        build_check_tool("strict") if args.check_mode == "hybrid-reject-list" else None
+        build_check_tool("strict")
+        if args.check_mode == "hybrid-reject-list"
+        else None
     )
     if not args.skip_server_check:
         print("path_retrieve:", path_tool.client.health(), flush=True)
@@ -280,12 +295,9 @@ def main(argv: list[str] | None = None) -> int:
         ):
             print("check_llm   :", check_client.health(), flush=True)
 
-    kg_group_tails: dict[str, list[str]] | None = None
-    if args.large_answer_expansion:
-        if not args.kg_group_tails_file:
-            raise ValueError("--kg_group_tails_file is required for --large_answer_expansion")
-        with open(args.kg_group_tails_file, encoding="utf-8") as kg_handle:
-            kg_group_tails = json.load(kg_handle)
+    kg_group_tails = load_file_kg_group_tails(
+        args.large_answer_expansion, args.kg_group_tails_file
+    )
 
     agent = CheckedBatchWebQAgent(
         path_tool=path_tool,
@@ -332,7 +344,12 @@ def main(argv: list[str] | None = None) -> int:
                 cited_indices=set(result.final_accepted_path_indices)
                 | set(result.relation_expanded_path_indices),
                 golden_indices=label_golden_indices(result.raw_mmr_reason_paths, sample.gold_mids),
-                pred_answers=result.pred_answer_names,
+                # 忠实度只算 LLM 产出的答案,剔除 large_answer_expansion 补出的 KG 实体
+                pred_answers=llm_produced_answers(
+                    result.pred_answer_names,
+                    result.pred_answer_disambiguated_mids,
+                    result.large_answer_expanded_mids,
+                ),
                 path_entities=get_all_path_entities(result.named_mmr_reason_paths),
             )
             record = build_eval_record(sample_index, sample, result, answer_metrics, faith_metrics)

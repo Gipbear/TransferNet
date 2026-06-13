@@ -29,7 +29,7 @@ class PathRetrieveClient:
         alpha_final: float = 1.0,
         threshold: float = 0.01,
         beam_size: int = 50,
-        lambda_val: float = 0.5,
+        lambda_val: float = 0.2,
     ) -> PathRetrieveResponse:
         return self._post(
             "/retrieve",

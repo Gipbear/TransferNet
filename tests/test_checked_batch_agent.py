@@ -100,7 +100,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
         self.assertEqual(retrieve_kwargs["method"], "tail_blend")
         self.assertEqual(retrieve_kwargs["alpha_final"], 1.0)
         self.assertEqual(retrieve_kwargs["beam_size"], 50)
-        self.assertEqual(retrieve_kwargs["lambda_val"], 0.5)
+        self.assertEqual(retrieve_kwargs["lambda_val"], 0.2)
         self.assertEqual(result.stop_reason, "path_exhausted")
         self.assertEqual([item.batch_status for item in result.iterations], ["all_correct", "all_correct"])
         self.assertEqual(result.iterations[1].global_cited_path_indices, [3, 4])

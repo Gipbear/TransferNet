@@ -131,6 +131,12 @@ def build_rejected_answer_prompt(
         "For list questions, keep clear list members, but remove entities that are merely related to list members or to the topic.",
         "If uncertain but the candidate does not match the requested answer type or relation, list its number.",
     ]
+    task_lines = strict_task if strict else loose_task
+    output_lines = [
+        "One line only: comma-separated candidate numbers to remove, e.g. 1,2,5",
+        "Use candidate numbers from the Candidate Answers list, NOT path numbers.",
+        "If no candidate should be removed, output exactly: NONE",
+    ]
     return "\n".join(
         [
             f"Question: {question}",
@@ -142,12 +148,10 @@ def build_rejected_answer_prompt(
             "\n".join(answer_lines) if answer_lines else "(none)",
             "",
             "Task:",
-            *(strict_task if strict else loose_task),
+            *task_lines,
             "",
             "Output format:",
-            "One line only: comma-separated candidate numbers to remove, e.g. 1,2,5",
-            "Use candidate numbers from the Candidate Answers list, NOT path numbers.",
-            "If no candidate should be removed, output exactly: NONE",
+            *output_lines,
         ]
     )
 
@@ -239,11 +243,10 @@ class RejectedAnswerCheckTool:
         self.default_max_new_tokens = default_max_new_tokens
         self.reject_policy = reject_policy
         self.constrained_decoding = constrained_decoding
-        default_system_prompt = (
-            STRICT_REJECTED_ANSWER_CHECK_SYSTEM
-            if reject_policy == "strict"
-            else REJECTED_ANSWER_CHECK_SYSTEM
-        )
+        if reject_policy == "strict":
+            default_system_prompt = STRICT_REJECTED_ANSWER_CHECK_SYSTEM
+        else:
+            default_system_prompt = REJECTED_ANSWER_CHECK_SYSTEM
         self.system_prompt = (
             default_system_prompt if system_prompt is None else system_prompt
         )
@@ -295,8 +298,7 @@ class RejectedAnswerCheckTool:
             system_prompt=self.system_prompt,
             **generate_kwargs,
         )
-        rejected_indices = parse_rejected_answer_indices(response.text, len(candidates))
-        rejected_set = set(rejected_indices)
+        rejected_set = set(parse_rejected_answer_indices(response.text, len(candidates)))
         accepted_candidates = [
             candidate
             for candidate in candidates
@@ -340,7 +342,7 @@ class RejectedAnswerCheckTool:
             check_mode=f"reject-answer-list:{self.reject_policy}",
             raw_output=response.text,
             candidate_answers=candidates,
-            rejected_answer_indices=rejected_indices,
+            rejected_answer_indices=sorted(rejected_set),
             path_evaluations=evaluations,
             accepted_path_indices=accepted_indices,
             predicted_answer_names=answer_names,

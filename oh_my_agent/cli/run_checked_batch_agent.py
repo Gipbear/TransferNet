@@ -17,7 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--alpha_final", type=float, default=1.0)
     parser.add_argument("--path_threshold", type=float, default=0.01)
     parser.add_argument("--beam_size", type=int, default=50)
-    parser.add_argument("--lambda_val", type=float, default=0.5)
+    parser.add_argument("--lambda_val", type=float, default=0.2)
     parser.add_argument("--batch_size", type=int, default=20)
     parser.add_argument(
         "--dedupe_tail_paths",

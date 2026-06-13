@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from oh_my_agent.common import apply_entity_map, load_entity_map, map_entities
@@ -26,6 +26,8 @@ class PathRetrieveToolResult:
     raw_prediction: dict[str, float]
     named_prediction: dict[str, float]
     elapsed_ms: float
+    # 在线 KG 关系组全尾(已按 prediction 过滤),替代离线 sidecar 文件供 expansion 用
+    group_tails: dict[str, list[str]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -63,7 +65,7 @@ class PathRetrieveTool:
         alpha_final: float = 1.0,
         threshold: float = 0.01,
         beam_size: int = 50,
-        lambda_val: float = 0.5,
+        lambda_val: float = 0.2,
         sample_index: int | None = None,
     ) -> PathRetrieveToolResult:
         response = self.client.retrieve(
@@ -93,4 +95,5 @@ class PathRetrieveTool:
                 for entity, score in response.prediction.items()
             },
             elapsed_ms=response.elapsed_ms,
+            group_tails=response.group_tails,
         )

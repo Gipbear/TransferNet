@@ -10,8 +10,16 @@ LIMIT="${LIMIT:-0}"
 DEDUPE_TAIL_PATHS="${DEDUPE_TAIL_PATHS:-0}"
 BEAM_SIZE="${BEAM_SIZE:-50}"
 BATCH_SIZE="${BATCH_SIZE:-20}"
-LAMBDA_VAL="${LAMBDA_VAL:-0.5}"
+LAMBDA_VAL="${LAMBDA_VAL:-0.2}"
 ALPHA_FINAL="${ALPHA_FINAL:-1.0}"
+# 后处理(默认即 docs §1 配置;布尔项用 =0 关闭)
+CHECK_MODE="${CHECK_MODE:-hybrid-reject-list}"
+SCORE_MARGIN="${SCORE_MARGIN:-4.0}"
+EXPANSION_TOP_GROUPS="${EXPANSION_TOP_GROUPS:-2}"
+KG_GROUP_TAILS_FILE="${KG_GROUP_TAILS_FILE:-data/input/WebQSP/fbwq_full/kg_group_tails_test1581_lambda02.json}"
+CHECK_CONSTRAINED_DECODING="${CHECK_CONSTRAINED_DECODING:-1}"
+HOP_FILTER="${HOP_FILTER:-1}"
+LARGE_ANSWER_EXPANSION="${LARGE_ANSWER_EXPANSION:-1}"
 PATH_RETRIEVE_PORT="${PATH_RETRIEVE_PORT:-8789}"
 LLM_SERVER_PORT="${LLM_SERVER_PORT:-8788}"
 PATH_RETRIEVE_URL="${PATH_RETRIEVE_URL:-http://localhost:${PATH_RETRIEVE_PORT}}"
@@ -51,9 +59,25 @@ CMD=(
   --batch_size "${BATCH_SIZE}"
   --lambda_val "${LAMBDA_VAL}"
   --alpha_final "${ALPHA_FINAL}"
+  --check_mode "${CHECK_MODE}"
+  --score_margin "${SCORE_MARGIN}"
+  --kg_group_tails_file "${KG_GROUP_TAILS_FILE}"
+  --expansion_top_groups "${EXPANSION_TOP_GROUPS}"
   --path_retrieve_url "${PATH_RETRIEVE_URL}"
   --llm_server_url "${LLM_SERVER_URL}"
 )
+
+if [[ "${CHECK_CONSTRAINED_DECODING}" != "0" ]]; then
+  CMD+=(--check_constrained_decoding)
+fi
+
+if [[ "${HOP_FILTER}" != "0" ]]; then
+  CMD+=(--hop_filter)
+fi
+
+if [[ "${LARGE_ANSWER_EXPANSION}" != "0" ]]; then
+  CMD+=(--large_answer_expansion)
+fi
 
 if [[ "${DEDUPE_TAIL_PATHS}" != "0" ]]; then
   CMD+=(--dedupe_tail_paths)

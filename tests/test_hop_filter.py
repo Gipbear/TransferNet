@@ -118,6 +118,42 @@ class AgentHopFilterTests(unittest.TestCase):
 
         self.assertEqual(result.pred_answer_names, ["Bob"])
 
+    def test_hop_filter_keeps_all_answers_when_none_match_hop(self):
+        # 检索 hop=1 但所有答案都只有 2-hop 支撑:hop 信号此时不可信,
+        # 应放弃过滤保留全部答案,而不是只保底留第一个
+        raw_paths = [
+            {
+                "path": [["m.topic", "rel.x", "m.mid"], ["m.mid", "rel.y", "m.b"]],
+                "log_score": -1.5,
+            },
+            {
+                "path": [["m.topic", "rel.x", "m.mid"], ["m.mid", "rel.z", "m.c"]],
+                "log_score": -2.0,
+            },
+        ]
+        entity_map = {
+            "m.topic": "Topic", "m.mid": "Mid", "m.b": "Bob", "m.c": "Carol",
+        }
+        path_client = FakePathClient(make_response(raw_paths))
+        answer_client = FakeLLMClient(
+            [
+                text_response("Supporting Paths: 1, 2\nAnswer: Bob | Carol"),
+                text_response("NONE"),
+            ]
+        )
+        agent = CheckedBatchWebQAgent(
+            path_tool=PathRetrieveTool(client=path_client, entity_map=entity_map),
+            answer_tool=AnswerWithPathsTool(client=answer_client),
+            check_tool=RejectedAnswerCheckTool(client=answer_client),
+        )
+
+        result = agent.run(
+            "who are the members of example", "m.topic", batch_size=10, hop_filter=True
+        )
+
+        self.assertEqual(result.pred_answer_names, ["Bob", "Carol"])
+        self.assertEqual(result.pred_answer_disambiguated_mids, ["m.b", "m.c"])
+
 
 if __name__ == "__main__":
     unittest.main()

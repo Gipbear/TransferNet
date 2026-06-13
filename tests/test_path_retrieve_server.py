@@ -77,7 +77,7 @@ class CachedPathRetrieverTests(unittest.TestCase):
         self.assertEqual(result.topics, ["m.topic"])
         self.assertEqual(result.beam_size, 50)
         self.assertEqual(result.alpha_final, 1.0)
-        self.assertEqual(result.lambda_val, 0.5)
+        self.assertEqual(result.lambda_val, 0.2)
         self.assertEqual(
             result.mmr_reason_paths[0]["path"],
             [["m.topic", "rel.answer", "m.answer"]],

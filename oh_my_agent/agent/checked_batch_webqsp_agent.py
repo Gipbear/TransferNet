@@ -242,7 +242,7 @@ class CheckedBatchWebQAgent:
         alpha_final: float = 1.0,
         threshold: float = 0.01,
         beam_size: int = 50,
-        lambda_val: float = 0.5,
+        lambda_val: float = 0.2,
         batch_size: int = 20,
         use_adapter: bool | None = None,
         max_new_tokens: int | None = None,
@@ -278,6 +278,10 @@ class CheckedBatchWebQAgent:
             lambda_val=lambda_val,
             sample_index=sample_index,
         )
+        # 在线 group_tails(server 实时算 + prediction 过滤)优先于文件 sidecar;
+        # 旧 server 不返回该字段时回退到传入的 kg_group_tails
+        if getattr(retrieval, "group_tails", None):
+            self._kg_group_tails = retrieval.group_tails
 
         raw_paths = retrieval.raw_mmr_reason_paths
         named_paths = retrieval.named_mmr_reason_paths
@@ -539,9 +543,10 @@ class CheckedBatchWebQAgent:
     def _keep_final_answers(
         state: _CheckedBatchState, kept_pairs: list[tuple[str, str]]
     ) -> None:
-        """Replace the final answers, keeping at least the top-ranked one."""
+        """Replace the final answers. An empty keep-list means the filter
+        signal contradicts every answer — distrust the filter and keep all."""
         if not kept_pairs:
-            kept_pairs = [(state.final_names[0], state.final_mids[0])]
+            return
         state.final_names = [name for name, _ in kept_pairs]
         state.final_mids = [mid for _, mid in kept_pairs]
 

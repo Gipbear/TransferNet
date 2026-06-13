@@ -108,6 +108,20 @@ def compute_faithfulness(
     }
 
 
+def llm_produced_answers(
+    pred_names: list[str], pred_mids: list[str], expanded_mids: list[str]
+) -> list[str]:
+    """剔除 large_answer_expansion 等确定性后处理补出的实体,只留 LLM 实际产出的
+    答案名。LLM 忠实度指标(hallucination)应只在这部分上算——expansion 补的是"路径
+    外、KG 内"的事实,把它们算进幻觉会让模型指标被 pipeline 机制污染。"""
+    expanded = {norm_entity(mid) for mid in expanded_mids}
+    return [
+        name
+        for name, mid in zip(pred_names, pred_mids)
+        if norm_entity(mid) not in expanded
+    ]
+
+
 def aggregate_metrics(results: list[dict]) -> dict[str, float | int]:
     """Aggregate per-sample evaluation records into a summary."""
     if not results:
