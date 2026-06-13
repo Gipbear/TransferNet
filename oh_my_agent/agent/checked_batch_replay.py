@@ -110,18 +110,25 @@ def replay_record(
     expansion_min_answers: int = 8,
     expansion_top_groups: int = 1,
     no_early_stop: bool = False,
+    hybrid_check: bool = True,
 ) -> CheckedBatchWebQAgentResult:
     """用录制的 LLM 轨迹复现一条样本,在给定后处理配置下重新产出结果。
 
     ``batch_size`` 必须与录制时一致,否则分批切片与 iterations 对不齐——返回前会
     校验各批 ``batch_start_rank`` 与录制吻合,不吻合即抛错。
+
+    ``hybrid_check`` 必须与录制时的 check_mode 一致(canonical 是 hybrid → True)。
+    agent 的 all_wrong_after_answer 早停只在 check_tool_after_first 非 None 时生效;
+    若录制时是 hybrid 而回放设 None,会禁用该早停、多跑批次直至越界。两个 check mock
+    共享同一游标,无论 agent 选哪个,每批仅前进一格。
     """
     cursor = _BatchCursor(record.get("iterations", []))
+    check_tool = _ReplayCheckTool(cursor)
     agent = CheckedBatchWebQAgent(
         path_tool=_ReplayPathTool(record, entity_map),
         answer_tool=_ReplayAnswerTool(cursor),
-        check_tool=_ReplayCheckTool(cursor),
-        check_tool_after_first=None,
+        check_tool=check_tool,
+        check_tool_after_first=check_tool if hybrid_check else None,
     )
     result = agent.run(
         record.get("question", ""),

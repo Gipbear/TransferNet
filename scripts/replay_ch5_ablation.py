@@ -96,6 +96,7 @@ def replay_config(
     batch_size: int,
     expansion_min_answers: int,
     expansion_top_groups: int,
+    hybrid_check: bool,
     **flags: Any,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     out_records: list[dict[str, Any]] = []
@@ -107,6 +108,7 @@ def replay_config(
             batch_size=batch_size,
             expansion_min_answers=expansion_min_answers,
             expansion_top_groups=expansion_top_groups,
+            hybrid_check=hybrid_check,
             **flags,
         )
         out_records.append(
@@ -125,7 +127,7 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
 
 def _verify_canonical(
     records, entity_map, batch_size, summary, *, score_margin,
-    expansion_min_answers, expansion_top_groups,
+    expansion_min_answers, expansion_top_groups, hybrid_check,
 ) -> None:
     _, replayed = replay_config(
         records,
@@ -133,6 +135,7 @@ def _verify_canonical(
         batch_size=batch_size,
         expansion_min_answers=expansion_min_answers,
         expansion_top_groups=expansion_top_groups,
+        hybrid_check=hybrid_check,
         score_margin=score_margin,
         hop_filter=True,
         large_answer_expansion=True,
@@ -181,16 +184,19 @@ def main(argv: list[str] | None = None) -> int:
     score_margin = float(summary.get("score_margin") or 4.0)
     expansion_min_answers = int(summary.get("expansion_min_answers", 8))
     expansion_top_groups = int(summary.get("expansion_top_groups", 1))
+    # canonical 的 check_mode 决定 check_tool_after_first 是否非 None,影响早停 → 回放必须一致
+    hybrid_check = summary.get("check_mode", "hybrid-reject-list") == "hybrid-reject-list"
 
     print(f"[INFO] 录制样本数: {len(records)}  batch_size={batch_size} "
-          f"score_margin={score_margin} expansion_top_groups={expansion_top_groups}")
+          f"score_margin={score_margin} expansion_top_groups={expansion_top_groups} "
+          f"hybrid_check={hybrid_check}")
 
     if not args.skip_verify:
         _verify_canonical(
             records, summary=summary, entity_map=load_entity_map(args.entity_map),
             batch_size=batch_size, score_margin=score_margin,
             expansion_min_answers=expansion_min_answers,
-            expansion_top_groups=expansion_top_groups,
+            expansion_top_groups=expansion_top_groups, hybrid_check=hybrid_check,
         )
 
     entity_map = load_entity_map(args.entity_map)
@@ -204,6 +210,7 @@ def main(argv: list[str] | None = None) -> int:
             batch_size=batch_size,
             expansion_min_answers=expansion_min_answers,
             expansion_top_groups=expansion_top_groups,
+            hybrid_check=hybrid_check,
             **flags,
         )
         out_summary.update(

@@ -124,25 +124,27 @@ def _build_scenario():
     return entity_map, retrieval, answer_scripts, accepts
 
 
-def _run_real(entity_map, retrieval, answer_scripts, accepts, *, batch_size=2, **flags):
+def _run_real(entity_map, retrieval, answer_scripts, accepts, *, batch_size=2, hybrid=True, **flags):
+    # hybrid=True 还原 canonical:check_tool_after_first 非 None,启用 all_wrong_after_answer 早停
     answer_tool = _ScriptedAnswer(answer_scripts)
+    check = _ScriptedCheck(answer_tool, accepts)
     agent = CheckedBatchWebQAgent(
         path_tool=_ScriptedPath(retrieval, entity_map),
         answer_tool=answer_tool,
-        check_tool=_ScriptedCheck(answer_tool, accepts),
-        check_tool_after_first=None,
+        check_tool=check,
+        check_tool_after_first=check if hybrid else None,
     )
     return agent.run(
         retrieval.question, retrieval.topic_mid, batch_size=batch_size, **flags
     )
 
 
-def _to_record(result):
+def _to_record(result, gold_mids=("m.a", "m.b")):
     sample = WebQSPQASample(
-        question_raw="who is topic",
-        question="who is topic",
-        topic_mid="m.topic",
-        gold_mids=["m.a", "m.b"],
+        question_raw=result.question,
+        question=result.question,
+        topic_mid=result.topic_mid,
+        gold_mids=list(gold_mids),
     )
     answer_metrics = compute_answer_metrics(result.pred_answer_disambiguated_mids, sample.gold_mids)
     faith = compute_faithfulness(
@@ -245,7 +247,7 @@ class ReplayExpansionTests(unittest.TestCase):
         scenario = self._expansion_scenario()
         flags = dict(large_answer_expansion=True, expansion_top_groups=1)
         real = _run_real(*scenario, batch_size=20, **flags)
-        record = _to_record_expansion(real)
+        record = _to_record(real, gold_mids=["m.1"])
         replayed = replay_record(record, entity_map=scenario[0], batch_size=20, **flags)
         # m.9, m.10 是组内但未被引用的 KG 尾,应被 expansion 补出
         self.assertEqual(real.large_answer_expanded_mids, ["m.9", "m.10"])
@@ -257,26 +259,58 @@ class ReplayExpansionTests(unittest.TestCase):
         )
 
 
-def _to_record_expansion(result):
-    sample = WebQSPQASample(
-        question_raw="list the things of topic",
-        question="list the things of topic",
-        topic_mid="m.topic",
-        gold_mids=["m.1"],
-    )
-    answer_metrics = compute_answer_metrics(result.pred_answer_disambiguated_mids, sample.gold_mids)
-    faith = compute_faithfulness(
-        cited_indices=set(result.final_accepted_path_indices)
-        | set(result.relation_expanded_path_indices),
-        golden_indices=label_golden_indices(result.raw_mmr_reason_paths, sample.gold_mids),
-        pred_answers=llm_produced_answers(
-            result.pred_answer_names,
-            result.pred_answer_disambiguated_mids,
-            result.large_answer_expanded_mids,
-        ),
-        path_entities=get_all_path_entities(result.named_mmr_reason_paths),
-    )
-    return build_eval_record(0, sample, result, answer_metrics, faith)
+class ReplayHybridEarlyStopTests(unittest.TestCase):
+    """canonical 是 hybrid check(check_tool_after_first 非 None),会触发
+    all_wrong_after_answer 早停。回放必须复现这条早停,否则会多跑批次、
+    请求超出录制的 iterations 而报错(这是真实数据上崩过的 bug)。"""
+
+    def _earlystop_scenario(self):
+        entity_map = {"m.topic": "Topic"}
+        names = ["A", "B", "C", "D", "E", "F"]
+        for i, n in enumerate(names, start=1):
+            entity_map[f"m.{i}"] = n
+        raw_paths = [
+            {"path": [["m.topic", "r1", f"m.{i}"]], "log_score": -1.0}
+            for i in range(1, 7)
+        ]
+        named_paths = [
+            {"path": [["Topic", "r1", names[i - 1]]], "log_score": -1.0}
+            for i in range(1, 7)
+        ]
+        retrieval = PathRetrieveToolResult(
+            question="who relates to topic",
+            topic_mid="m.topic",
+            hop=1,
+            raw_topics=["m.topic"],
+            named_topics=["Topic"],
+            raw_mmr_reason_paths=raw_paths,
+            named_mmr_reason_paths=named_paths,
+            raw_prediction={f"m.{i}": 0.95 for i in range(1, 7)},
+            named_prediction={},
+            elapsed_ms=1.0,
+            group_tails={},
+        )
+        answer_scripts = [
+            {"answer_names": ["A", "B"], "cited_local": [1, 2]},
+            {"answer_names": ["C", "D"], "cited_local": [1, 2]},
+            {"answer_names": ["E", "F"], "cited_local": [1, 2]},
+        ]
+        # 批1 全接受(产生答案)→ 批2 全拒(all_wrong + 已有答案)→ 早停,批3 不应被处理
+        accepts = [{1, 2}, set(), {1, 2}]
+        return entity_map, retrieval, answer_scripts, accepts
+
+    def test_replay_reproduces_all_wrong_after_answer_early_stop(self):
+        scenario = self._earlystop_scenario()
+        real = _run_real(*scenario, batch_size=2, hybrid=True, drop_topic_self=False)
+        self.assertEqual(real.batches_used, 2, "真实运行应在第2批早停")
+        self.assertEqual(real.stop_reason, "all_wrong_after_answer")
+        record = _to_record(real, gold_mids=["m.1"])
+        # 录制只有 2 批;回放若禁用该早停会请求第3批 → IndexError
+        replayed = replay_record(record, entity_map=scenario[0], batch_size=2, drop_topic_self=False)
+        self.assertEqual(replayed.batches_used, 2)
+        self.assertEqual(
+            replayed.pred_answer_disambiguated_mids, real.pred_answer_disambiguated_mids
+        )
 
 
 if __name__ == "__main__":
