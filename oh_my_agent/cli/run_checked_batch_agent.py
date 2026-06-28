@@ -20,6 +20,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lambda_val", type=float, default=0.2)
     parser.add_argument("--batch_size", type=int, default=20)
     parser.add_argument(
+        "--no_early_stop",
+        action="store_true",
+        help="Disable low-accept mixed-batch early stop.",
+    )
+    parser.add_argument("--mixed_stop_ratio", type=float, default=1.0 / 3.0)
+    parser.add_argument("--max_batches", type=int, default=0)
+    parser.add_argument("--stop_after_no_new_batches", type=int, default=0)
+    parser.add_argument("--no_all_wrong_after_answer_stop", action="store_true")
+    parser.add_argument(
         "--dedupe_tail_paths",
         action="store_true",
         help="Deduplicate retrieved paths by final raw tail entity before batching",
@@ -76,6 +85,11 @@ def main(argv: list[str] | None = None) -> int:
         lambda_val=args.lambda_val,
         batch_size=args.batch_size,
         dedupe_tail_paths=args.dedupe_tail_paths,
+        no_early_stop=args.no_early_stop,
+        mixed_stop_ratio=args.mixed_stop_ratio,
+        max_batches=args.max_batches or None,
+        stop_after_no_new_batches=args.stop_after_no_new_batches or None,
+        no_all_wrong_after_answer_stop=args.no_all_wrong_after_answer_stop,
     )
     print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
     return 0

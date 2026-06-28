@@ -77,6 +77,7 @@ class DataLoader(torch.utils.data.DataLoader):
 
 
         data = []
+        qa_text = []
         missing_answer_count = 0
         skipped_missing_answer_count = 0
         missing_answer_examples = []
@@ -121,6 +122,9 @@ class DataLoader(torch.utils.data.DataLoader):
 
             head = [head]
             data.append([head, question, valid_ans, entity_range])
+            # 与 data 严格同序记录过滤后存活行的原始问句文本，
+            # 供 dump_scores 等下游按 batch 顺序取用，避免与得分错位。
+            qa_text.append(question)
 
         tokenize_batch_size = 512
         for start in tqdm(range(0, len(data), tokenize_batch_size), desc='tokenize WebQSP questions', unit='batch', dynamic_ncols=True, mininterval=1.0, file=sys.stdout):
@@ -146,6 +150,8 @@ class DataLoader(torch.utils.data.DataLoader):
             )
         
         dataset = Dataset(data, ent2id)
+        # 过滤后存活行的原始问句文本，顺序与 dataset 一一对应。
+        self.qa_text = qa_text
 
         super().__init__(
             dataset,

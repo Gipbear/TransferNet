@@ -90,7 +90,7 @@ E_CONFIGS=""
 
 # GroupH: beam 匹配训练/推理。要求提供真实 per-beam train split 路径文件，
 # 不从 beam20/predict_train 前缀裁剪，避免把 MMR beam 实验伪装成前缀实验。
-GROUPH_BEAMS="${GROUPH_BEAMS:-5 10 15 20}"
+GROUPH_BEAMS="${GROUPH_BEAMS:-5 10 20}"
 GROUPH_ALPHA="${GROUPH_ALPHA:-1}"
 GROUPH_LAM="${GROUPH_LAM:-0.2}"
 GROUPH_AUTO_PATH_SEARCH="${GROUPH_AUTO_PATH_SEARCH:-1}"

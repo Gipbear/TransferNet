@@ -21,6 +21,7 @@ from .eval_records import (
 )
 from .metrics import (
     aggregate_metrics,
+    cited_indices_for_answers,
     compute_answer_metrics,
     compute_faithfulness,
     label_golden_indices,
@@ -44,6 +45,7 @@ __all__ = [
     "build_reasoning_prompt",
     "build_reverse_entity_map",
     "clean_question_text",
+    "cited_indices_for_answers",
     "compute_answer_metrics",
     "compute_faithfulness",
     "llm_produced_answers",

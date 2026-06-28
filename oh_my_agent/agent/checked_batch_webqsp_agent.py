@@ -261,10 +261,20 @@ class CheckedBatchWebQAgent:
         expansion_min_answers: int = 8,
         expansion_top_groups: int = 1,
         no_early_stop: bool = False,
+        mixed_stop_ratio: float | None = 1.0 / 3.0,
+        max_batches: int | None = None,
+        stop_after_no_new_batches: int | None = None,
+        no_all_wrong_after_answer_stop: bool = False,
         drop_topic_self: bool = True,
     ) -> CheckedBatchWebQAgentResult:
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
+        if mixed_stop_ratio is not None and mixed_stop_ratio < 0:
+            raise ValueError("mixed_stop_ratio must be non-negative or None")
+        if max_batches is not None and max_batches <= 0:
+            raise ValueError("max_batches must be positive or None")
+        if stop_after_no_new_batches is not None and stop_after_no_new_batches <= 0:
+            raise ValueError("stop_after_no_new_batches must be positive or None")
         self._score_margin = score_margin
         self._enable_relation_expansion = enable_relation_expansion
         self._large_answer_expansion = large_answer_expansion
@@ -293,6 +303,7 @@ class CheckedBatchWebQAgent:
         if dedupe_tail_paths:
             raw_paths, named_paths = _dedupe_paths_by_tail(raw_paths, named_paths)
         state = _CheckedBatchState()
+        no_new_batches = 0
 
         for start in range(0, len(named_paths), batch_size):
             batch_named = named_paths[start : start + batch_size]
@@ -300,6 +311,7 @@ class CheckedBatchWebQAgent:
             if not batch_named:
                 break
 
+            previous_answer_count = len(state.seen_answer_keys)
             batch_status, accepted_entity_count, batch_entity_count = self._run_checked_batch(
                 question,
                 start=start,
@@ -315,15 +327,37 @@ class CheckedBatchWebQAgent:
                 check_max_new_tokens=check_max_new_tokens,
             )
 
+            if len(state.seen_answer_keys) == previous_answer_count:
+                no_new_batches += 1
+            else:
+                no_new_batches = 0
+
+            more_paths = start + batch_size < len(named_paths)
+            if (
+                max_batches is not None
+                and len(state.iterations) >= max_batches
+                and more_paths
+            ):
+                state.stop_reason = "max_batches"
+                break
             if (
                 not no_early_stop
+                and mixed_stop_ratio is not None
                 and batch_status == "mixed"
-                and accepted_entity_count <= batch_entity_count / 3
+                and accepted_entity_count <= batch_entity_count * mixed_stop_ratio
             ):
                 state.stop_reason = "mixed"
                 break
             if (
-                self.check_tool_after_first is not None
+                stop_after_no_new_batches is not None
+                and no_new_batches >= stop_after_no_new_batches
+                and more_paths
+            ):
+                state.stop_reason = "no_new_answers"
+                break
+            if (
+                not no_all_wrong_after_answer_stop
+                and self.check_tool_after_first is not None
                 and start > 0
                 and batch_status == "all_wrong"
                 and state.accepted_indices

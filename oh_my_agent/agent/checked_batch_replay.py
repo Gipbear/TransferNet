@@ -128,13 +128,19 @@ class _ReplaySession:
             check_tool_after_first=check_tool if hybrid_check else None,
         )
 
-    def replay(self, record: dict[str, Any], **run_flags: Any) -> CheckedBatchWebQAgentResult:
+    def replay(
+        self,
+        record: dict[str, Any],
+        *,
+        allow_prefix: bool = False,
+        **run_flags: Any,
+    ) -> CheckedBatchWebQAgentResult:
         self.cursor = _BatchCursor(record.get("iterations", []))
         self.path_result = _path_result_from_record(record, self._entity_map)
         result = self.agent.run(
             record.get("question", ""), record.get("topic_mid", ""), **run_flags
         )
-        _assert_batch_alignment(result, record)
+        _assert_batch_alignment(result, record, allow_prefix=allow_prefix)
         return result
 
 
@@ -143,6 +149,7 @@ def replay_record(
     *,
     entity_map: dict[str, str],
     hybrid_check: bool = True,
+    allow_prefix: bool = False,
     **run_flags: Any,
 ) -> CheckedBatchWebQAgentResult:
     """便捷单条回放(每次新建 session;批量请用 ``_ReplaySession`` 复用 agent)。
@@ -154,12 +161,25 @@ def replay_record(
     ``hybrid_check`` 必须与录制时的 check_mode 一致(canonical 是 hybrid → True);
     它决定 agent 的 all_wrong_after_answer 早停是否生效,设错会导致回放越界报错。
     """
-    return _ReplaySession(entity_map, hybrid_check=hybrid_check).replay(record, **run_flags)
+    return _ReplaySession(entity_map, hybrid_check=hybrid_check).replay(
+        record, allow_prefix=allow_prefix, **run_flags
+    )
 
 
-def _assert_batch_alignment(result: CheckedBatchWebQAgentResult, record: dict[str, Any]) -> None:
+def _assert_batch_alignment(
+    result: CheckedBatchWebQAgentResult,
+    record: dict[str, Any],
+    *,
+    allow_prefix: bool = False,
+) -> None:
     recorded = record.get("iterations", [])
-    if len(result.iterations) != len(recorded):
+    if allow_prefix:
+        if len(result.iterations) > len(recorded):
+            raise ValueError(
+                f"回放批次数({len(result.iterations)})超过录制({len(recorded)}):"
+                "源 trace 不足以支持该停止策略"
+            )
+    elif len(result.iterations) != len(recorded):
         raise ValueError(
             f"回放批次数({len(result.iterations)})与录制({len(recorded)})不一致:"
             "batch_size 或早停行为改变,回放无效"

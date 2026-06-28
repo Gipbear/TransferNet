@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 TransferNet implementation (EMNLP 2021) for multi-hop KGQA, extended with:
 - **Ch3**: TransferNet + MMR diversity beam search for reasoning path retrieval
 - **Ch4**: QLoRA SFT of LLaMA 3.1 8B using TransferNet reasoning paths
-- **Ch5**: PathfinderAgent — multi-stage reasoning pipeline (query rewrite → MMR retrieval → LLM reason → verify → aggregate)
+- **Ch5**: oh_my_agent — checked-batch reasoning pipeline (batched answering + LLM reject check, first batch loose / later batches strict)
 
 ## Common Commands
 
@@ -57,7 +57,7 @@ python -m llm_infer.eval_faithfulness ...
 ```bash
 bash scripts/run_grid.sh webqsp|metaqa|cwq [ckpt_path]     # MMR beam/lambda grid search
 bash scripts/run_ablation.sh --dataset X --group A|B|C|D    # Ch4 ablation experiments
-bash scripts/run_agent_experiments.sh                        # Ch5 agent evaluation
+bash scripts/run_checked_batch_agent_eval.sh                 # Ch5 checked-batch agent evaluation
 python scripts/collect_ablation_results.py                   # Parse ablation logs to CSV
 ```
 
@@ -65,27 +65,11 @@ python scripts/collect_ablation_results.py                   # Parse ablation lo
 ```bash
 python -m unittest discover -s tests -p 'test*.py' -v
 bash tests/run_ablation_lib_test.sh    # Tests for ablation library functions
-python -m unittest tests/test_pathfinder_agent.py -v
-python -m unittest tests/test_pathfinder_replay.py -v
+python -m unittest tests/test_checked_batch_agent.py -v
+python -m unittest tests/test_checked_batch_replay.py -v
 ```
 
-### PathfinderAgent Evaluation (Chapter 5)
-```bash
-# 启动模型服务器（避免每次重新加载，推荐）
-python scripts/model_server.py \
-    --ckpt data/ckpt/WebQSP_run_20260518_2241/model-49-0.7154.pt \
-    --input_dir data/input/WebQSP --port 8787
-
-# 客户端模式评测（连接已启动的服务器）
-python run_agent_eval.py --server-url http://localhost:8787 \
-    --input <EVAL_JSONL> --output <OUTPUT_JSONL>
-
-# 独立模式（单次使用，含 3-4 分钟模型加载开销）
-python run_agent_eval.py --ckpt <CKPT> --input_dir <DATA_DIR> \
-    --input <EVAL_JSONL> --output <OUTPUT_JSONL>
-```
-
-### oh_my_agent Services & Evaluation
+### oh_my_agent Services & Evaluation (Chapter 5)
 当前 `oh_my_agent` 的评测入口是 `python -m oh_my_agent.cli.eval_checked_batch_agent`（checked-batch agent：分批答题 + LLM reject 检查，首批 loose、后续批 strict）。它是批量 CLI：先调用常驻 `path_retrieve_server`（score 缓存检索，仅覆盖 WebQSP test 1581 条），再调用常驻 `llm_server` 答题与校验，写出逐样本 JSONL、summary 与初始检索/答题记录。
 
 ```bash
@@ -142,24 +126,22 @@ The `follow(e, r)` operation: `Mobj^T @ (Msubj @ e^T * Mrel @ r^T)` — differen
 - `eval_utils.py`: Multi-threshold evaluation statistics
 - `lr_scheduler.py`: Multiple LR scheduler implementations
 
-### PathfinderAgent (`pathfinder_agent/`)
-- `agent.py`: 多阶段推理入口 — query rewrite → MMR retrieval → LLM reason → verify → aggregate
-- `config.py`: 路径/beam/lambda 配置；默认 adapter: `models/webqsp/ablation/groupAname_v2`
-- `tools/query_rewriter.py`: 问题改写，normalize + expand
-- `tools/dynamic_retriever.py`: 两阶段 MMR 检索（primary beam20/λ0.2，fallback beam50/λ1.0）
-- `tools/llm_reasoner.py`: LoRA adapter 推理，输出 reasoning + answer
-- `tools/answer_verifier.py`: 验证候选答案是否出现在路径中
-- `tools/answer_aggregator.py`: 多路径答案投票聚合
-- `scripts/model_server.py`: HTTP 模型服务器，一次加载多次复用（避免重复启动开销）
+### oh_my_agent (`oh_my_agent/`) — Chapter 5 checked-batch agent
+- `cli/eval_checked_batch_agent.py`: 评测入口 — 分批答题 + LLM reject 检查（首批 loose、后续批 strict），写出逐样本 JSONL、summary 与初始检索/答题记录
+- `cli/run_checked_batch_agent.py`: 单问/调试运行入口
+- `agent/checked_batch_webqsp_agent.py`: checked-batch agent 主逻辑（分批准入、停止策略、答案校准）
+- `agent/checked_batch_replay.py`: 离线重放已有记录以复算指标/做消融
+- `tools/path_retrieve.py`: score 缓存检索（仅覆盖 WebQSP test 1581 条）
+- `tools/answer_with_paths.py`: 基于路径的 PFIT-Cite 答题
+- `tools/cited_path_check.py`: 引用一致性校验（reject 判定）
+- `common/`: `metrics.py`（hit/F1/EM/citation 指标）、`prompting.py`、`qa_data.py`、`entity_mapping.py`、`output_parser.py`、`paths.py`、`eval_records.py`
+- `path_retrieve_server/`、`llm_server/`: 两个常驻 HTTP 服务（默认 8789 / 8788），一次加载多次复用
 
 ### LLM Layer (`llm_infer/`)
 - `kg_format.py`: Path formatting (arrow/tuple/chain × MID/name) and system prompts for output formats (V1-V4, V11)
 - `train_sft.py`: QLoRA via Unsloth + HuggingFace SFTTrainer. Smart truncation preserves golden paths. Prompt masking (loss only on assistant replies)
 - `build_kgcot_dataset.py`: Builds training JSONL from TransferNet MMR paths
 - `eval_faithfulness.py`: Citation accuracy, hallucination rate, F1 evaluation
-- `agent/react_loop.py`: `KGReActAgent` — Thought/Action/Observation loop
-- `agent/tools.py`: `ToolRegistry` with RetrievePaths, ReasonAndCite, VerifyCitation, DecomposeQuestion, Finish tools
-- `agent/agent_config.py`: Agent configuration dataclass
 
 ### Experiment Orchestration (`scripts/`)
 - `run_ablation.sh` sources `run_ablation_lib.sh` for dataset context/adapter resolution

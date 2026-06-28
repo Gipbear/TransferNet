@@ -28,6 +28,7 @@ if str(ROOT) not in sys.path:
 from oh_my_agent.agent.checked_batch_replay import _ReplaySession
 from oh_my_agent.common import (
     build_eval_record,
+    cited_indices_for_answers,
     compute_answer_metrics,
     compute_faithfulness,
     get_all_path_entities,
@@ -48,16 +49,21 @@ VERIFY_KEYS = ("hit1", "hit_any", "macro_f1", "micro_f1", "exact_match", "citati
 
 
 def _ladder_configs(score_margin: float) -> dict[str, dict[str, Any]]:
-    """消融阶梯:逐层叠加后处理(check 恒为 canonical 的 constrained+hybrid)。"""
+    """消融阶梯:逐层叠加后处理(check 恒为 canonical 的 constrained+hybrid)。
+
+    所有档位统一使用论文最终停止策略(mixed_stop_ratio=0.5, max_batches=2),
+    确保差异仅来自逐层叠加的后处理组件。
+    """
+    stop = dict(mixed_stop_ratio=0.5, max_batches=2)
     return {
-        "ablation_base": dict(drop_topic_self=False),
-        "ablation_margin": dict(score_margin=score_margin, drop_topic_self=False),
+        "ablation_base": dict(drop_topic_self=False, **stop),
+        "ablation_margin": dict(score_margin=score_margin, drop_topic_self=False, **stop),
         "ablation_margin_hop": dict(
-            score_margin=score_margin, hop_filter=True, drop_topic_self=False
+            score_margin=score_margin, hop_filter=True, drop_topic_self=False, **stop
         ),
         "ablation_margin_hop_exp": dict(
             score_margin=score_margin, hop_filter=True,
-            large_answer_expansion=True, drop_topic_self=False,
+            large_answer_expansion=True, drop_topic_self=False, **stop
         ),
     }
 
@@ -76,8 +82,12 @@ def _record_for_result(sample_index: int, sample: WebQSPQASample, result) -> dic
         result.pred_answer_disambiguated_mids, sample.gold_mids
     )
     faith = compute_faithfulness(
-        cited_indices=set(result.final_accepted_path_indices)
-        | set(result.relation_expanded_path_indices),
+        cited_indices=cited_indices_for_answers(
+            set(result.final_accepted_path_indices)
+            | set(result.relation_expanded_path_indices),
+            result.raw_mmr_reason_paths,
+            result.pred_answer_disambiguated_mids,
+        ),
         golden_indices=label_golden_indices(result.raw_mmr_reason_paths, sample.gold_mids),
         pred_answers=llm_produced_answers(
             result.pred_answer_names,
@@ -96,6 +106,7 @@ def replay_config(
     batch_size: int,
     expansion_min_answers: int,
     expansion_top_groups: int,
+    allow_prefix: bool = False,
     **flags: Any,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     # 复用同一个 session(agent 只建一次反向映射),逐条回放
@@ -104,6 +115,7 @@ def replay_config(
         sample = _sample_from_record(record)
         result = session.replay(
             record,
+            allow_prefix=allow_prefix,
             batch_size=batch_size,
             expansion_min_answers=expansion_min_answers,
             expansion_top_groups=expansion_top_groups,
@@ -133,6 +145,7 @@ def _verify_canonical(
         batch_size=batch_size,
         expansion_min_answers=expansion_min_answers,
         expansion_top_groups=expansion_top_groups,
+        allow_prefix=True,
         score_margin=score_margin,
         hop_filter=True,
         large_answer_expansion=True,
@@ -210,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
             batch_size=batch_size,
             expansion_min_answers=expansion_min_answers,
             expansion_top_groups=expansion_top_groups,
+            allow_prefix=True,
             **flags,
         )
         out_summary.update(

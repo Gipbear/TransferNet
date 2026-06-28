@@ -21,6 +21,30 @@ def label_golden_indices(mmr_paths: list[dict], golden: list[str]) -> set[int]:
     return indices
 
 
+def cited_indices_for_answers(
+    cited_indices: set[int],
+    mmr_paths: list[dict],
+    final_answer_mids: list[str],
+) -> set[int]:
+    """Keep only cited path indices whose tail entity survives in the final
+    (post-calibration) answer set.
+
+    citation_accuracy must be measured over the paths that actually support the
+    calibrated final answers. Paths whose tail entity was pruned by the精确性
+    过滤(score_margin / hop_filter / topic 守卫)are no longer cited as evidence
+    for any answer and must leave the denominator; otherwise these typically
+    non-gold旁支 paths artificially depress citation_accuracy."""
+    final_set = {norm_entity(mid) for mid in final_answer_mids if mid.strip()}
+    kept: set[int] = set()
+    for index in cited_indices:
+        if 1 <= index <= len(mmr_paths):
+            edges = mmr_paths[index - 1].get("path", [])
+            tail = edges[-1][2] if edges else None
+            if tail and norm_entity(tail) in final_set:
+                kept.add(index)
+    return kept
+
+
 def compute_answer_metrics(pred: list[str], gold: list[str]) -> dict[str, float | int | bool]:
     """Compute answer accuracy metrics aligned with eval_faithfulness.py."""
     pred_set = {norm_entity(entity) for entity in pred if entity.strip()}

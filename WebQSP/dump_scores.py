@@ -64,21 +64,6 @@ def _setup_logging(log_path: str) -> None:
     root_logger.addHandler(stream_handler)
 
 
-def _load_raw_questions(qa_file: str) -> list[str]:
-    """从 WebQSP QA 文件按顺序提取原始问题文本（去掉末尾的 [topic_mid] 和答案列）。"""
-    questions = []
-    with open(qa_file, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            q_part = line.split("\t")[0]
-            if " [" in q_part and q_part.endswith("]"):
-                q_part = q_part.rsplit(" [", 1)[0]
-            questions.append(q_part.strip())
-    return questions
-
-
 def dump_scores(model, data, device, output_path, topk=500, mode="val",
                 input_dir=None, qa_file=None):
     """运行推理，将每个样本的中间得分矩阵写入 .pt 缓存文件。
@@ -121,7 +106,13 @@ def dump_scores(model, data, device, output_path, topk=500, mode="val",
 
     if not qa_file or not os.path.isfile(qa_file):
         raise ValueError(f"qa_file 必须提供且存在，当前值: {qa_file!r}")
-    raw_questions = _load_raw_questions(qa_file)
+    # 问句必须与得分同源：直接取 DataLoader 过滤后、与 batch 同序的问句文本，
+    # 而非重新逐行读 QA 文件——后者不应用 DataLoader 的丢行过滤，会造成累积错位。
+    raw_questions = getattr(data, "qa_text", None)
+    if raw_questions is None:
+        raise RuntimeError(
+            "DataLoader 缺少 qa_text 属性，无法保证问句与得分对齐；请更新 WebQSP/data.py。"
+        )
     sample_counter = 0
 
     pbar = tqdm(data, total=len(data), desc="dump_scores", unit="batch", dynamic_ncols=True)
@@ -171,6 +162,12 @@ def dump_scores(model, data, device, output_path, topk=500, mode="val",
 
             pbar.set_postfix(samples=sample_counter)
             del outputs, e_score_cpu, hop_attn_cpu, rel_probs_cpu, ent_probs_cpu
+
+    if sample_counter != len(raw_questions):
+        raise RuntimeError(
+            f"问句数({len(raw_questions)})与得分样本数({sample_counter})不一致，"
+            "二者必须严格同源同序；请检查 DataLoader 是否未关闭 shuffle 或过滤逻辑已变更。"
+        )
 
     cache = {
         "version": 1,
@@ -253,7 +250,11 @@ def main():
     model.Mobj  = model.Mobj.to(device)
     model.Mrel  = model.Mrel.to(device)
 
-    loader = train_loader if args.mode == "train" else val_loader
+    # dump 必须使用「按 --qa_file 构建、且未 shuffle」的 loader：
+    # train_loader 是 training=True(shuffle=True)，会打乱 batch 顺序导致问句/得分错位；
+    # 且 --qa_file 为 required，上面的 override 已把 val_loader 重建为该非 shuffle loader。
+    # mode 仅作为 cache 元数据标签使用。
+    loader = val_loader
     dump_scores(
         model, loader, device, args.output,
         topk=args.topk,

@@ -167,6 +167,73 @@ class CheckedBatchAgentTests(unittest.TestCase):
         self.assertEqual(result.final_accepted_path_indices, [1])
         self.assertEqual(result.pred_answer_disambiguated_mids, ["m.a"])
 
+    def test_can_disable_all_wrong_after_answer_stop_for_full_trace_collection(self):
+        raw_paths = [
+            {"path": [["m.topic", "rel.a", "m.a"]], "log_score": -1.0},
+            {"path": [["m.topic", "rel.b", "m.b"]], "log_score": -2.0},
+            {"path": [["m.topic", "rel.c", "m.c"]], "log_score": -3.0},
+        ]
+        entity_map = {
+            "m.topic": "Topic",
+            "m.a": "Answer A",
+            "m.b": "Answer B",
+            "m.c": "Answer C",
+        }
+        answer_client = FakeLLMClient(
+            [
+                GenerateResponse(
+                    text="Supporting Paths: 1\nAnswer: Answer A",
+                    used_adapter=True,
+                    tokens_generated=4,
+                    elapsed_ms=2.0,
+                ),
+                GenerateResponse(
+                    text="Supporting Paths: 1\nAnswer: Answer B",
+                    used_adapter=True,
+                    tokens_generated=4,
+                    elapsed_ms=2.0,
+                ),
+                GenerateResponse(
+                    text="Supporting Paths: 1\nAnswer: Answer C",
+                    used_adapter=True,
+                    tokens_generated=4,
+                    elapsed_ms=2.0,
+                ),
+            ]
+        )
+        first_check_client = FakeLLMClient(
+            [GenerateResponse(text="NONE", used_adapter=False, tokens_generated=1, elapsed_ms=1.0)]
+        )
+        later_check_client = FakeLLMClient(
+            [
+                GenerateResponse(text="1", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+                GenerateResponse(text="NONE", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
+            ]
+        )
+        agent = CheckedBatchWebQAgent(
+            path_tool=PathRetrieveTool(
+                client=FakePathClient(make_response(raw_paths)),
+                entity_map=entity_map,
+            ),
+            answer_tool=AnswerWithPathsTool(client=answer_client),
+            check_tool=RejectedAnswerCheckTool(client=first_check_client),
+            check_tool_after_first=RejectedAnswerCheckTool(
+                client=later_check_client, reject_policy="strict"
+            ),
+        )
+
+        result = agent.run(
+            "where is example from",
+            "m.topic",
+            batch_size=1,
+            no_all_wrong_after_answer_stop=True,
+        )
+
+        self.assertEqual(len(result.iterations), 3)
+        self.assertEqual(result.stop_reason, "path_exhausted")
+        self.assertEqual(result.final_accepted_path_indices, [1, 3])
+        self.assertEqual(result.pred_answer_disambiguated_mids, ["m.a", "m.c"])
+
     def test_score_margin_drops_answers_far_below_top_score(self):
         raw_paths = [
             {"path": [["m.topic", "rel.a", "m.a"]], "log_score": -1.0},

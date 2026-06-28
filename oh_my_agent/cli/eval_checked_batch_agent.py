@@ -15,6 +15,7 @@ from oh_my_agent.common import (
     build_initial_retrieval_record,
     build_reverse_entity_map,
     compute_answer_metrics,
+    cited_indices_for_answers,
     compute_faithfulness,
     get_all_path_entities,
     label_golden_indices,
@@ -151,6 +152,33 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Do not stop batching on low-accept mixed batches; check all "
         "retrieved paths (downstream margin/hop/expansion filters guard precision)",
+    )
+    parser.add_argument(
+        "--mixed_stop_ratio",
+        type=float,
+        default=1.0 / 3.0,
+        help="Stop on a mixed batch when accepted unique-tail count is <= this "
+        "ratio of the batch unique-tail count. Use --no_early_stop to disable.",
+    )
+    parser.add_argument(
+        "--max_batches",
+        type=int,
+        default=0,
+        help="Maximum path batches to process per sample; 0 means no explicit cap.",
+    )
+    parser.add_argument(
+        "--stop_after_no_new_batches",
+        type=int,
+        default=0,
+        help="Stop after N consecutive batches add no new final-answer entity; "
+        "0 disables this stop rule.",
+    )
+    parser.add_argument(
+        "--no_all_wrong_after_answer_stop",
+        action="store_true",
+        help="Disable the hybrid-mode stop that triggers when a later strict "
+        "batch is all wrong after earlier accepted answers. Combine with "
+        "--no_early_stop to collect full traces.",
     )
     parser.add_argument("--path_retrieve_url", default="http://localhost:8789")
     parser.add_argument("--llm_server_url", default="http://localhost:8788")
@@ -321,14 +349,22 @@ def main(argv: list[str] | None = None) -> int:
                 expansion_min_answers=args.expansion_min_answers,
                 expansion_top_groups=args.expansion_top_groups,
                 no_early_stop=args.no_early_stop,
+                mixed_stop_ratio=args.mixed_stop_ratio,
+                max_batches=args.max_batches or None,
+                stop_after_no_new_batches=args.stop_after_no_new_batches or None,
+                no_all_wrong_after_answer_stop=args.no_all_wrong_after_answer_stop,
             )
             answer_metrics = compute_answer_metrics(
                 result.pred_answer_disambiguated_mids,
                 sample.gold_mids,
             )
             faith_metrics = compute_faithfulness(
-                cited_indices=set(result.final_accepted_path_indices)
-                | set(result.relation_expanded_path_indices),
+                cited_indices=cited_indices_for_answers(
+                    set(result.final_accepted_path_indices)
+                    | set(result.relation_expanded_path_indices),
+                    result.raw_mmr_reason_paths,
+                    result.pred_answer_disambiguated_mids,
+                ),
                 golden_indices=label_golden_indices(result.raw_mmr_reason_paths, sample.gold_mids),
                 # 忠实度只算 LLM 产出的答案,剔除 large_answer_expansion 补出的 KG 实体
                 pred_answers=llm_produced_answers(
@@ -412,6 +448,10 @@ def main(argv: list[str] | None = None) -> int:
             "expansion_min_answers": args.expansion_min_answers,
             "expansion_top_groups": args.expansion_top_groups,
             "no_early_stop": args.no_early_stop,
+            "mixed_stop_ratio": args.mixed_stop_ratio,
+            "max_batches": args.max_batches or None,
+            "stop_after_no_new_batches": args.stop_after_no_new_batches or None,
+            "no_all_wrong_after_answer_stop": args.no_all_wrong_after_answer_stop,
             "sample_index": args.sample_index,
             "sample_indices": selected_sample_indices,
         }
