@@ -31,16 +31,16 @@ COLUMNS = [
 ]
 
 # 行顺序与中文标签(只展示存在的)
+# 官方完整管线 = no_constrained(普通推理:check 自由解码 + 解析器兜底)。
+# 消融阶梯亦从 no_constrained 回放,全程口径一致;canonical(受限解码)不作展示。
 ROW_LABELS = [
     ("__initial__", "首次直接回答(baseline)"),
     ("ablation_base", "+ 自校验(无后处理)"),
     ("ablation_margin", "+ score_margin"),
-    ("ablation_margin_hop", "+ hop_filter"),
-    ("ablation_margin_hop_exp", "+ expansion"),
-    ("canonical", "+ topic 守卫 = 完整管线"),
+    ("explore_best_score0p5_hopoff_top4_max3", "+ 关系补全 = 完整管线"),
+    ("no_constrained", "+ topic 守卫 = 完整管线"),
     ("check_loose_only", "check: loose-only"),
     ("check_strict_only", "check: strict-only"),
-    ("no_constrained", "受限解码 off"),
     ("no_loopback", "loopback off(同环境对照)"),
 ]
 
@@ -54,7 +54,7 @@ def load_summary(d: Path) -> dict | None:
 
 def initial_answer_summary(root: Path) -> dict | None:
     """从 canonical(或任一可用)run 的 initial_answer.jsonl 聚合首答指标。"""
-    for name in ("canonical", "ablation_base", "no_constrained"):
+    for name in ("full_trace", "no_constrained", "ablation_base", "canonical"):
         f = root / name / "initial_answer.jsonl"
         if f.exists():
             recs = [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines() if line.strip()]

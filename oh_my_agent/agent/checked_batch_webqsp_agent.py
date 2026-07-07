@@ -175,11 +175,12 @@ def _relation_sequence_from_path(path_dict: dict[str, Any]) -> tuple[str, ...]:
 
 
 # 含选择性约束(年份/序数/最高级/角色限定)的问题不做大答案集展开:
-# 这类问题的答案是组内子集,展开整组会毁精确率(离线验证 53 升 / 12 降的门控)
+# 这类问题的答案是组内子集,展开整组会引入大量假阳性。
 _EXPANSION_CONSTRAINT_WORDS = (
     "first", "last", "2008", "2009", "2010", "2011", "2012", "2013", "2014",
     "now", "current", "president", "capital", "main", "biggest", "largest",
     "before", "after", "died", "death", "won", "initially",
+    "year", "date", "type", "call", "leader",
 )
 
 

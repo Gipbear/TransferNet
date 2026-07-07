@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>知识图谱增强大语言模型多跳问答系统</title>
+<script src="/static/echarts.min.js"></script>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header>
+  知识图谱增强大语言模型多跳问答系统
+  <span id="dataset-tag">WebQSP</span>
+</header>
+
+<main>
+
+  <!-- ── 左侧控制面板 ── -->
+  <aside id="left-panel">
+
+    <!-- 题目入口 -->
+    <section>
+      <p class="panel-section-label">题目选择</p>
+      <div class="input-wrap">
+        <input id="question-input" type="text"
+               placeholder="输入关键词搜索题目…"
+               autocomplete="off" spellcheck="false">
+        <ul id="question-list"></ul>
+      </div>
+      <div id="selected-question"></div>
+    </section>
+
+    <!-- 检索参数 -->
+    <section>
+      <p class="panel-section-label">检索参数</p>
+      <div class="param-row">
+        <label for="param-k">波束宽度 <em>K</em></label>
+        <input id="param-k" type="number" value="50" min="1" max="200" step="1">
+      </div>
+      <div class="param-row">
+        <label for="param-lambda">多样性权重 <em>λ</em></label>
+        <input id="param-lambda" type="number" value="0.2" min="0" max="10" step="0.1">
+      </div>
+      <div class="param-row">
+        <label for="param-eta">答案后验权重 <em>η</em></label>
+        <input id="param-eta" type="number" value="1.0" min="0" max="10" step="0.1">
+      </div>
+    </section>
+
+    <!-- 校验配置 -->
+    <fieldset id="check-fieldset">
+      <legend>校验配置</legend>
+      <div class="param-row" style="margin-top:var(--sp-sm)">
+        <label for="param-tau">得分间隔 <em>τ</em></label>
+        <input id="param-tau" type="number" value="2.0" min="0" max="10" step="0.5">
+      </div>
+      <div class="check-row">
+        <input id="toggle-relexp" type="checkbox" checked>
+        <label for="toggle-relexp">启用关系扩展</label>
+      </div>
+      <div class="param-row">
+        <label for="param-nmin">触发下限 <em>N</em><sub>min</sub></label>
+        <input id="param-nmin" type="number" value="8" min="1" max="64" step="1">
+      </div>
+      <div class="param-row">
+        <label for="param-groups">扩展组数 <em>G</em></label>
+        <input id="param-groups" type="number" value="3" min="1" max="10" step="1">
+      </div>
+      <p id="check-disabled-tip" hidden>
+        检索参数偏离终版配置，校验重放不可用（需在线 LLM）
+      </p>
+    </fieldset>
+
+    <!-- 运行控件 -->
+    <section>
+      <p class="panel-section-label">运行控制</p>
+      <div class="check-row" style="margin-bottom:var(--sp-md)">
+        <input id="toggle-eval" type="checkbox">
+        <label for="toggle-eval">评测视角（显示参考答案）</label>
+      </div>
+      <div class="layout-row">
+        <span class="layout-label">图谱布局</span>
+        <div class="segmented-control" role="group" aria-label="图谱布局">
+          <button type="button" data-layout-mode="radial" class="active">径向</button>
+          <button type="button" data-layout-mode="force">力导向</button>
+        </div>
+      </div>
+      <div class="ctrl-row">
+        <button id="btn-run">提交</button>
+        <button id="btn-pause" disabled title="播放 / 继续" aria-label="播放 / 继续">▶</button>
+        <button id="btn-step"  disabled title="下一步" aria-label="下一步">▶|</button>
+      </div>
+      <div class="playback-progress">
+        <input id="playback-range" type="range" min="0" max="0" value="0" step="1"
+               disabled aria-label="阶段进度">
+        <span id="playback-count">0/0</span>
+        <div id="playback-step-label"></div>
+      </div>
+    </section>
+
+  </aside>
+
+  <!-- ── 中栏：知识图谱画布 ── -->
+  <section id="kg-panel">
+    <div id="kg-canvas"></div>
+    <div id="stage-label"></div>
+    <div id="kg-legend">
+      <span><i class="lg lg-normal"></i>候选路径（AP-MMR）</span>
+      <span><i class="lg lg-cited"></i>本批引用（PFIT-Cite）</span>
+      <span><i class="lg lg-evidence"></i>校验接受</span>
+      <span><i class="lg lg-rejected"></i>校验拒绝</span>
+      <span><i class="lg lg-calout"></i>剪枝剔除</span>
+      <span><i class="lg lg-calin"></i>扩展收回</span>
+    </div>
+  </section>
+
+  <!-- ── 右栏：批次轨迹 + 答案卡 ── -->
+  <aside id="right-panel">
+    <div id="trace-panel"></div>
+    <div id="answer-card"></div>
+  </aside>
+
+</main>
+
+<script src="/static/demo-core.js"></script>
+<script src="/static/demo-playback.js"></script>
+
+</body>
+</html>
