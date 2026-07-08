@@ -257,22 +257,29 @@ def final_ent_score_dict(sample) -> dict[int, float]:
     }
 
 
-def build_prediction(sample, id2ent: dict) -> dict[str, float]:
-    """原始 TransferNet 口径：预测答案 = e_score 最高的单个实体（argmax top-1）。
+PREDICTION_TIE_EPS = 1e-6
 
-    对应 shijx12/TransferNet WebQSP/predict.py:
-        scores, idx = torch.max(e_score, dim=1)
-        match_score = gather(gold, idx)   # 命中 = argmax 实体 ∈ gold
-    这里 e_score 以稀疏 top-K 存储，argmax 即 e_score_values 的最大值对应实体。"""
+
+def build_prediction(sample, id2ent: dict) -> dict[str, float]:
+    """预测答案 = e_score 达到最高分的所有实体（含并列）。
+
+    源自原始 TransferNet WebQSP/predict.py 的 `torch.max(e_score)` argmax 口径，
+    但 WebQSP 多答案样本常出现多个 gold 并列最高分（如 e_score 前两位完全相等），
+    argmax 只取其一会漏掉并列 gold、压低 recall/F1。故取所有与最大值相等
+    （容差 PREDICTION_TIE_EPS）的实体。首个（e_score 降序的 argmax）用于 hit1，
+    与原始 acc 口径一致。"""
     vals = sample.e_score_values
     vals = vals.tolist() if hasattr(vals, "tolist") else list(vals)
     if not vals:
         return {}
     idxs = sample.e_score_indices
     idxs = idxs.tolist() if hasattr(idxs, "tolist") else list(idxs)
-    j = max(range(len(vals)), key=lambda k: vals[k])
-    idx, val = int(idxs[j]), float(vals[j])
-    return {id2ent.get(idx, str(idx)): round(val, 4)}
+    max_val = max(vals)
+    prediction: dict[str, float] = {}
+    for idx, val in zip(idxs, vals):
+        if float(val) >= max_val - PREDICTION_TIE_EPS:
+            prediction[id2ent.get(int(idx), str(int(idx)))] = round(float(val), 4)
+    return prediction
 
 
 def _serialize_paths(paths, id2ent: dict, id2rel: dict) -> list[dict]:
