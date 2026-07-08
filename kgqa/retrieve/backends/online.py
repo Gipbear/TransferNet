@@ -1,0 +1,31 @@
+"""在线后端：ScoreProducer 实时前向 → 同一 engine。"""
+from __future__ import annotations
+
+from kgqa.datasets.base import DatasetAdapter
+from kgqa.models.base import ScoreProducer
+from kgqa.retrieve import engine
+from kgqa.retrieve.backends.base import RetrieveParams
+
+
+class OnlineBackend:
+    def __init__(self, adapter: DatasetAdapter, producer: ScoreProducer, *,
+                 ckpt_path: str, input_dir: str, qa_file: str,
+                 split: str = "test", batch_size: int = 16, topk: int = 500, limit: int = 0):
+        producer.load_checkpoint(ckpt_path)
+        self.adapter = adapter
+        self.bundle = producer.produce(input_dir, qa_file, split=split,
+                                       batch_size=batch_size, topk=topk)
+        if limit:
+            self.bundle.samples = self.bundle.samples[:limit]
+        self.edge_source = adapter.kg_edge_source()
+
+    def retrieve(self, sample_index: int, **params):
+        merged = {**RetrieveParams().as_kwargs(), **params}
+        return engine.retrieve_one(self.bundle.samples[sample_index], self.edge_source,
+                                   self.bundle.meta.id2ent, self.bundle.meta.id2rel, **merged)
+
+    def retrieve_all(self, *, limit: int = 0, **params):
+        merged = {**RetrieveParams().as_kwargs(), **params}
+        samples = self.bundle.samples[:limit] if limit else self.bundle.samples
+        return [engine.retrieve_one(s, self.edge_source, self.bundle.meta.id2ent,
+                                    self.bundle.meta.id2rel, **merged) for s in samples]
