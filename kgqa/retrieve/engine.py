@@ -241,9 +241,6 @@ def _method_hop_numbers(method: str, argmax_hop: int, num_steps: int) -> list[in
 # 新增编排（SampleScoreLike 属性访问口径）
 # ─────────────────────────────────────────────────────────────────────────────
 
-PREDICTION_SCORE_THRESHOLD = 0.9
-
-
 def drop_loopback_paths(paths):
     """剔除尾==topic 的自指路径（迁移自 path_retrieve_server/service.py）。"""
     return [
@@ -260,13 +257,22 @@ def final_ent_score_dict(sample) -> dict[int, float]:
     }
 
 
-def build_prediction(sample, id2ent: dict,
-                     score_threshold: float = PREDICTION_SCORE_THRESHOLD) -> dict[str, float]:
-    prediction: dict[str, float] = {}
-    for idx, val in zip(sample.e_score_indices.tolist(), sample.e_score_values.tolist()):
-        if float(val) >= score_threshold:
-            prediction[id2ent.get(int(idx), str(int(idx)))] = round(float(val), 4)
-    return prediction
+def build_prediction(sample, id2ent: dict) -> dict[str, float]:
+    """原始 TransferNet 口径：预测答案 = e_score 最高的单个实体（argmax top-1）。
+
+    对应 shijx12/TransferNet WebQSP/predict.py:
+        scores, idx = torch.max(e_score, dim=1)
+        match_score = gather(gold, idx)   # 命中 = argmax 实体 ∈ gold
+    这里 e_score 以稀疏 top-K 存储，argmax 即 e_score_values 的最大值对应实体。"""
+    vals = sample.e_score_values
+    vals = vals.tolist() if hasattr(vals, "tolist") else list(vals)
+    if not vals:
+        return {}
+    idxs = sample.e_score_indices
+    idxs = idxs.tolist() if hasattr(idxs, "tolist") else list(idxs)
+    j = max(range(len(vals)), key=lambda k: vals[k])
+    idx, val = int(idxs[j]), float(vals[j])
+    return {id2ent.get(idx, str(idx)): round(val, 4)}
 
 
 def _serialize_paths(paths, id2ent: dict, id2rel: dict) -> list[dict]:

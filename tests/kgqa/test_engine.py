@@ -42,7 +42,7 @@ class TestEngine(unittest.TestCase):
         # 首条路径应命中 gold 尾 m.gold
         tails = [p["path"][-1][2] for p in r.paths]
         self.assertIn("m.gold", tails)
-        # prediction 按 e_score>=0.9 过滤 → 只含 m.gold
+        # prediction 取 e_score argmax（0.95 > 0.4）→ 只含 m.gold
         self.assertEqual(set(r.prediction), {"m.gold"})
 
     def test_drop_loopback_removes_self_return(self):
