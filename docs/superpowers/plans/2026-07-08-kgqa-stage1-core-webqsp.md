@@ -90,7 +90,7 @@ tests/kgqa/
   - `MetricSpec(gold_key:str="mid", group_by:str|None=None, answer_metrics:bool=True, path_metrics:bool=True)`（frozen）
   - `tests/kgqa/fixtures.py`：`toy_sample_score()`（Task 3 复用）、`toy_edge_source()`（Task 3 复用）——本任务先建 `RetrieveResult`/`ReasonPath` 相关 fixture，`SampleScore` fixture 留空注释占位由 Task 4 补。
 
-- [ ] **Step 1: 写失败测试** `tests/kgqa/test_types.py`
+- [x] **Step 1: 写失败测试** `tests/kgqa/test_types.py`
 
 ```python
 import unittest
@@ -133,12 +133,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `python -m unittest tests.kgqa.test_types -v`
 Expected: FAIL（`ModuleNotFoundError: No module named 'kgqa'`）
 
-- [ ] **Step 3: 写实现** `kgqa/types.py`
+- [x] **Step 3: 写实现** `kgqa/types.py`
 
 ```python
 """kgqa 全包共享数据类型。"""
@@ -201,12 +201,12 @@ from __future__ import annotations
 # SampleScore 夹具在 Task 4 定义 SampleScore 后补充（toy_sample_score/toy_edge_source）。
 ```
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `python -m unittest tests.kgqa.test_types -v`
 Expected: PASS（5 tests）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/__init__.py kgqa/types.py tests/kgqa/__init__.py tests/kgqa/fixtures.py tests/kgqa/test_types.py
@@ -237,7 +237,7 @@ EOF
   - `GlobalKG.from_input_dir(input_dir:str) -> GlobalKG`（迁移 `scripts.offline_path_search.rebuild_valid_edges_dict` 的读边逻辑）
   - 属性 `GlobalKG.valid_edges_dict`（engine 直接按 `dict.get(node, [])` 消费）
 
-- [ ] **Step 1: 写失败测试** `tests/kgqa/test_global_kg.py`
+- [x] **Step 1: 写失败测试** `tests/kgqa/test_global_kg.py`
 
 ```python
 import unittest
@@ -270,12 +270,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `python -m unittest tests.kgqa.test_global_kg -v`
 Expected: FAIL（`ModuleNotFoundError: No module named 'kgqa.kg'`）
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 `kgqa/kg/base.py`：
 ```python
@@ -364,12 +364,12 @@ class GlobalKG(KGEdgeSource):
 
 创建空 `kgqa/kg/__init__.py`。
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `python -m unittest tests.kgqa.test_global_kg -v`
 Expected: PASS（3 tests）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/kg/__init__.py kgqa/kg/base.py kgqa/kg/global_kg.py tests/kgqa/test_global_kg.py
@@ -404,7 +404,7 @@ EOF
 
 > **迁移说明（数值红线）**：`PathCandidate`、`compute_candidate_score`、`score_path_candidates`、`_ranked_candidates`、`candidate_to_tuple`、`select_path_candidates`、`search_path_candidates`、`reconstruct_ent_dict`、`reconstruct_rel_dict`、`LogNormStrategy`、`_method_hop_numbers`、`_path_to_triples`、`final_ent_score_dict` 全部**从 `scripts/offline_path_search.py` 逐字复制**（对应源行：42-141、157-169、228-249、305-355、362-387）到 `kgqa/retrieve/engine.py`，仅去掉脚本 `sys.path` 注入。不得改动任何公式/常量（`EPS=1e-9` 一并搬来）。`drop_loopback_paths` 逐字迁移自 `oh_my_agent/path_retrieve_server/service.py:43-56`。
 
-- [ ] **Step 1: 写失败测试** `tests/kgqa/test_engine.py`
+- [x] **Step 1: 写失败测试** `tests/kgqa/test_engine.py`
 
 ```python
 import unittest
@@ -465,12 +465,12 @@ if __name__ == "__main__":
 
 > 注：`test_reconstruct_rel_dict_threshold` 的断言写法仅示意浮点，实现步用更稳的断言（见 Step 3 附带修订）。
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `python -m unittest tests.kgqa.test_engine -v`
 Expected: FAIL（`ModuleNotFoundError: No module named 'kgqa.retrieve'`）
 
-- [ ] **Step 3: 写实现** `kgqa/retrieve/engine.py`
+- [x] **Step 3: 写实现** `kgqa/retrieve/engine.py`
 
 先把「迁移说明」列出的所有函数/类从 `scripts/offline_path_search.py` 逐字复制进来（含 `EPS`、`import math`、`from dataclasses import dataclass, replace`、`from typing import Optional`、`from utils.path_utils import path_to_rel_set`）。然后追加新增编排代码：
 
@@ -573,12 +573,12 @@ def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, 
 
 创建空 `kgqa/retrieve/__init__.py`。
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `python -m unittest tests.kgqa.test_engine -v`
 Expected: PASS（3 tests）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/retrieve/__init__.py kgqa/retrieve/engine.py tests/kgqa/test_engine.py
@@ -612,7 +612,7 @@ EOF
   - `ScoreDumper`（ABC）：`dump(bundle:ScoreBundle, out_path:str) -> None`（本任务只实现 `WebQSPScoreLoader`；dumper 接口留给 Task 8/9）
   - `WebQSPScoreLoader().load(path) -> ScoreBundle`
 
-- [ ] **Step 1: 写失败测试** `tests/kgqa/test_scores_webqsp.py`
+- [x] **Step 1: 写失败测试** `tests/kgqa/test_scores_webqsp.py`
 
 ```python
 import os
@@ -641,12 +641,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `python -m unittest tests.kgqa.test_scores_webqsp -v`
 Expected: FAIL（`ModuleNotFoundError: No module named 'kgqa.scores'`）
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 `kgqa/scores/base.py`：
 ```python
@@ -766,12 +766,12 @@ def toy_sample_score() -> SampleScore:
     )
 ```
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `python -m unittest tests.kgqa.test_scores_webqsp -v`
 Expected: PASS（缓存存在则 1 test 通过；否则 skip）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/scores/__init__.py kgqa/scores/base.py kgqa/scores/webqsp.py tests/kgqa/fixtures.py tests/kgqa/test_scores_webqsp.py
@@ -802,7 +802,7 @@ EOF
   - `WebQSPAdapter(input_dir:str, entity_map_path:str|None=None)`
   - `get_adapter(name:str, **kwargs) -> DatasetAdapter`、`register_adapter(name, cls)`；内置注册 `"webqsp"`
 
-- [ ] **Step 1: 写失败测试** `tests/kgqa/test_dataset_webqsp.py`
+- [x] **Step 1: 写失败测试** `tests/kgqa/test_dataset_webqsp.py`
 
 ```python
 import os
@@ -847,12 +847,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `python -m unittest tests.kgqa.test_dataset_webqsp -v`
 Expected: FAIL（`ModuleNotFoundError: No module named 'kgqa.datasets'`）
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 `kgqa/datasets/base.py`：
 ```python
@@ -977,12 +977,12 @@ def get_adapter(name: str, **kwargs) -> DatasetAdapter:
 
 > 注：`QASample.topic_ids` 在 WebQSP 存的是 MID 字符串（检索时以 `SampleScore.topic_ids` 的 int id 为准；QASample 的 topic 仅供评测/展示），类型为 `list[str]`。这与 Task 1 的 `list[int]` 声明放宽为 `list`——在 Task 1 实现中 `topic_ids` 未做类型强校验，运行期允许 str（MetaQA/CWQ 亦如此）。
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `python -m unittest tests.kgqa.test_dataset_webqsp -v`
 Expected: PASS（3 tests）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/datasets/ tests/kgqa/test_dataset_webqsp.py
@@ -1014,7 +1014,7 @@ EOF
   - `answer_record(pred:list[str], gold:list[str], hop:int|None=None, format_ok:bool=True) -> dict`（把 `compute_answer_metrics` 结果补 `hop/format_ok` 字段）
   - `path_summary(results:list[RetrieveResult], gold_by_index:dict[int,set[str]], spec:MetricSpec, id2rel:dict|None=None) -> dict`：路径级 hit/recall/precision/f1 + diversity，同样支持 `by_hop`
 
-- [ ] **Step 1: 写失败测试** `tests/kgqa/test_answer_eval.py`
+- [x] **Step 1: 写失败测试** `tests/kgqa/test_answer_eval.py`
 
 ```python
 import unittest
@@ -1047,12 +1047,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `python -m unittest tests.kgqa.test_answer_eval -v`
 Expected: FAIL（`ModuleNotFoundError: No module named 'kgqa.eval'`）
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 `kgqa/eval/answer_eval.py`：
 ```python
@@ -1184,12 +1184,12 @@ if __name__ == "__main__":
 
 创建空 `kgqa/eval/__init__.py`。
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `python -m unittest tests.kgqa.test_answer_eval tests.kgqa.test_path_eval -v`
 Expected: PASS（4 tests）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/eval/ tests/kgqa/test_answer_eval.py tests/kgqa/test_path_eval.py
@@ -1220,7 +1220,7 @@ EOF
   - `OfflineBackend(adapter:DatasetAdapter, cache_path:str)`：加载缓存到 `ScoreBundle`，`retrieve` 用 `adapter.kg_edge_source()` + `engine.retrieve_one`
   - 检索参数 `RetrieveParams`（dataclass，字段与 `retrieve_one` 对齐：method/alpha_final/threshold/beam_size/lambda_val/drop_loopback）
 
-- [ ] **Step 1: 写失败测试** `tests/kgqa/test_backend_offline.py`
+- [x] **Step 1: 写失败测试** `tests/kgqa/test_backend_offline.py`
 
 ```python
 import os
@@ -1254,12 +1254,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `python -m unittest tests.kgqa.test_backend_offline -v`
 Expected: FAIL（`ModuleNotFoundError: No module named 'kgqa.retrieve.backends'`）
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 `kgqa/retrieve/backends/base.py`：
 ```python
@@ -1327,12 +1327,12 @@ class OfflineBackend(RetrieveBackend):
 
 创建空 `kgqa/retrieve/backends/__init__.py`。
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `python -m unittest tests.kgqa.test_backend_offline -v`
 Expected: PASS（缓存存在则 2 tests；否则 skip）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/retrieve/backends/ tests/kgqa/test_backend_offline.py
@@ -1365,7 +1365,7 @@ EOF
 
 > **实现说明**：`WebQSPScoreProducer.produce` 把 `WebQSP/dump_scores.py:dump_scores` 的「前向 + 每样本 topk 采样」逻辑**逐字迁移**，唯一区别是最后不 `torch.save`，改为构造 `SampleScore` 列表并返回 `ScoreBundle`（`load_score_cache`→内存直连）。为 DRY，可让 `dump_scores.py` 与本类共享一个 `_extract_samples(outputs, batch, topk)` helper；但为遵守「迁移期不改旧代码」约束，本任务**复制**该逻辑，去重留待旧代码退役阶段。
 
-- [ ] **Step 1: 写失败测试** `tests/kgqa/test_backend_online.py`
+- [x] **Step 1: 写失败测试** `tests/kgqa/test_backend_online.py`
 
 ```python
 import os
@@ -1396,12 +1396,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `python -m unittest tests.kgqa.test_backend_online -v`
 Expected: FAIL（`ModuleNotFoundError: No module named 'kgqa.models'`）或（无 ckpt 时）skip——若 skip 则先临时去掉 skip 装饰验证 import 失败，再复原。
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 `kgqa/models/base.py`：
 ```python
@@ -1542,12 +1542,12 @@ class OnlineBackend:
 
 创建空 `kgqa/models/__init__.py`。
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `python -m unittest tests.kgqa.test_backend_online -v`
 Expected: PASS（有 ckpt+GPU 则 1 test；否则 skip）。若本机无 ckpt，至少确认 `python -c "import kgqa.models.webqsp, kgqa.retrieve.backends.online"` 无 import 错误。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/models/ kgqa/retrieve/backends/online.py tests/kgqa/test_backend_online.py
@@ -1580,7 +1580,7 @@ EOF
   - `kgqa/cli/eval.py`：在 retrieve 基础上，调用 `answer_summary`（用 prediction 当 pred）+ `path_summary`，写 `summary.json`
   - 三文件均提供 `build_parser()` 与 `main(argv=None)`，`main` 可被测试直接调用
 
-- [ ] **Step 1: 写失败测试** `tests/kgqa/test_cli.py`
+- [x] **Step 1: 写失败测试** `tests/kgqa/test_cli.py`
 
 ```python
 import os
@@ -1619,12 +1619,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `python -m unittest tests.kgqa.test_cli -v`
 Expected: FAIL（`ModuleNotFoundError: No module named 'kgqa.cli'`）
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 `kgqa/cli/retrieve.py`（核心，`eval.py` 复用其 `build_backend`）：
 ```python
@@ -1821,12 +1821,12 @@ if __name__ == "__main__":
 
 创建空 `kgqa/cli/__init__.py`。
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `python -m unittest tests.kgqa.test_cli -v`
 Expected: PASS（parser 测试恒通过；summary 测试缓存存在则通过，否则 skip）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/cli/ tests/kgqa/test_cli.py
@@ -1857,7 +1857,7 @@ EOF
   - `create_app(backend) -> FastAPI`：`POST /retrieve {"sample_index": int, "beam_size": int, ...}` → `RetrieveResult` dict；`GET /health` → `{"status":"ok","n":int}`
   - `main(argv=None)`：`--dataset --backend --cache --input_dir --host --port`，启动 uvicorn
 
-- [ ] **Step 1: 写失败测试** `tests/kgqa/test_server.py`
+- [x] **Step 1: 写失败测试** `tests/kgqa/test_server.py`
 
 ```python
 import unittest
@@ -1898,12 +1898,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `python -m unittest tests.kgqa.test_server -v`
 Expected: FAIL（`ModuleNotFoundError: No module named 'kgqa.server'`）
 
-- [ ] **Step 3: 写实现** `kgqa/server/path_retrieve_server.py`
+- [x] **Step 3: 写实现** `kgqa/server/path_retrieve_server.py`
 
 ```python
 """常驻检索服务（薄壳，持有一个后端）。"""
@@ -1967,12 +1967,12 @@ if __name__ == "__main__":
 
 创建空 `kgqa/server/__init__.py`。
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `python -m unittest tests.kgqa.test_server -v`
 Expected: PASS（2 tests）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/server/ tests/kgqa/test_server.py
@@ -2001,7 +2001,7 @@ EOF
 
 > **回归口径**：`OfflineBackend.retrieve_all` 对 `webqsp_test_1581.pt` 用 `method=tail_blend, alpha_final=1.0, threshold=0.01, beam_size=50, lambda_val=0.2` 检索；旧 `run_experiment` 用**同一缓存同一参数**（注意旧 `run_experiment` 无 `drop_loopback`，故新后端此对照须 `drop_loopback=False`）。逐样本比较「每条路径的 (nodes, rels) 序列」完全一致。这是免 ckpt 的强保真锁。
 
-- [ ] **Step 1: 写回归测试** `tests/kgqa/test_webqsp_regression.py`
+- [x] **Step 1: 写回归测试** `tests/kgqa/test_webqsp_regression.py`
 
 ```python
 import os
@@ -2076,12 +2076,12 @@ if __name__ == "__main__":
 
 > 注：新后端序列化后是 MID/rel 名称串，legacy `candidate_to_tuple` 是 id。比对 **rels 名称序列**即可（新 = `id2rel[rid]`，legacy 需同样映射）。实现时在 legacy 侧用 `cache["meta"]["id2rel"]` 把 rels id 映射成名称再比对，保证两侧同口径；若逐条名称序列一致即判定保真。
 
-- [ ] **Step 2: 运行回归（缓存存在）**
+- [x] **Step 2: 运行回归（缓存存在）**
 
 Run: `python -m unittest tests.kgqa.test_webqsp_regression -v`
 Expected: PASS（前 50 条路径 rels 序列逐条一致）；若 FAIL 说明迁移改变了数值/顺序，须回到 Task 3 核对逐字迁移。
 
-- [ ] **Step 3: 写 parity 测试** `tests/kgqa/test_backend_parity.py`
+- [x] **Step 3: 写 parity 测试** `tests/kgqa/test_backend_parity.py`
 
 ```python
 import os
@@ -2123,12 +2123,12 @@ if __name__ == "__main__":
 
 > 前提：离线缓存 `webqsp_test_1581.pt` 由**同一 ckpt** dump 得到。若缓存来自不同 ckpt，parity 可能因浮点/topk 截断有微差——此时把断言放宽为「gold 命中一致 + 路径数差 ≤1」，并在测试注释标注缓存与 ckpt 来源。实现时先确认二者同源（`data/output/.../path_retrieve_server` 缓存对应 `model-49-0.7154.pt`）。
 
-- [ ] **Step 4: 运行 parity（有 ckpt+GPU）**
+- [x] **Step 4: 运行 parity（有 ckpt+GPU）**
 
 Run: `python -m unittest tests.kgqa.test_backend_parity -v`
 Expected: PASS（前 3 条 online/offline rels 一致）；无 ckpt 环境自动 skip。
 
-- [ ] **Step 5: 跑全套 kgqa 测试 + Commit**
+- [x] **Step 5: 跑全套 kgqa 测试 + Commit**
 
 Run: `python -m unittest discover -s tests/kgqa -p 'test*.py' -v`
 Expected: 全绿（无 ckpt/缓存的用例 skip，其余 PASS）
