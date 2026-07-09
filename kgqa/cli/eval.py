@@ -22,14 +22,13 @@ def _gold_strings(sample, adapter, id2ent, gold_key: str) -> set[str]:
 
     - mid: gold_ids 是整数实体 id → 经 id2ent 映射成 MID，与 prediction（MID 键）/
       路径尾（id2ent[tail]=MID）同口径。
-    - name: gold_ids 映射成实体名（预留给 MetaQA 等名称口径数据集）。
+    - name: 整数 gold_ids 同样先经 id2ent 还原（MetaQA id2ent 即实体名），再过
+      adapter.entity_name，与 prediction（名称键）同口径。
     """
     out: set[str] = set()
     for g in sample.gold_ids:
-        if gold_key == "name":
-            out.add(adapter.entity_name(str(g)))
-        else:
-            out.add(id2ent.get(int(g), str(g)) if isinstance(g, int) else str(g))
+        base = id2ent.get(int(g), str(g)) if isinstance(g, int) else str(g)
+        out.add(adapter.entity_name(base) if gold_key == "name" else base)
     return out
 
 

@@ -7,6 +7,22 @@ INPUT_DIR = "data/input/MetaQA_KB"
 TEST_PT = "data/input/MetaQA_KB/test.pt"
 
 
+class TestGoldStringsNameKey(unittest.TestCase):
+    def test_name_key_maps_int_id_via_id2ent(self):
+        # gold_key=name 时整数 gold_id 须先经 id2ent 还原实体名（与 pred 同口径）
+        from types import SimpleNamespace
+        from kgqa.cli.eval import _gold_strings
+
+        class _IdentityAdapter:
+            def entity_name(self, e):
+                return e
+
+        sample = SimpleNamespace(gold_ids=[174])
+        id2ent = {174: "Before the Rain"}
+        gold = _gold_strings(sample, _IdentityAdapter(), id2ent, "name")
+        self.assertEqual(gold, {"Before the Rain"})
+
+
 @unittest.skipUnless(os.path.isfile(CKPT) and os.path.isfile(TEST_PT), "ckpt/数据缺失，跳过")
 class TestMetaQAEndToEnd(unittest.TestCase):
     @classmethod
@@ -50,6 +66,8 @@ class TestMetaQAEndToEnd(unittest.TestCase):
         summary = answer_summary(records, spec)
         self.assertEqual(set(summary["by_hop"]), {"1", "2", "3"})
         self.assertIn("hit1", summary["overall"])
+        # 口径一致时 hit1 不应为 0（模型 acc 0.99；全 0 说明 gold/pred 口径不齐）
+        self.assertGreater(summary["overall"]["hit1"], 0.0)
 
     def test_online_offline_parity_first3(self):
         from kgqa.datasets.registry import get_adapter
