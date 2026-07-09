@@ -67,7 +67,7 @@ tests/kgqa/
 - Consumes: `utils.path_utils.build_valid_edges_dict`（已存在）、`GlobalKG.from_triples`（已存在）
 - Produces: `GlobalKG.from_metaqa_npy(input_dir: str) -> GlobalKG`（读三个 npy → triples → `from_triples`，不补反向边）
 
-- [ ] **Step 1: 写失败测试** `tests/kgqa/test_global_kg_metaqa.py`
+- [x] **Step 1: 写失败测试** `tests/kgqa/test_global_kg_metaqa.py`
 
 ```python
 import os
@@ -109,12 +109,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `python -m unittest tests.kgqa.test_global_kg_metaqa -v`
 Expected: FAIL（`AttributeError: type object 'GlobalKG' has no attribute 'from_metaqa_npy'`）
 
-- [ ] **Step 3: 写实现** — 在 `kgqa/kg/global_kg.py` 顶部 import 处加 `import numpy as np`（若无），在 `from_input_dir` 之后新增：
+- [x] **Step 3: 写实现** — 在 `kgqa/kg/global_kg.py` 顶部 import 处加 `import numpy as np`（若无），在 `from_input_dir` 之后新增：
 
 ```python
     @classmethod
@@ -135,12 +135,12 @@ Expected: FAIL（`AttributeError: type object 'GlobalKG' has no attribute 'from_
         return cls.from_triples(triples)
 ```
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `python -m unittest tests.kgqa.test_global_kg_metaqa -v`
 Expected: PASS（2 tests）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/kg/global_kg.py tests/kgqa/test_global_kg_metaqa.py
@@ -168,7 +168,7 @@ EOF
 - Consumes: `kgqa.scores.base.{CacheMeta, SampleScore, ScoreBundle, ScoreLoader}`；缓存 schema 由 `kgqa/cli/dump_scores.py:_bundle_to_cache` 写出（Task 5 会补 `hop` 字段）。
 - Produces: `MetaQAScoreLoader().load(cache_path: str) -> ScoreBundle`（每条 `SampleScore.hop` 从缓存恢复）
 
-- [ ] **Step 1: 写失败测试** `tests/kgqa/test_scores_metaqa.py`
+- [x] **Step 1: 写失败测试** `tests/kgqa/test_scores_metaqa.py`
 
 ```python
 import os
@@ -224,12 +224,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `python -m unittest tests.kgqa.test_scores_metaqa -v`
 Expected: FAIL（`ModuleNotFoundError: No module named 'kgqa.scores.metaqa'`）
 
-- [ ] **Step 3: 写实现** `kgqa/scores/metaqa.py`
+- [x] **Step 3: 写实现** `kgqa/scores/metaqa.py`
 
 ```python
 """MetaQA 得分缓存加载：dump_scores 的 dict 缓存 → ScoreBundle（含 hop）。"""
@@ -274,12 +274,12 @@ class MetaQAScoreLoader(ScoreLoader):
         return ScoreBundle(meta=meta, samples=samples)
 ```
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `python -m unittest tests.kgqa.test_scores_metaqa -v`
 Expected: PASS（1 test）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/scores/metaqa.py tests/kgqa/test_scores_metaqa.py
@@ -312,7 +312,7 @@ EOF
   - `entity_name(entity_id) -> str`（恒等）、`kg_edge_source(sample=None) -> GlobalKG`、`score_loader() -> MetaQAScoreLoader`、`metric_spec() -> MetricSpec(gold_key="name", group_by="hop")`
   - registry 注册 `"metaqa"`
 
-- [ ] **Step 1: 写失败测试** `tests/kgqa/test_dataset_metaqa.py`
+- [x] **Step 1: 写失败测试** `tests/kgqa/test_dataset_metaqa.py`
 
 ```python
 import json
@@ -384,12 +384,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `python -m unittest tests.kgqa.test_dataset_metaqa -v`
 Expected: FAIL（`ModuleNotFoundError: No module named 'kgqa.datasets.metaqa'`）
 
-- [ ] **Step 3: 写实现** `kgqa/datasets/metaqa.py`
+- [x] **Step 3: 写实现** `kgqa/datasets/metaqa.py`
 
 ```python
 """MetaQA_KB 适配器（实体即名字、3-hop、分跳评测）。"""
@@ -464,12 +464,12 @@ _REGISTRY: dict[str, type[DatasetAdapter]] = {
 }
 ```
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `python -m unittest tests.kgqa.test_dataset_metaqa -v`
 Expected: PASS（5 tests）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/datasets/metaqa.py kgqa/datasets/registry.py tests/kgqa/test_dataset_metaqa.py
@@ -502,7 +502,7 @@ EOF
   - `qa_file` = MetaQA 预处理 `.pt`（如 `data/input/MetaQA_KB/test.pt`）；`per_hop_limit>0` 时每跳只保留前 `per_hop_limit` 条（覆盖 3-hop）
   - 每条 `SampleScore.hop_attn` = gold hop 的 one-hot（长度 num_steps），`SampleScore.hop` = gold hop
 
-- [ ] **Step 1: 写失败测试** `tests/kgqa/test_models_metaqa.py`
+- [x] **Step 1: 写失败测试** `tests/kgqa/test_models_metaqa.py`
 
 ```python
 import os
@@ -536,12 +536,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `python -m unittest tests.kgqa.test_models_metaqa -v`
 Expected: FAIL（`ModuleNotFoundError: No module named 'kgqa.models.metaqa'`；若无 ckpt 则 skip）
 
-- [ ] **Step 3: 写实现** `kgqa/models/metaqa.py`
+- [x] **Step 3: 写实现** `kgqa/models/metaqa.py`
 
 ```python
 """MetaQA_KB 在线得分生产（前向逻辑迁移自 MetaQA_KB/predict.py）。"""
@@ -651,12 +651,12 @@ class MetaQAScoreProducer(ScoreProducer):
 
 > 说明：`hops` 分块有序（hop1→hop2→hop3），故三跳配额都满时可 `break`。因 hop3 在末段，小 `per_hop_limit` 仍需前向到 hop3 起始区，但模型极小，代价可接受。
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `python -m unittest tests.kgqa.test_models_metaqa -v`
 Expected: PASS（1 test；无 ckpt 则 skip）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/models/metaqa.py tests/kgqa/test_models_metaqa.py
@@ -684,7 +684,7 @@ EOF
 - Consumes: `MetaQAScoreProducer`（Task 4）、`WebQSPScoreProducer`（已存在）
 - Produces: `python -m kgqa.cli.dump_scores --dataset metaqa ...` 写出含 `hop` 的缓存；新增 `--per_hop_limit`。`_bundle_to_cache` 的 samples 增加 `hop`（`s.hop is not None` 才写，兼容 WebQSP）。
 
-- [ ] **Step 1: 写失败测试** `tests/kgqa/test_dump_metaqa.py`
+- [x] **Step 1: 写失败测试** `tests/kgqa/test_dump_metaqa.py`
 
 ```python
 import os
@@ -732,12 +732,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [x] **Step 2: 运行确认失败**
 
 Run: `python -m unittest tests.kgqa.test_dump_metaqa -v`
 Expected: FAIL（`_bundle_to_cache` 不写 hop → 第一个断言失败；metaqa 分发未实现）
 
-- [ ] **Step 3: 写实现** — 改 `kgqa/cli/dump_scores.py`：
+- [x] **Step 3: 写实现** — 改 `kgqa/cli/dump_scores.py`：
 
 （a）`_bundle_to_cache` 的 sample dict 增加 hop（在 `**({"triples": ...})` 那行同级追加）：
 
@@ -780,7 +780,7 @@ def main(argv=None):
     print(f"[INFO] dump 完成 {len(bundle.samples)} 条 → {args.output}", flush=True)
 ```
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `python -m unittest tests.kgqa.test_dump_metaqa -v`
 Expected: PASS（无 ckpt 时 hop 字段单测通过、end-to-end skip）
@@ -790,7 +790,7 @@ Expected: PASS（无 ckpt 时 hop 字段单测通过、end-to-end skip）
 Run: `python -m unittest tests.kgqa.test_cli -v`
 Expected: PASS（WebQSP dump 缓存兼容，hop 字段缺省不写）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/cli/dump_scores.py tests/kgqa/test_dump_metaqa.py
@@ -817,7 +817,7 @@ EOF
 - Consumes: `kgqa.cli.dump_scores.main`（Task 5）、`kgqa.datasets.registry.get_adapter`、`kgqa.retrieve.backends.offline.OfflineBackend`、`kgqa.retrieve.backends.online.OnlineBackend`、`kgqa.models.metaqa.MetaQAScoreProducer`、`kgqa.cli.eval`（复用 Plan1）
 - Produces: 无新代码，仅集成验证——证明 MetaQA 走通「dump→offline 检索→分跳评测」且 online/offline parity；显式验证 engine 在 3-hop 输入下产出路径。
 
-- [ ] **Step 1: 写失败测试** `tests/kgqa/test_metaqa_end_to_end.py`
+- [x] **Step 1: 写失败测试** `tests/kgqa/test_metaqa_end_to_end.py`
 
 ```python
 import os
@@ -892,16 +892,16 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 运行确认失败/或直接跑**
+- [x] **Step 2: 运行确认失败/或直接跑**
 
 Run: `python -m unittest tests.kgqa.test_metaqa_end_to_end -v`
 Expected: 有 ckpt 时应 PASS（前置任务都实现后）；若 `test_offline_retrieves_paths_all_hops` 因 engine 在 3-hop 下有隐含 2-hop 假设而失败，见 Step 3。
 
-- [ ] **Step 3: （条件）修引擎 3-hop 边界**
+- [x] **Step 3: （条件）修引擎 3-hop 边界**
 
 若 Step 2 中 3-hop 检索无路径或报错，定位 `kgqa/retrieve/engine.py:_method_hop_numbers` 及 `search_path_candidates` 是否假设 `hop<=2`。**仅修边界、不改打分公式**（数值红线）。若无问题，跳过本步。记录结论到 commit message。
 
-- [ ] **Step 4: 运行确认通过**
+- [x] **Step 4: 运行确认通过**
 
 Run: `python -m unittest tests.kgqa.test_metaqa_end_to_end -v`
 Expected: PASS（3 tests；无 ckpt 则 skip）
@@ -911,7 +911,7 @@ Expected: PASS（3 tests；无 ckpt 则 skip）
 Run: `python -m unittest discover -s tests/kgqa -p 'test*.py'`
 Expected: OK（WebQSP 全部照旧 + MetaQA 新增；联网/ckpt 相关按需 skip）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/kgqa/test_metaqa_end_to_end.py
@@ -937,7 +937,7 @@ EOF
 **Interfaces:**
 - Consumes: 前六个 Task 的全部实现。
 
-- [ ] **Step 1: 全量 dump（39093 条，per_hop_limit=0）**
+- [x] **Step 1: 全量 dump（39093 条，per_hop_limit=0）**
 
 Run:
 ```bash
@@ -950,7 +950,7 @@ python -m kgqa.cli.dump_scores --dataset metaqa \
 ```
 Expected: `[INFO] dump 完成 39093 条 → ...`
 
-- [ ] **Step 2: 全量 offline 评测（overall + by_hop）**
+- [x] **Step 2: 全量 offline 评测（overall + by_hop）**
 
 Run:
 ```bash
@@ -962,11 +962,11 @@ python -m kgqa.cli.eval --dataset metaqa --backend offline \
 ```
 Expected: stdout 打印 overall；`metaqa_test_summary.json` 含 `answer.by_hop{"1","2","3"}` 与 `path.by_hop`。
 
-- [ ] **Step 3: 记录数字与内核收敛差异**
+- [x] **Step 3: 记录数字与内核收敛差异**
 
 在 `docs/experiments_*` 或本 plan 末尾追加：全量 overall hit1/F1/EM + 分跳三档；并注明「单一 WebQSP 内核收敛，未逐条复现 Ch3 的 `mmr_diversity_beam_search` 数值，差异属预期」。
 
-- [ ] **Step 4: Commit（仅文档/summary 指针，不提交大缓存）**
+- [x] **Step 4: Commit（仅文档/summary 指针，不提交大缓存）**
 
 ```bash
 git add docs/  # 仅新增/改动的实验记录文档
