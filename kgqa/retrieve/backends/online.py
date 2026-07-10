@@ -1,4 +1,4 @@
-"""在线后端：ScoreProducer 实时前向 → 同一 engine。"""
+"""在线后端：ScoreProducer 实时前向 → 同一 engine（edge source 逐样本分发）。"""
 from __future__ import annotations
 
 from kgqa.datasets.base import DatasetAdapter
@@ -17,15 +17,18 @@ class OnlineBackend:
                                        batch_size=batch_size, topk=topk)
         if limit:
             self.bundle.samples = self.bundle.samples[:limit]
-        self.edge_source = adapter.kg_edge_source()
+
+    def _one(self, sample, params: dict):
+        return engine.retrieve_one(
+            sample, self.adapter.kg_edge_source(sample),
+            self.bundle.meta.id2ent, self.bundle.meta.id2rel, **params,
+        )
 
     def retrieve(self, sample_index: int, **params):
         merged = {**RetrieveParams().as_kwargs(), **params}
-        return engine.retrieve_one(self.bundle.samples[sample_index], self.edge_source,
-                                   self.bundle.meta.id2ent, self.bundle.meta.id2rel, **merged)
+        return self._one(self.bundle.samples[sample_index], merged)
 
     def retrieve_all(self, *, limit: int = 0, **params):
         merged = {**RetrieveParams().as_kwargs(), **params}
         samples = self.bundle.samples[:limit] if limit else self.bundle.samples
-        return [engine.retrieve_one(s, self.edge_source, self.bundle.meta.id2ent,
-                                    self.bundle.meta.id2rel, **merged) for s in samples]
+        return [self._one(s, merged) for s in samples]

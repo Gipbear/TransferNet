@@ -19,7 +19,9 @@ class DatasetAdapter(ABC):
     def entity_name(self, entity_id: str) -> str: ...
 
     @abstractmethod
-    def kg_edge_source(self, sample: QASample | None = None) -> KGEdgeSource: ...
+    def kg_edge_source(self, sample=None) -> KGEdgeSource:
+        """sample 为鸭子类型：逐样本子图数据集（CWQ）传带 .triples 的 SampleScore；
+        全局图数据集（WebQSP/MetaQA）忽略该参数。"""
 
     @abstractmethod
     def score_loader(self) -> ScoreLoader: ...

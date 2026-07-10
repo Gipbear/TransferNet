@@ -39,7 +39,7 @@ class MetaQAAdapter(DatasetAdapter):
     def entity_name(self, entity_id: str) -> str:
         return entity_id  # MetaQA 实体本身即名字
 
-    def kg_edge_source(self, sample: QASample | None = None) -> GlobalKG:
+    def kg_edge_source(self, sample=None) -> GlobalKG:
         if self._kg is None:
             self._kg = GlobalKG.from_metaqa_npy(self.input_dir)
         return self._kg
