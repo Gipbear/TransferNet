@@ -17,6 +17,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output", required=True)
     p.add_argument("--topk", type=int, default=500)
     p.add_argument("--batch_size", type=int, default=16)
+    p.add_argument("--per_hop_limit", type=int, default=0,
+                   help="MetaQA 每跳保留前 N 条（分层小子集），0=全量")
     return p
 
 
@@ -33,6 +35,7 @@ def _bundle_to_cache(bundle) -> dict:
             "hop_attn": s.hop_attn, "rel_probs": s.rel_probs,
             "ent_indices": s.ent_indices, "ent_scores": s.ent_scores,
             "e_score_indices": s.e_score_indices, "e_score_values": s.e_score_values,
+            **({"hop": s.hop} if s.hop is not None else {}),
             **({"triples": s.triples} if s.triples is not None else {}),
         } for s in bundle.samples],
     }
@@ -40,10 +43,14 @@ def _bundle_to_cache(bundle) -> dict:
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    if args.dataset != "webqsp":
-        raise SystemExit(f"stage1 仅支持 webqsp dump，收到: {args.dataset}")
-    from kgqa.models.webqsp import WebQSPScoreProducer
-    producer = WebQSPScoreProducer()
+    if args.dataset == "webqsp":
+        from kgqa.models.webqsp import WebQSPScoreProducer
+        producer = WebQSPScoreProducer()
+    elif args.dataset == "metaqa":
+        from kgqa.models.metaqa import MetaQAScoreProducer
+        producer = MetaQAScoreProducer(per_hop_limit=args.per_hop_limit)
+    else:
+        raise SystemExit(f"未支持的 dump 数据集: {args.dataset}")
     producer.load_checkpoint(args.ckpt)
     bundle = producer.produce(args.input_dir, args.qa_file, split=args.split,
                               batch_size=args.batch_size, topk=args.topk)

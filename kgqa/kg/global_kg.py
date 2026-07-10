@@ -53,6 +53,22 @@ class GlobalKG(KGEdgeSource):
                     triples.append([oid, rel2id[rev], sid])
         return cls.from_triples(triples)
 
+    @classmethod
+    def from_metaqa_npy(cls, input_dir: str) -> "GlobalKG":
+        """从 MetaQA_KB 的 Msubj/Mobj/Mrel.npy 重建全局邻接表。
+
+        逻辑迁移自 MetaQA_KB/predict.py：三个 npy 形状 (Tsize, 2)，第 1 列是
+        entity/relation id，按行 zip 成 (subj, rel, obj)。MetaQA KG 已含反向边，
+        不再补 _reverse。"""
+        import numpy as np
+        d = Path(input_dir)
+        subj = np.load(d / "Msubj.npy")
+        rel = np.load(d / "Mrel.npy")
+        obj = np.load(d / "Mobj.npy")
+        stacked = np.stack([subj[:, 1], rel[:, 1], obj[:, 1]], axis=1).tolist()
+        triples = [[int(s), int(r), int(o)] for s, r, o in stacked]
+        return cls.from_triples(triples)
+
     def neighbors(self, node_id: int) -> list[tuple[int, int]]:
         return self.valid_edges_dict.get(node_id, [])
 
