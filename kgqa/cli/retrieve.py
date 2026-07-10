@@ -27,6 +27,19 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _make_producer(dataset: str):
+    if dataset == "webqsp":
+        from kgqa.models.webqsp import WebQSPScoreProducer
+        return WebQSPScoreProducer()
+    if dataset == "metaqa":
+        from kgqa.models.metaqa import MetaQAScoreProducer
+        return MetaQAScoreProducer()
+    if dataset == "cwq":
+        from kgqa.models.cwq import CWQScoreProducer
+        return CWQScoreProducer()
+    raise SystemExit(f"未支持的 online producer: {dataset}")
+
+
 def build_backend(args):
     adapter = get_adapter(args.dataset, input_dir=args.input_dir)
     if args.backend == "offline":
@@ -34,11 +47,10 @@ def build_backend(args):
         if not args.cache:
             raise SystemExit("--backend offline 需要 --cache")
         return adapter, OfflineBackend(adapter, cache_path=args.cache)
-    from kgqa.models.webqsp import WebQSPScoreProducer
     from kgqa.retrieve.backends.online import OnlineBackend
     if not (args.ckpt and args.qa_file):
         raise SystemExit("--backend online 需要 --ckpt 和 --qa_file")
-    backend = OnlineBackend(adapter, WebQSPScoreProducer(), ckpt_path=args.ckpt,
+    backend = OnlineBackend(adapter, _make_producer(args.dataset), ckpt_path=args.ckpt,
                             input_dir=args.input_dir, qa_file=args.qa_file,
                             split=args.split, limit=args.limit)
     return adapter, backend
