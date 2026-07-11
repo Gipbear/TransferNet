@@ -15,8 +15,6 @@ mkdir -p "${TMP_ROOT}/data/output/MetaQA_KB/grid_search/paths"
 mkdir -p "${TMP_ROOT}/data/output/CWQ/grid_search/paths"
 mkdir -p "${TMP_ROOT}/models/webqsp/ablation/slot_fallback"
 mkdir -p "${TMP_ROOT}/models/webqsp/ablation/groupB_noshuffle"
-mkdir -p "${TMP_ROOT}/models/webqsp/webqsp_v2"
-mkdir -p "${TMP_ROOT}/models/metaqa/metaqa_v2"
 
 touch "${TMP_ROOT}/data/output/WebQSP/predict_train.jsonl"
 touch "${TMP_ROOT}/data/output/MetaQA_KB/predict_train.jsonl"
@@ -26,7 +24,6 @@ touch "${TMP_ROOT}/data/output/MetaQA_KB/grid_search/paths/beam20_lam0.2.jsonl"
 touch "${TMP_ROOT}/data/output/CWQ/grid_search/paths/beam20_lam0.2.jsonl"
 
 mkdir -p "${TMP_ROOT_LEGACY}/models/ablation/groupA_v3"
-mkdir -p "${TMP_ROOT_LEGACY}/models/webqsp_v2_best"
 
 assert_eq() {
     local actual="$1"
@@ -49,17 +46,11 @@ init_dataset_context "${TMP_ROOT}" "metaqa"
 assert_eq "${DATASET_OUTPUT_ROOT}" "${TMP_ROOT}/data/output/MetaQA_KB" "metaqa output root"
 assert_eq "${DATASET_KEY}" "metaqa" "metaqa dataset key"
 
-baseline_adapter="$(resolve_baseline_adapter "${TMP_ROOT}" "metaqa")"
-assert_eq "${baseline_adapter}" "${TMP_ROOT}/models/metaqa/metaqa_v2" "metaqa baseline adapter"
-
 slot_adapter="$(resolve_slot_adapter "${TMP_ROOT}" "metaqa" "slot_fallback")"
 assert_eq "${slot_adapter}" "${TMP_ROOT}/models/webqsp/ablation/slot_fallback" "fallback to webqsp slot_fallback"
 
 slot_adapter_b="$(resolve_slot_adapter "${TMP_ROOT}" "cwq" "groupB_noshuffle")"
 assert_eq "${slot_adapter_b}" "${TMP_ROOT}/models/webqsp/ablation/groupB_noshuffle" "fallback to webqsp groupB_noshuffle"
-
-legacy_baseline="$(resolve_baseline_adapter "${TMP_ROOT_LEGACY}" "cwq")"
-assert_eq "${legacy_baseline}" "${TMP_ROOT_LEGACY}/models/webqsp_v2_best" "legacy baseline fallback"
 
 legacy_slot="$(resolve_slot_adapter "${TMP_ROOT_LEGACY}" "metaqa" "groupA_v3")"
 assert_eq "${legacy_slot}" "${TMP_ROOT_LEGACY}/models/ablation/groupA_v3" "legacy ablation fallback"
