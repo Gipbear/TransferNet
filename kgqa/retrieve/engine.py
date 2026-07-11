@@ -327,6 +327,7 @@ def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, 
         candidates = drop_loopback_paths(candidates)
 
     topics = [id2ent.get(int(t), str(int(t))) for t in sample.topic_ids]
+    golden = [id2ent.get(int(g), str(int(g))) for g in getattr(sample, "gold_ids", [])]
     elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
     return RetrieveResult(
         question=sample.question,
@@ -336,4 +337,5 @@ def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, 
         prediction=build_prediction(sample, id2ent),
         elapsed_ms=elapsed_ms,
         sample_index=getattr(sample, "sample_index", -1),
+        golden=golden,
     )
