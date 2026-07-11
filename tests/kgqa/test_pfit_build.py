@@ -157,7 +157,7 @@ class TestStratifiedSampling(unittest.TestCase):
     def test_metaqa_uses_name_prompt_and_fills_topic(self):
         from kgqa.pfit import build as pfit_build
         records = [{
-            "sample_index": 0, "question": "what does E_S appear in",
+            "sample_index": 0, "question": "what does e_s appear in",  # vocab 解码后真实形态(小写)
             "topics": ["Grégoire Colin"], "hop": 1,
             "golden": ["Before the Rain"],
             "mmr_reason_paths": [{"path": [["Grégoire Colin", "starred_actors_reverse",
@@ -175,7 +175,7 @@ class TestStratifiedSampling(unittest.TestCase):
         # MetaQA 天然 name:即便无映射文件,system prompt 也必须是 name 措辞
         self.assertIn("entity names", sample["messages"][0]["content"])
         self.assertIn("Grégoire Colin appear in", sample["messages"][1]["content"])
-        self.assertNotIn("E_S", sample["messages"][1]["content"])
+        self.assertNotIn("e_s", sample["messages"][1]["content"].lower())
 
     def test_metaqa_rejection_flag_rejected(self):
         from kgqa.pfit import build as pfit_build

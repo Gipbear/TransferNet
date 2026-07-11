@@ -38,6 +38,12 @@ class TestMetaQASpec(unittest.TestCase):
         self.assertEqual(self.spec.clean_question(q, ["Grégoire Colin"]),
                          "what does Grégoire Colin appear in")
 
+    def test_clean_question_fills_lowercase_placeholder(self):
+        # score 缓存经 vocab 解码后的真实形态是小写 e_s(retrieve 输出即此形态)
+        q = "what does e_s appear in"
+        self.assertEqual(self.spec.clean_question(q, ["Grégoire Colin"]),
+                         "what does Grégoire Colin appear in")
+
     def test_clean_question_without_topic_keeps_text(self):
         q = "what does E_S appear in"
         self.assertEqual(self.spec.clean_question(q, []), q)

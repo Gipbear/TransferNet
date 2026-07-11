@@ -17,6 +17,7 @@ _PROJECT_DIR = Path(__file__).resolve().parents[2]
 # WebQSP 问题清洗:BERT 特殊 token 与 wordpiece 标记(与 llm_infer.kg_format 行为一致)
 _QUESTION_BOUNDARY_TOKEN_RE = re.compile(r"\s*(?:\[CLS\]|\[SEP\])\s*")
 _WORDPIECE_MARKER_RE = re.compile(r"\s*##\s*")
+_ES_PLACEHOLDER_RE = re.compile(r"\bE_S\b", re.IGNORECASE)
 
 
 def _clean_question_webqsp(question: str, topics: list[str]) -> str:
@@ -26,9 +27,13 @@ def _clean_question_webqsp(question: str, topics: list[str]) -> str:
 
 
 def _clean_question_metaqa(question: str, topics: list[str]) -> str:
-    """MetaQA 问题以 E_S 占位 topic 实体,回填为实体名。"""
+    """MetaQA 问题以 E_S 占位 topic 实体,回填为实体名。
+
+    原始 qa 文件为大写 E_S;经 vocab 解码(score 缓存→retrieve)后为小写 e_s,
+    两种形态都要回填。
+    """
     if topics:
-        return (question or "").replace("E_S", topics[0])
+        return _ES_PLACEHOLDER_RE.sub(topics[0], question or "")
     return question
 
 
