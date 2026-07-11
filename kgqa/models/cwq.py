@@ -80,7 +80,8 @@ class CWQScoreProducer(ScoreProducer):
         args = SimpleNamespace(bert_name=self.bert_name, num_steps=self.num_steps,
                                num_ways=self.num_ways)
         model = TransferNet(args, ent2id, rel2id)
-        model.load_state_dict(torch.load(self._ckpt_path, map_location="cpu"), strict=False)
+        model.load_state_dict(
+            torch.load(self._ckpt_path, map_location="cpu", weights_only=True), strict=False)
         model = model.to(self.device)
         model.eval()
 
