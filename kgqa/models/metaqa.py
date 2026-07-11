@@ -41,7 +41,8 @@ class MetaQAScoreProducer(ScoreProducer):
         args = SimpleNamespace(num_steps=self.num_steps, aux_hop=self.aux_hop,
                                input_dir=input_dir)
         model = TransferNet(args, self.dim_word, self.dim_hidden, vocab)
-        model.load_state_dict(torch.load(self._ckpt_path, map_location="cpu"), strict=False)
+        model.load_state_dict(
+            torch.load(self._ckpt_path, map_location="cpu", weights_only=True), strict=False)
         model = model.to(self.device)
         model.kg.Msubj = model.kg.Msubj.to(self.device)
         model.kg.Mobj = model.kg.Mobj.to(self.device)

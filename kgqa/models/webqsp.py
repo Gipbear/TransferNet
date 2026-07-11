@@ -30,7 +30,8 @@ class WebQSPScoreProducer(ScoreProducer):
         loader = DataLoader(input_dir, qa_file, self.bert_name, ent2id, rel2id, batch_size)
         args = SimpleNamespace(bert_name=self.bert_name)  # TransferNet 仅需 args.bert_name
         model = TransferNet(args, ent2id, rel2id, triples)
-        model.load_state_dict(torch.load(self._ckpt_path, map_location="cpu"), strict=False)
+        model.load_state_dict(
+            torch.load(self._ckpt_path, map_location="cpu", weights_only=True), strict=False)
         model = model.to(self.device)
         for attr in ("Msubj", "Mobj", "Mrel"):
             setattr(model, attr, getattr(model, attr).to(self.device))

@@ -48,7 +48,7 @@ class WebQSPAdapter(DatasetAdapter):
     def entity_name(self, entity_id: str) -> str:
         return self._load_map().get(entity_id, entity_id)
 
-    def kg_edge_source(self, sample: QASample | None = None) -> GlobalKG:
+    def kg_edge_source(self, sample=None) -> GlobalKG:
         if self._kg is None:
             self._kg = GlobalKG.from_input_dir(self.input_dir)
         return self._kg

@@ -19,6 +19,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--batch_size", type=int, default=16)
     p.add_argument("--per_hop_limit", type=int, default=0,
                    help="MetaQA 每跳保留前 N 条（分层小子集），0=全量")
+    p.add_argument("--limit", type=int, default=0,
+                   help="CWQ 取前 N 条非空子图样本（小子集），0=全量")
     return p
 
 
@@ -49,6 +51,9 @@ def main(argv=None):
     elif args.dataset == "metaqa":
         from kgqa.models.metaqa import MetaQAScoreProducer
         producer = MetaQAScoreProducer(per_hop_limit=args.per_hop_limit)
+    elif args.dataset == "cwq":
+        from kgqa.models.cwq import CWQScoreProducer
+        producer = CWQScoreProducer(limit=args.limit)
     else:
         raise SystemExit(f"未支持的 dump 数据集: {args.dataset}")
     producer.load_checkpoint(args.ckpt)

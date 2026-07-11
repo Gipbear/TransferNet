@@ -1,4 +1,4 @@
-"""离线后端：读得分缓存 → engine。"""
+"""离线后端：读得分缓存 → engine（edge source 逐样本分发）。"""
 from __future__ import annotations
 
 from kgqa.datasets.base import DatasetAdapter
@@ -11,11 +11,10 @@ class OfflineBackend(RetrieveBackend):
     def __init__(self, adapter: DatasetAdapter, cache_path: str):
         self.adapter = adapter
         self.bundle = adapter.score_loader().load(cache_path)
-        self.edge_source = adapter.kg_edge_source()
 
     def _one(self, sample, params: dict) -> RetrieveResult:
         return engine.retrieve_one(
-            sample, self.edge_source,
+            sample, self.adapter.kg_edge_source(sample),
             self.bundle.meta.id2ent, self.bundle.meta.id2rel, **params,
         )
 
