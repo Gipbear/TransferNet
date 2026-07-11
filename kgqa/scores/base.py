@@ -5,6 +5,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+import torch
+
 
 @dataclass
 class SampleScore:
@@ -49,3 +51,12 @@ class ScoreLoader(ABC):
 class ScoreDumper(ABC):
     @abstractmethod
     def dump(self, bundle: ScoreBundle, out_path: str) -> None: ...
+
+
+def load_score_cache(path: str) -> dict:
+    """加载并校验统一的 PyTorch 得分缓存。"""
+    cache = torch.load(path, map_location="cpu", weights_only=False)
+    version = cache.get("version", 0)
+    if version < 1:
+        raise ValueError(f"不支持的缓存版本: {version}，请重新生成得分缓存。")
+    return cache

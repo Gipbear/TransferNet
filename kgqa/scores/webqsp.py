@@ -1,8 +1,7 @@
 """WebQSP 得分缓存加载：把 dump_scores.py 的 dict 缓存转成 ScoreBundle。"""
 from __future__ import annotations
 
-from scripts.offline_path_search import load_score_cache
-from kgqa.scores.base import CacheMeta, SampleScore, ScoreBundle, ScoreLoader
+from kgqa.scores.base import CacheMeta, SampleScore, ScoreBundle, ScoreLoader, load_score_cache
 
 
 class WebQSPScoreLoader(ScoreLoader):

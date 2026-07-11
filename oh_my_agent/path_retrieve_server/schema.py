@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
 
 class RetrieveRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
     question: Optional[str] = Field(None, min_length=1)
     sample_index: Optional[int] = Field(None, ge=0)
     topic_entities: Optional[list[str]] = None
-    method: Literal["tail_blend", "baseline"] = "tail_blend"
     alpha_final: float = Field(1.0, ge=0.0, le=10.0)
     threshold: float = Field(0.01, ge=0.0, le=1.0)
     beam_size: int = Field(50, ge=1, le=200)
@@ -32,7 +33,6 @@ class RetrieveResponse(BaseModel):
     mmr_reason_paths: list[dict[str, Any]]
     prediction: dict[str, float]
     elapsed_ms: float
-    method: str
     alpha_final: float
     threshold: float
     beam_size: int

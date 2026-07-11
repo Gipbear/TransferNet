@@ -6,6 +6,8 @@ import os
 
 import torch
 
+from kgqa.models import make_score_producer
+
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="kgqa 统一得分 dump")
@@ -17,6 +19,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output", required=True)
     p.add_argument("--topk", type=int, default=500)
     p.add_argument("--batch_size", type=int, default=16)
+    p.add_argument("--bert_name", default=None)
     p.add_argument("--per_hop_limit", type=int, default=0,
                    help="MetaQA 每跳保留前 N 条（分层小子集），0=全量")
     p.add_argument("--limit", type=int, default=0,
@@ -45,17 +48,15 @@ def _bundle_to_cache(bundle) -> dict:
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
-    if args.dataset == "webqsp":
-        from kgqa.models.webqsp import WebQSPScoreProducer
-        producer = WebQSPScoreProducer()
-    elif args.dataset == "metaqa":
-        from kgqa.models.metaqa import MetaQAScoreProducer
-        producer = MetaQAScoreProducer(per_hop_limit=args.per_hop_limit)
-    elif args.dataset == "cwq":
-        from kgqa.models.cwq import CWQScoreProducer
-        producer = CWQScoreProducer(limit=args.limit)
-    else:
-        raise SystemExit(f"未支持的 dump 数据集: {args.dataset}")
+    try:
+        producer = make_score_producer(
+            args.dataset,
+            bert_name=args.bert_name,
+            per_hop_limit=args.per_hop_limit,
+            limit=args.limit,
+        )
+    except KeyError as exc:
+        raise SystemExit(str(exc)) from exc
     producer.load_checkpoint(args.ckpt)
     bundle = producer.produce(args.input_dir, args.qa_file, split=args.split,
                               batch_size=args.batch_size, topk=args.topk)

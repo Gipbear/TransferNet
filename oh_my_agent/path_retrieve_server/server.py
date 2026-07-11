@@ -36,7 +36,6 @@ def retrieve(req: RetrieveRequest):
             question=req.question,
             sample_index=req.sample_index,
             topic_entities=req.topic_entities,
-            method=req.method,
             alpha_final=req.alpha_final,
             threshold=req.threshold,
             beam_size=req.beam_size,

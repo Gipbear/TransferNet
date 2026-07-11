@@ -44,7 +44,6 @@ class AgentToolTests(unittest.TestCase):
             ],
             prediction={"m.0f7fy": 0.99},
             elapsed_ms=12.5,
-            method="tail_blend",
             alpha_final=1.0,
             threshold=0.01,
             beam_size=50,

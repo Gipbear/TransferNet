@@ -6,6 +6,7 @@ import json
 import os
 
 from kgqa.datasets.registry import get_adapter
+from kgqa.models import make_score_producer
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -18,7 +19,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--qa_file", default=None)
     p.add_argument("--split", default="test")
     p.add_argument("--beam_size", type=int, default=50)
-    p.add_argument("--method", default="tail_blend")
     p.add_argument("--lambda_val", type=float, default=0.2)
     p.add_argument("--threshold", type=float, default=0.01)
     p.add_argument("--alpha_final", type=float, default=1.0)
@@ -28,16 +28,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _make_producer(dataset: str):
-    if dataset == "webqsp":
-        from kgqa.models.webqsp import WebQSPScoreProducer
-        return WebQSPScoreProducer()
-    if dataset == "metaqa":
-        from kgqa.models.metaqa import MetaQAScoreProducer
-        return MetaQAScoreProducer()
-    if dataset == "cwq":
-        from kgqa.models.cwq import CWQScoreProducer
-        return CWQScoreProducer()
-    raise SystemExit(f"未支持的 online producer: {dataset}")
+    try:
+        return make_score_producer(dataset)
+    except KeyError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def build_backend(args):
@@ -58,7 +52,7 @@ def build_backend(args):
 
 def run_retrieval(args):
     _adapter, backend = build_backend(args)
-    params = dict(beam_size=args.beam_size, method=args.method, lambda_val=args.lambda_val,
+    params = dict(beam_size=args.beam_size, lambda_val=args.lambda_val,
                   threshold=args.threshold, alpha_final=args.alpha_final)
     results = backend.retrieve_all(limit=args.limit, **params)
     if args.output:

@@ -3,13 +3,13 @@
 # run_offline_path_search.sh
 #
 # 两步式离线路径搜索实验脚本：
-#   Step 1 (dump)   : 运行 WebQSP.dump_scores / CompWebQ.dump_scores，
+#   Step 1 (dump)   : 运行 kgqa.cli.dump_scores，
 #                     将模型中间得分矩阵写入缓存文件
 #   Step 2 (search) : 运行 scripts/offline_path_search.py，离线重放路径搜索
 #
 # 特性：
 #   - Step 1 支持断点跳过（缓存文件已存在则不重跑）
-#   - Step 2 运行 tail_blend 新实验或 baseline，并支持收窄后的超参数网格
+#   - Step 2 运行统一 MMR 路径检索，并支持收窄后的超参数网格
 #   - 结果写入带时间戳的日志文件
 #
 # 用法：
@@ -30,14 +30,7 @@
 #       --phase search \
 #       --cache data/output/WebQSP/offline_search/score_cache/webqsp_val.pt
 #
-#   # 运行 baseline 方法
-#   bash scripts/run_offline_path_search.sh \
-#       --input_dir data/input/WebQSP \
-#       --phase search \
-#       --cache data/output/WebQSP/offline_search/score_cache/webqsp_val.pt \
-#       --method baseline
-#
-#   # 对 tail_blend 实验做超参数网格搜索
+#   # 做超参数网格搜索
 #   bash scripts/run_offline_path_search.sh \
 #       --input_dir data/input/WebQSP \
 #       --phase search \
@@ -70,13 +63,12 @@ TOPK=500
 PHASE="all"          # all | dump | search
 
 # search 参数
-METHOD="tail_blend"
 ALPHA_FINAL="2.0"
 THRESHOLD="0.01"
 LAMBDA_VAL="0.2"
 BEAM_SIZE="20"
 
-# tail_blend 实验网格搜索。只搜索正式实验超参，不恢复旧 scoring/selector 搜索空间。
+# 只搜索当前正式实验超参，不恢复旧 scoring/selector 搜索空间。
 GRID=0
 GRID_ALPHAS="0.0 1.0 2.0"
 GRID_LAMBDAS="0 0.2 0.5 0.7 1.0"
@@ -103,7 +95,6 @@ while [[ $# -gt 0 ]]; do
         --batch_size)  BATCH_SIZE="$2";  shift 2 ;;
         --topk)        TOPK="$2";        shift 2 ;;
         --phase)       PHASE="$2";       shift 2 ;;
-        --method)      METHOD="$2";      shift 2 ;;
         --alpha_final) ALPHA_FINAL="$2"; shift 2 ;;
         --threshold)   THRESHOLD="$2";   shift 2 ;;
         --lambda_val)  LAMBDA_VAL="$2";  shift 2 ;;
@@ -126,7 +117,6 @@ done
 DATASET="${DATASET,,}"
 case "$DATASET" in
     webqsp)
-        DUMP_MODULE="WebQSP.dump_scores"
         CACHE_PREFIX="webqsp"
         [[ -z "$CKPT" ]] && CKPT="${PROJ_DIR}/data/ckpt/WebQSP_run_20260518_2241/model-49-0.7154.pt"
         [[ -z "$INPUT_DIR" ]] && INPUT_DIR="${PROJ_DIR}/data/input/WebQSP"
@@ -134,7 +124,6 @@ case "$DATASET" in
         [[ -z "$OFFLINE_DIR" ]] && OFFLINE_DIR="${PROJ_DIR}/data/output/WebQSP/offline_search"
         ;;
     cwq)
-        DUMP_MODULE="CompWebQ.dump_scores"
         CACHE_PREFIX="cwq"
         [[ -z "$CKPT" ]] && CKPT="${PROJ_DIR}/data/ckpt/CWQ/model-29-0.4206.pt"
         [[ -z "$INPUT_DIR" ]] && INPUT_DIR="${PROJ_DIR}/data/input/CWQ"
@@ -162,6 +151,13 @@ if [[ "$DATASET" == "webqsp" && -z "$QA_FILE" ]]; then
     else
         QA_FILE="${INPUT_DIR}/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"
     fi
+fi
+if [[ "$DATASET" == "cwq" && -z "$QA_FILE" ]]; then
+    case "$MODE" in
+        train) QA_FILE="${INPUT_DIR}/train_simple.json" ;;
+        test)  QA_FILE="${INPUT_DIR}/test_simple.json" ;;
+        *)     QA_FILE="${INPUT_DIR}/dev_simple.json" ;;
+    esac
 fi
 
 # 将路径归一成绝对路径，避免 dump_scores 对相对 qa_file 再拼 input_dir，
@@ -211,9 +207,8 @@ run_dump() {
         echo "[ERROR] --input_dir 未指定。"
         exit 1
     fi
-    if [[ "$DATASET" == "webqsp" && ! -f "$QA_FILE" ]]; then
+    if [[ ! -f "$QA_FILE" ]]; then
         echo "[ERROR] QA 文件不存在: ${QA_FILE}"
-        echo "        可先运行: python scripts/build_webqsp_fixed_qa.py"
         exit 1
     fi
 
@@ -227,32 +222,30 @@ run_dump() {
     local t0=$SECONDS
     echo "[$(ts)] 开始 dump ..."
     local dump_args=(
+        --dataset    "$DATASET" \
         --ckpt       "$CKPT" \
         --input_dir  "$INPUT_DIR" \
-        --mode       "$MODE" \
+        --qa_file    "$QA_FILE" \
+        --split      "$MODE" \
         --bert_name  "$BERT_NAME" \
         --batch_size "$BATCH_SIZE" \
         --topk       "$TOPK" \
         --output     "$CACHE"
     )
-    if [[ "$DATASET" == "webqsp" ]]; then
-        dump_args+=(--qa_file "$QA_FILE")
-    fi
-    python -m "$DUMP_MODULE" "${dump_args[@]}"
+    python -m kgqa.cli.dump_scores "${dump_args[@]}"
     echo "[$(ts)] dump 完成，耗时 $((SECONDS - t0))s"
 }
 
 # ── Step 2: 单次 search ───────────────────────────────────────────────────────
 run_search_once() {
-    local method="$1"
-    local alpha_final="$2"
-    local threshold="$3"
-    local lambda_val="$4"
-    local beam_size="$5"
-    local log_file="$6"
-    local output_jsonl="$7"   # 可选，空串表示不写 JSONL
+    local alpha_final="$1"
+    local threshold="$2"
+    local lambda_val="$3"
+    local beam_size="$4"
+    local log_file="$5"
+    local output_jsonl="$6"   # 可选，空串表示不写 JSONL
 
-    echo "[$(ts)] method=${method} alpha_final=${alpha_final} threshold=${threshold} lambda=${lambda_val} beam=${beam_size}"
+    echo "[$(ts)] alpha_final=${alpha_final} threshold=${threshold} lambda=${lambda_val} beam=${beam_size}"
 
     local output_args=()
     if [[ -n "$output_jsonl" ]]; then
@@ -263,7 +256,6 @@ run_search_once() {
     python scripts/offline_path_search.py \
         --cache       "$CACHE" \
         --input_dir   "$INPUT_DIR" \
-        --method      "$method" \
         --alpha_final "$alpha_final" \
         --threshold   "$threshold" \
         --lambda_val  "$lambda_val" \
@@ -295,7 +287,6 @@ run_search() {
     if [[ "$GRID" -eq 1 ]]; then
         local log_file="${LOG_DIR}/grid_${timestamp}.log"
         echo "  模式       : 网格搜索"
-        echo "  method     : ${METHOD}"
         echo "  alphas     : ${GRID_ALPHAS}"
         echo "  lambdas    : ${GRID_LAMBDAS}"
         echo "  thresholds : ${GRID_THRESHOLDS}"
@@ -305,10 +296,10 @@ run_search() {
         echo ""
 
         echo "# 网格搜索  $(ts)" > "$log_file"
-        echo "# cache=${CACHE}  input_dir=${INPUT_DIR}  method=${METHOD}" >> "$log_file"
+        echo "# cache=${CACHE}  input_dir=${INPUT_DIR}" >> "$log_file"
         echo "" >> "$log_file"
         mkdir -p "$(dirname "$SUMMARY_FILE")"
-        echo "method,alpha_final,lambda_val,threshold,beam_size,total,empty_path,answer_hit,top1_hit,precision,recall,f1,jaccard_diversity,relation_jaccard_diversity,tail_diversity,relation_coverage,edge_coverage,elapsed_s,jsonl_path" > "$SUMMARY_FILE"
+        echo "alpha_final,lambda_val,threshold,beam_size,total,empty_path,answer_hit,top1_hit,precision,recall,f1,jaccard_diversity,relation_jaccard_diversity,tail_diversity,relation_coverage,edge_coverage,elapsed_s,jsonl_path" > "$SUMMARY_FILE"
 
         local t0=$SECONDS
         local count=0
@@ -322,10 +313,10 @@ run_search() {
                         local lam_fmt
                         lam_fmt=$(printf '%s' "$lam" | sed 's/\.*0*$//' | sed 's/^\./0./')
                         [[ -z "$lam_fmt" ]] && lam_fmt="0"
-                        local jsonl_path="${PATHS_DIR}/${METHOD}_beam${beam}_alpha${alpha_fmt}_lam${lam_fmt}.jsonl"
+                        local jsonl_path="${PATHS_DIR}/beam${beam}_alpha${alpha_fmt}_lam${lam_fmt}.jsonl"
                         local iter_start=$SECONDS
-                        echo "─── [method=${METHOD} alpha=${alpha} lambda=${lam} threshold=${thresh} beam=${beam}] ───────────────────" >> "$log_file"
-                        run_search_once "$METHOD" "$alpha" "$thresh" "$lam" "$beam" "$log_file" "$jsonl_path"
+                        echo "─── [alpha=${alpha} lambda=${lam} threshold=${thresh} beam=${beam}] ───────────────────" >> "$log_file"
+                        run_search_once "$alpha" "$thresh" "$lam" "$beam" "$log_file" "$jsonl_path"
                         local iter_elapsed=$((SECONDS - iter_start))
                         local total empty_path answer_hit top1_hit precision recall f1 edge_div rel_div tail_unique rel_cov edge_cov
                         total=$(metric_from_log "总样本数" "$log_file")
@@ -340,7 +331,7 @@ run_search() {
                         tail_unique=$(metric_from_log "Tail Unique" "$log_file")
                         rel_cov=$(metric_from_log "Relation Coverage" "$log_file")
                         edge_cov=$(metric_from_log "Edge Coverage" "$log_file")
-                        echo "${METHOD},${alpha},${lam},${thresh},${beam},${total},${empty_path},${answer_hit},${top1_hit},${precision},${recall},${f1},${edge_div},${rel_div},${tail_unique},${rel_cov},${edge_cov},${iter_elapsed},${jsonl_path}" >> "$SUMMARY_FILE"
+                        echo "${alpha},${lam},${thresh},${beam},${total},${empty_path},${answer_hit},${top1_hit},${precision},${recall},${f1},${edge_div},${rel_div},${tail_unique},${rel_cov},${edge_cov},${iter_elapsed},${jsonl_path}" >> "$SUMMARY_FILE"
                         count=$((count + 1))
                     done
                 done
@@ -354,7 +345,6 @@ run_search() {
 
     local log_file="${LOG_DIR}/single_${timestamp}.log"
     echo "  模式       : 单次"
-    echo "  method     : ${METHOD}"
     echo "  alpha_final: ${ALPHA_FINAL}"
     echo "  threshold  : ${THRESHOLD}"
     echo "  lambda_val : ${LAMBDA_VAL}"
@@ -370,8 +360,8 @@ run_search() {
     local lam_fmt
     lam_fmt=$(printf '%s' "$LAMBDA_VAL" | sed 's/\.*0*$//' | sed 's/^\./0./')
     [[ -z "$lam_fmt" ]] && lam_fmt="0"
-    local jsonl_path="${PATHS_DIR}/${METHOD}_beam${BEAM_SIZE}_lam${lam_fmt}.jsonl"
-    run_search_once "$METHOD" "$ALPHA_FINAL" "$THRESHOLD" "$LAMBDA_VAL" "$BEAM_SIZE" "$log_file" "$jsonl_path"
+    local jsonl_path="${PATHS_DIR}/beam${BEAM_SIZE}_lam${lam_fmt}.jsonl"
+    run_search_once "$ALPHA_FINAL" "$THRESHOLD" "$LAMBDA_VAL" "$BEAM_SIZE" "$log_file" "$jsonl_path"
     echo "[$(ts)] search 完成，耗时 $((SECONDS - t0))s"
     echo "[INFO] 完整日志: ${log_file}"
 }

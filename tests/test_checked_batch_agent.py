@@ -46,7 +46,6 @@ def make_response(paths, prediction=None):
         mmr_reason_paths=paths,
         prediction=prediction or {},
         elapsed_ms=10.0,
-        method="tail_blend",
         alpha_final=1.0,
         threshold=0.01,
         beam_size=50,
@@ -97,7 +96,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
         result = agent.run("where is example from", "m.topic", batch_size=2)
 
         retrieve_kwargs = path_client.calls[0][1]
-        self.assertEqual(retrieve_kwargs["method"], "tail_blend")
+        self.assertNotIn("method", retrieve_kwargs)
         self.assertEqual(retrieve_kwargs["alpha_final"], 1.0)
         self.assertEqual(retrieve_kwargs["beam_size"], 50)
         self.assertEqual(retrieve_kwargs["lambda_val"], 0.2)

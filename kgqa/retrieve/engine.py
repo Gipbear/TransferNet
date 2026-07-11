@@ -1,11 +1,4 @@
-"""检索引擎：内核逐字迁移自 scripts/offline_path_search.py（数值红线，勿改公式）+
-retrieve_one 编排。
-
-迁移的函数/类（PathCandidate/compute_candidate_score/score_path_candidates/
-_ranked_candidates/candidate_to_tuple/select_path_candidates/reconstruct_ent_dict/
-reconstruct_rel_dict/LogNormStrategy/search_path_candidates/_path_to_triples/
-_method_hop_numbers）均保持同名同签名同公式，仅去掉脚本 sys.path 注入。
-"""
+"""统一路径检索内核与单样本编排。"""
 from __future__ import annotations
 
 import math
@@ -47,14 +40,9 @@ class PathCandidate:
 
 def compute_candidate_score(
     candidate: PathCandidate,
-    method: str,
     alpha_final: float,
 ) -> float:
-    """Compute the fixed reranking score for a formal method."""
-    if method == "baseline":
-        return candidate.base_score
-    if method != "tail_blend":
-        raise ValueError(f"unknown method: {method}")
+    """融合路径分数与最终实体分数，并按路径长度归一化。"""
     score = candidate.base_score + alpha_final * math.log(
         max(candidate.final_tail_score, 0.0) + EPS
     )
@@ -63,12 +51,11 @@ def compute_candidate_score(
 
 def score_path_candidates(
     candidates: list[PathCandidate],
-    method: str,
     alpha_final: float,
 ) -> list[PathCandidate]:
-    """Return candidates with fixed method scores populated."""
+    """返回写入融合分数后的候选路径。"""
     return [
-        replace(candidate, score=compute_candidate_score(candidate, method, alpha_final))
+        replace(candidate, score=compute_candidate_score(candidate, alpha_final))
         for candidate in candidates
     ]
 
@@ -88,7 +75,6 @@ def candidate_to_tuple(candidate: PathCandidate) -> tuple[list[int], list[int], 
 def select_path_candidates(
     candidates: list[PathCandidate],
     k: int,
-    method: str,
     alpha_final: float,
     lambda_val: float,
 ) -> list[PathCandidate]:
@@ -96,7 +82,7 @@ def select_path_candidates(
     if not candidates or k <= 0:
         return []
 
-    scored = _ranked_candidates(score_path_candidates(candidates, method, alpha_final))
+    scored = _ranked_candidates(score_path_candidates(candidates, alpha_final))
 
     rel_sets = [path_to_rel_set(c.rels) for c in scored]
     selected = []
@@ -147,8 +133,7 @@ class LogNormStrategy:
     """
 
     def score_step(self, rel_dict: dict[int, float], ent_dict: dict[int, float],
-                   rel_id: int, tail_id: int,
-                   local_rel_ids: Optional[set[int]] = None) -> float:
+                   rel_id: int, tail_id: int) -> float:
         rel_score = rel_dict.get(rel_id, 0.0)
         ent_score = ent_dict.get(tail_id, 0.0)
         if rel_score <= 0 or ent_score <= 0:
@@ -185,11 +170,10 @@ def search_path_candidates(
         for nodes, rels, cur_score in beam:
             head = nodes[-1]
             edges = valid_edges_dict.get(head, [])
-            local_rel_ids = {r for r, _ in edges if r in rel_dict}
             for rel_id, tail_id in edges:
                 if rel_id not in rel_dict or tail_id not in ent_dict:
                     continue
-                step = scoring.score_step(rel_dict, ent_dict, rel_id, tail_id, local_rel_ids)
+                step = scoring.score_step(rel_dict, ent_dict, rel_id, tail_id)
                 if step == -float("inf"):
                     continue
                 next_candidates.append((nodes + [tail_id], rels + [rel_id], cur_score + step))
@@ -216,7 +200,7 @@ def search_path_candidates(
     return candidates
 
 
-def _path_to_triples(
+def path_to_triples(
     nodes: list[int], rels: list[int],
     id2ent: dict, id2rel: dict,
 ) -> list[list[str]]:
@@ -229,12 +213,9 @@ def _path_to_triples(
     ]
 
 
-def _method_hop_numbers(method: str, argmax_hop: int, num_steps: int) -> list[int]:
-    if method == "baseline":
-        return [argmax_hop]
-    if method == "tail_blend":
-        return list(range(1, num_steps + 1))
-    raise ValueError(f"unknown method: {method}")
+def candidate_hop_numbers(num_steps: int) -> list[int]:
+    """当前检索器在所有可用 hop 上生成候选路径。"""
+    return list(range(1, num_steps + 1))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -284,14 +265,14 @@ def build_prediction(sample, id2ent: dict) -> dict[str, float]:
 
 def _serialize_paths(paths, id2ent: dict, id2rel: dict) -> list[dict]:
     return [
-        {"path": _path_to_triples(nodes, rels, id2ent, id2rel),
+        {"path": path_to_triples(nodes, rels, id2ent, id2rel),
          "log_score": round(float(score), 6)}
         for nodes, rels, score in paths
     ]
 
 
 def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, *,
-                 method: str = "tail_blend", alpha_final: float = 1.0,
+                 alpha_final: float = 1.0,
                  threshold: float = 0.01, beam_size: int = 50,
                  lambda_val: float = 0.2, drop_loopback: bool = True) -> RetrieveResult:
     """单样本检索：稀疏重建 → 逐跳 beam 展开 → MMR 选择 → 序列化。
@@ -301,7 +282,7 @@ def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, 
     valid_edges_dict = getattr(edge_source, "valid_edges_dict", None)
 
     hop_num = int(sample.hop_attn.argmax().item()) + 1
-    hop_nums = _method_hop_numbers(method, hop_num, len(sample.rel_probs))
+    hop_nums = candidate_hop_numbers(len(sample.rel_probs))
 
     rel_dicts, ent_dicts = [], []
     for t in range(max(hop_nums)):
@@ -319,8 +300,7 @@ def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, 
         ))
 
     selected = select_path_candidates(
-        path_candidates, beam_size, method=method,
-        alpha_final=alpha_final, lambda_val=lambda_val,
+        path_candidates, beam_size, alpha_final=alpha_final, lambda_val=lambda_val,
     )
     candidates = [candidate_to_tuple(c) for c in selected]
     if drop_loopback:

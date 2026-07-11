@@ -48,7 +48,6 @@ def make_response(question, paths, prediction=None, group_tails=None):
         mmr_reason_paths=paths,
         prediction=prediction or {},
         elapsed_ms=10.0,
-        method="tail_blend",
         alpha_final=1.0,
         threshold=0.01,
         beam_size=50,
