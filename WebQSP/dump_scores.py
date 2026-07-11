@@ -202,7 +202,7 @@ def main():
     parser.add_argument("--mode",       default="val",
                         choices=["val", "test", "train"],
                         help="使用哪个数据集分割（默认: val）")
-    parser.add_argument("--bert_name",  default="bert-base-uncased",
+    parser.add_argument("--bert_name",  default="BAAI/bge-base-en-v1.5",
                         choices=["bert-base-uncased", "BAAI/bge-base-en-v1.5", "roberta-base"])
     parser.add_argument("--output",     default="output/score_cache/webqsp_scores.pt",
                         help="缓存输出路径（.pt 文件）")

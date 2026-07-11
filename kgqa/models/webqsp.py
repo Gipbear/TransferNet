@@ -14,7 +14,7 @@ from kgqa.scores.base import CacheMeta, SampleScore, ScoreBundle
 
 
 class WebQSPScoreProducer(ScoreProducer):
-    def __init__(self, bert_name: str = "bert-base-uncased"):
+    def __init__(self, bert_name: str = "BAAI/bge-base-en-v1.5"):
         self.bert_name = bert_name
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self._ckpt_path: str | None = None
