@@ -21,7 +21,7 @@ class TestBackendParity(unittest.TestCase):
         adapter = get_adapter("webqsp", input_dir=INPUT_DIR)
         offline = OfflineBackend(adapter, cache_path=CACHE)
         online = OnlineBackend(adapter, WebQSPScoreProducer(), ckpt_path=CKPT,
-                               input_dir=INPUT_DIR, qa_file=QA, split="test", limit=3)
+                               input_dir=INPUT_DIR, qa_file=QA, split="test")
 
         for i in range(3):
             ro = offline.retrieve(i, **params)

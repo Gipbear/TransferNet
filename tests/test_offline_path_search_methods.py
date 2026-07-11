@@ -27,7 +27,6 @@ class OfflinePathMethodTest(unittest.TestCase):
             hop=2,
             base_score=-8.0,
             final_tail_score=0.25,
-            tail_id=3,
             order=0,
         )
 
@@ -38,9 +37,9 @@ class OfflinePathMethodTest(unittest.TestCase):
 
     def test_tail_blend_selection_uses_mmr_and_lambda_val_changes_ranking(self):
         candidates = [
-            PathCandidate([1, 2], [10], 1, -1.0, 0.9, 2, 0),
-            PathCandidate([1, 3], [10], 1, -1.1, 0.9, 3, 1),
-            PathCandidate([1, 4], [20], 1, -2.0, 0.9, 4, 2),
+            PathCandidate([1, 2], [10], 1, -1.0, 0.9, order=0),
+            PathCandidate([1, 3], [10], 1, -1.1, 0.9, order=1),
+            PathCandidate([1, 4], [20], 1, -2.0, 0.9, order=2),
         ]
 
         no_penalty = select_path_candidates(
@@ -54,7 +53,7 @@ class OfflinePathMethodTest(unittest.TestCase):
         self.assertEqual([c.order for c in penalized], [0, 2])
 
     def test_candidate_to_tuple_preserves_scored_value_for_metrics(self):
-        candidate = PathCandidate([1, 2], [10], 1, -4.0, 0.9, 2, 0, score=-2.5)
+        candidate = PathCandidate([1, 2], [10], 1, -4.0, 0.9, order=0, score=-2.5)
 
         self.assertEqual(candidate_to_tuple(candidate), ([1, 2], [10], -2.5))
 

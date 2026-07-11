@@ -28,7 +28,6 @@ if str(ROOT) not in sys.path:
 
 from kgqa.kg.global_kg import GlobalKG
 from kgqa.retrieve.engine import (
-    LogNormStrategy,
     PathCandidate,
     candidate_hop_numbers,
     candidate_to_tuple,
@@ -119,7 +118,6 @@ def run_experiment(
         out_file = open(output_path, "w", encoding="utf-8")
 
     try:
-        scoring = LogNormStrategy()
         for sample in tqdm(samples, desc="search", unit="sample", dynamic_ncols=True):
             current_valid_edges_dict = sample_valid_edges_dict(sample, valid_edges_dict)
             hop_num = int(sample["hop_attn"].argmax().item()) + 1
@@ -143,7 +141,7 @@ def run_experiment(
             for candidate_hop in hop_nums:
                 path_candidates.extend(search_path_candidates(
                     topic_ids, rel_dicts, ent_dicts, candidate_hop,
-                    current_valid_edges_dict, scoring, beam_size,
+                    current_valid_edges_dict, beam_size,
                     final_ent_scores=final_scores,
                     order_start=len(path_candidates),
                 ))

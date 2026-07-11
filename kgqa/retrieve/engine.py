@@ -27,13 +27,10 @@ class PathCandidate:
     hop: int
     base_score: float
     final_tail_score: float = 0.0
-    tail_id: Optional[int] = None
     order: int = 0
     score: Optional[float] = None
 
     def __post_init__(self):
-        if self.tail_id is None and self.nodes:
-            object.__setattr__(self, "tail_id", self.nodes[-1])
         if self.score is None:
             object.__setattr__(self, "score", self.base_score)
 
@@ -126,26 +123,20 @@ def reconstruct_rel_dict(rel_probs, threshold: float) -> dict[int, float]:
     return {int(i): float(rel_probs[i]) for i in idxs}
 
 
-class LogNormStrategy:
-    """当前默认策略：log(局部归一化关系得分) + log(全局归一化实体得分)。
-
-    与 mmr_diversity_beam_search 的 Plan-A 逻辑完全一致，用于验证离线复现。
-    """
-
-    def score_step(self, rel_dict: dict[int, float], ent_dict: dict[int, float],
-                   rel_id: int, tail_id: int) -> float:
-        rel_score = rel_dict.get(rel_id, 0.0)
-        ent_score = ent_dict.get(tail_id, 0.0)
-        if rel_score <= 0 or ent_score <= 0:
-            return -float("inf")
-        sum_rel = sum(rel_dict.values()) or 1.0
-        sum_ent = sum(ent_dict.values()) or 1.0
-        local_rel = rel_score / sum_rel
-        local_ent = ent_score / sum_ent
-        return math.log(local_rel + EPS) + math.log(local_ent + EPS)
-
-    def name(self) -> str:
-        return "log_norm"
+def compute_step_score(
+    rel_dict: dict[int, float],
+    ent_dict: dict[int, float],
+    rel_id: int,
+    tail_id: int,
+) -> float:
+    """计算单跳的关系与实体对数归一化分数。"""
+    rel_score = rel_dict.get(rel_id, 0.0)
+    ent_score = ent_dict.get(tail_id, 0.0)
+    if rel_score <= 0 or ent_score <= 0:
+        return -float("inf")
+    sum_rel = sum(rel_dict.values()) or 1.0
+    sum_ent = sum(ent_dict.values()) or 1.0
+    return math.log(rel_score / sum_rel + EPS) + math.log(ent_score / sum_ent + EPS)
 
 
 def search_path_candidates(
@@ -154,7 +145,6 @@ def search_path_candidates(
     ent_dicts: list[dict[int, float]],
     hop_num: int,
     valid_edges_dict: dict[int, list[tuple[int, int]]],
-    scoring: LogNormStrategy,
     beam_size: int,
     final_ent_scores: Optional[dict[int, float]] = None,
     order_start: int = 0,
@@ -173,7 +163,7 @@ def search_path_candidates(
             for rel_id, tail_id in edges:
                 if rel_id not in rel_dict or tail_id not in ent_dict:
                     continue
-                step = scoring.score_step(rel_dict, ent_dict, rel_id, tail_id)
+                step = compute_step_score(rel_dict, ent_dict, rel_id, tail_id)
                 if step == -float("inf"):
                     continue
                 next_candidates.append((nodes + [tail_id], rels + [rel_id], cur_score + step))
@@ -193,7 +183,6 @@ def search_path_candidates(
             hop=hop_num,
             base_score=score,
             final_tail_score=final_scores.get(tail_id, 0.0),
-            tail_id=tail_id,
             order=order,
         ))
         order += 1
@@ -289,13 +278,12 @@ def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, 
         rel_dicts.append(reconstruct_rel_dict(sample.rel_probs[t], threshold))
         ent_dicts.append(reconstruct_ent_dict(sample.ent_indices[t], sample.ent_scores[t], threshold))
 
-    scoring = LogNormStrategy()
     final_scores = final_ent_score_dict(sample)
     path_candidates = []
     for candidate_hop in hop_nums:
         path_candidates.extend(search_path_candidates(
             sample.topic_ids, rel_dicts, ent_dicts, candidate_hop,
-            valid_edges_dict, scoring, beam_size,
+            valid_edges_dict, beam_size,
             final_ent_scores=final_scores, order_start=len(path_candidates),
         ))
 

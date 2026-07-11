@@ -14,7 +14,7 @@ class TestWebQSPRegression(unittest.TestCase):
     def test_offline_paths_match_legacy(self):
         from kgqa.kg.global_kg import GlobalKG
         from kgqa.retrieve.engine import (
-            LogNormStrategy, candidate_hop_numbers, candidate_to_tuple,
+            candidate_hop_numbers, candidate_to_tuple,
             reconstruct_ent_dict, reconstruct_rel_dict, search_path_candidates,
             select_path_candidates,
         )
@@ -36,7 +36,6 @@ class TestWebQSPRegression(unittest.TestCase):
             for t in range(max(hop_nums)):
                 rel_dicts.append(reconstruct_rel_dict(sample["rel_probs"][t], 0.01))
                 ent_dicts.append(reconstruct_ent_dict(sample["ent_indices"][t], sample["ent_scores"][t], 0.01))
-            scoring = LogNormStrategy()
             final_scores = {
                 int(entity_id): float(score)
                 for entity_id, score in zip(
@@ -46,7 +45,7 @@ class TestWebQSPRegression(unittest.TestCase):
             cands = []
             for ch in hop_nums:
                 cands.extend(search_path_candidates(sample["topic_ids"], rel_dicts, ent_dicts, ch,
-                                                    ved, scoring, 50, final_ent_scores=final_scores,
+                                                    ved, 50, final_ent_scores=final_scores,
                                                     order_start=len(cands)))
             selected = select_path_candidates(cands, 50, alpha_final=1.0, lambda_val=0.2)
             # 映射 rel id → 名称，与新后端序列化口径一致

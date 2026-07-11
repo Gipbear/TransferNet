@@ -10,13 +10,11 @@ from kgqa.retrieve.backends.base import RetrieveParams
 class OnlineBackend:
     def __init__(self, adapter: DatasetAdapter, producer: ScoreProducer, *,
                  ckpt_path: str, input_dir: str, qa_file: str,
-                 split: str = "test", batch_size: int = 16, topk: int = 500, limit: int = 0):
+                 split: str = "test", batch_size: int = 16, topk: int = 500):
         producer.load_checkpoint(ckpt_path)
         self.adapter = adapter
         self.bundle = producer.produce(input_dir, qa_file, split=split,
                                        batch_size=batch_size, topk=topk)
-        if limit:
-            self.bundle.samples = self.bundle.samples[:limit]
 
     def _one(self, sample, params: dict):
         return engine.retrieve_one(

@@ -76,7 +76,7 @@ class TestMetaQAEndToEnd(unittest.TestCase):
         adapter = get_adapter("metaqa", input_dir=INPUT_DIR)
         online = OnlineBackend(adapter, MetaQAScoreProducer(per_hop_limit=3),
                                ckpt_path=CKPT, input_dir=INPUT_DIR, qa_file=TEST_PT,
-                               batch_size=64, limit=0)
+                               batch_size=64)
         off = self._offline()
         for idx in range(3):
             ro = online.retrieve(idx)

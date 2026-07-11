@@ -15,9 +15,9 @@ from typing import Any, Optional
 
 from kgqa.kg.global_kg import GlobalKG
 from kgqa.retrieve.engine import (
-    LogNormStrategy,
     candidate_hop_numbers,
     candidate_to_tuple,
+    drop_loopback_paths,
     path_to_triples,
     reconstruct_ent_dict,
     reconstruct_rel_dict,
@@ -37,22 +37,6 @@ def normalize_question(question: str) -> str:
     text = re.sub(r"\[(cls|sep|pad)\]", " ", text)
     text = re.sub(r"\s+##", "", text)   # merge BERT WordPiece subword tokens
     return re.sub(r"\s+", " ", text).strip()
-
-
-def drop_loopback_paths(
-    paths: list[tuple[list[int], list[int], float]],
-) -> list[tuple[list[int], list[int], float]]:
-    """剔除"绕回 topic"的无效路径——尾实体(node_ids[-1])等于 topic(node_ids[0])。
-
-    答案=被问的实体本身在逻辑上不可能成立:WebQSP test 全集此类路径 9777 条
-    (占 13.4%),**0 条尾是 gold**。源头剔除后 LLM 看不到这些路径,既不会引用、
-    也不会被诱导产出自指答案,零损失(无 gold 反例)。
-    """
-    return [
-        (node_ids, rel_ids, score)
-        for node_ids, rel_ids, score in paths
-        if not node_ids or node_ids[-1] != node_ids[0]
-    ]
 
 
 def group_tails_from_path(
@@ -174,7 +158,6 @@ class CachedPathRetriever:
         hop_nums = candidate_hop_numbers(len(sample["rel_probs"]))
         rel_dicts, ent_dicts = self._reconstruct_scores(sample, threshold, max(hop_nums))
 
-        scoring = LogNormStrategy()
         path_candidates = []
         final_scores = {
             int(entity_id): float(score)
@@ -189,7 +172,6 @@ class CachedPathRetriever:
                 ent_dicts,
                 candidate_hop,
                 self.valid_edges_dict,
-                scoring,
                 beam_size,
                 final_ent_scores=final_scores,
                 order_start=len(path_candidates),
