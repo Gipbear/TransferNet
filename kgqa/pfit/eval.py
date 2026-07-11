@@ -27,7 +27,11 @@ os.environ.setdefault("PYTHONHASHSEED", "0")
 import random
 import re
 import sys
+import warnings
 from datetime import datetime
+
+warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
+logging.getLogger("transformers").setLevel(logging.ERROR)
 
 from kgqa.pfit import manifest as manifest_mod
 from kgqa.pfit.formats import (
