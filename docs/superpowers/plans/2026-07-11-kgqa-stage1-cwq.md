@@ -1,6 +1,6 @@
 # kgqa Stage1 Plan3 — CWQ 端到端 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 把 CompWebQ(CWQ) 接入 kgqa 统一框架，跑通「dump → 检索 → 评测」端到端，核心是逐样本子图的 KG 边来源分发。
 
@@ -35,7 +35,7 @@
 - Consumes: `DatasetAdapter.kg_edge_source(sample=None)`（Plan1 已有可选参数）；`engine.retrieve_one(sample, edge_source, id2ent, id2rel, **params)`。
 - Produces: `OfflineBackend`/`OnlineBackend` 每次检索调用 `self.adapter.kg_edge_source(sample)`（sample 为 `SampleScore`，鸭子类型）；后续 CWQAdapter 依赖此分发。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `tests/kgqa/test_backends_per_sample.py`：
 
@@ -141,12 +141,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m unittest tests.kgqa.test_backends_per_sample -v`
 Expected: FAIL——`test_each_sample_gets_own_edge_source` 断言 `adapter.calls == []` 失败（旧实现 `__init__` 里调了 `kg_edge_source()`，calls 为 `[None]`）。
 
-- [ ] **Step 3: 改 offline.py**
+- [x] **Step 3: 改 offline.py**
 
 `kgqa/retrieve/backends/offline.py` 全文替换为：
 
@@ -181,7 +181,7 @@ class OfflineBackend(RetrieveBackend):
         return [self._one(s, merged) for s in samples]
 ```
 
-- [ ] **Step 4: 改 online.py**
+- [x] **Step 4: 改 online.py**
 
 `kgqa/retrieve/backends/online.py` 全文替换为：
 
@@ -222,7 +222,7 @@ class OnlineBackend:
         return [self._one(s, merged) for s in samples]
 ```
 
-- [ ] **Step 5: 放宽注解**
+- [x] **Step 5: 放宽注解**
 
 `kgqa/datasets/base.py` 中 `kg_edge_source` 改为（QASample import 保留，`load_qa` 仍用）：
 
@@ -235,14 +235,14 @@ class OnlineBackend:
 
 `kgqa/datasets/webqsp.py:51` 与 `kgqa/datasets/metaqa.py:42` 的签名同步改为 `def kg_edge_source(self, sample=None) -> GlobalKG:`（实现不变）。
 
-- [ ] **Step 6: 跑测试确认通过 + 全量零回归**
+- [x] **Step 6: 跑测试确认通过 + 全量零回归**
 
 Run: `python -m unittest tests.kgqa.test_backends_per_sample -v`
 Expected: PASS（4 个测试）
 Run: `python -m unittest discover -s tests/kgqa -p 'test*.py'`
 Expected: 全部 PASS（WebQSP/MetaQA 离线回归锁不依赖 ckpt，必须全绿）
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add tests/kgqa/test_backends_per_sample.py kgqa/retrieve/backends/offline.py kgqa/retrieve/backends/online.py kgqa/datasets/base.py kgqa/datasets/webqsp.py kgqa/datasets/metaqa.py
@@ -271,7 +271,7 @@ EOF
 - Consumes: `kgqa/scores/base.py` 的 `SampleScore/CacheMeta/ScoreBundle/ScoreLoader`；dump 缓存 dict 格式（`cli/dump_scores._bundle_to_cache`，triples 分支已存在）。
 - Produces: `CWQScoreLoader().load(cache_path) -> ScoreBundle`，每条 sample 恢复 `triples`；Task 3 的 `CWQAdapter.score_loader()` 返回它。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `tests/kgqa/test_scores_cwq.py`（合成缓存，免真实数据）：
 
@@ -322,12 +322,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m unittest tests.kgqa.test_scores_cwq -v`
 Expected: FAIL——`ModuleNotFoundError: No module named 'kgqa.scores.cwq'`
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 创建 `kgqa/scores/cwq.py`：
 
@@ -374,12 +374,12 @@ class CWQScoreLoader(ScoreLoader):
         return ScoreBundle(meta=meta, samples=samples)
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m unittest tests.kgqa.test_scores_cwq -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/scores/cwq.py tests/kgqa/test_scores_cwq.py
@@ -405,7 +405,7 @@ EOF
 - Consumes: `GlobalKG.from_triples(triples)`（已有）；`CWQScoreLoader`（Task 2）；`MetricSpec/QASample`。
 - Produces: `CWQAdapter`——`name="cwq"`、`max_hop=2`、`load_qa(path, limit)`、`kg_edge_source(sample)`（sample 需带 `.triples`，None/缺 triples 抛 `ValueError`）、`metric_spec()`；registry `get_adapter("cwq", input_dir=...)`。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `tests/kgqa/test_dataset_cwq.py`：
 
@@ -497,12 +497,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m unittest tests.kgqa.test_dataset_cwq -v`
 Expected: FAIL——`ModuleNotFoundError: No module named 'kgqa.datasets.cwq'`
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 创建 `kgqa/datasets/cwq.py`：
 
@@ -583,12 +583,12 @@ _REGISTRY: dict[str, type[DatasetAdapter]] = {
 
 （`register_adapter`/`get_adapter` 不变。）
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m unittest tests.kgqa.test_dataset_cwq -v`
 Expected: PASS（6 个测试）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/datasets/cwq.py kgqa/datasets/registry.py tests/kgqa/test_dataset_cwq.py
@@ -616,7 +616,7 @@ EOF
 - Consumes: `CompWebQ.data.DataLoader(fn, bert_name, ent2id, rel2id, batch_size)`（batch = `[topic_onehot, question, answer_onehot, triples(list of LongTensor), entity_range]`）；`CompWebQ.model.TransferNet(args, ent2id, rel2id)`（args 需 `bert_name/num_steps/num_ways`）；`utils.path_utils.filter_tensor`、`utils.misc.{batch_device, invert_dict}`。
 - Produces: `CWQScoreProducer(bert_name="bert-base-cased", num_steps=2, num_ways=1, limit=0)`，`produce(...) -> ScoreBundle`，每条 `SampleScore` 带 `triples`；模块级辅助 `_read_vocab(path)`、`_valid_lines(qa_file, limit)`（Task 5 dump 分发与 Task 6 端到端依赖 producer）。
 
-- [ ] **Step 1: 写失败测试（纯函数部分，免数据）**
+- [x] **Step 1: 写失败测试（纯函数部分，免数据）**
 
 创建 `tests/kgqa/test_models_cwq.py`：
 
@@ -666,12 +666,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m unittest tests.kgqa.test_models_cwq -v`
 Expected: FAIL——`ModuleNotFoundError: No module named 'kgqa.models.cwq'`
 
-- [ ] **Step 3: 写实现**
+- [x] **Step 3: 写实现**
 
 创建 `kgqa/models/cwq.py`：
 
@@ -804,12 +804,12 @@ class CWQScoreProducer(ScoreProducer):
 
 注意：若 BERT 加载因代理报错，参考 Plan1 经验设置 `NO_PROXY` / `HF_HUB_OFFLINE=1`（`bert-base-cased` 已有本地缓存，训练时用过）。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python -m unittest tests.kgqa.test_models_cwq -v`
 Expected: PASS（2 个测试；producer 前向部分由 Task 6 端到端覆盖）
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add kgqa/models/cwq.py tests/kgqa/test_models_cwq.py
@@ -838,7 +838,7 @@ EOF
 - Consumes: `CWQScoreProducer(limit=...)`（Task 4）；已有 `WebQSPScoreProducer`/`MetaQAScoreProducer`。
 - Produces: `dump_scores --dataset cwq [--limit N]`；`retrieve.py` 的 `_make_producer(dataset)`（online 分支按 dataset 分发，Task 6 parity 依赖）。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `tests/kgqa/test_cli_dispatch.py`：
 
@@ -875,12 +875,12 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python -m unittest tests.kgqa.test_cli_dispatch -v`
 Expected: FAIL——`ImportError: cannot import name '_make_producer'`；`--limit` 未定义报 `SystemExit`。
 
-- [ ] **Step 3: 改 dump_scores.py**
+- [x] **Step 3: 改 dump_scores.py**
 
 `build_parser` 增加（放在 `--per_hop_limit` 之后）：
 
@@ -897,7 +897,7 @@ Expected: FAIL——`ImportError: cannot import name '_make_producer'`；`--limi
         producer = CWQScoreProducer(limit=args.limit)
 ```
 
-- [ ] **Step 4: 改 retrieve.py**
+- [x] **Step 4: 改 retrieve.py**
 
 新增模块级函数（`build_parser` 之后）并替换 online 分支的硬编码：
 
@@ -929,14 +929,14 @@ def _make_producer(dataset: str):
 
 （删除原 `from kgqa.models.webqsp import WebQSPScoreProducer` 顶部分支内 import。）
 
-- [ ] **Step 5: 跑测试确认通过 + 全量零回归**
+- [x] **Step 5: 跑测试确认通过 + 全量零回归**
 
 Run: `python -m unittest tests.kgqa.test_cli_dispatch -v`
 Expected: PASS（3 个测试）
 Run: `python -m unittest discover -s tests/kgqa -p 'test*.py'`
 Expected: 全部 PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add kgqa/cli/dump_scores.py kgqa/cli/retrieve.py tests/kgqa/test_cli_dispatch.py
@@ -964,7 +964,7 @@ EOF
 - Consumes: Task 1-5 全部产物；`kgqa.cli.eval._gold_strings`、`kgqa.eval.answer_eval.{answer_record, answer_summary}`。
 - Produces: 集成级保真证据（缓存含 triples、检索出路径、hit1>0、online/offline parity）。
 
-- [ ] **Step 1: 写测试（ckpt/数据存在才跑）**
+- [x] **Step 1: 写测试（ckpt/数据存在才跑）**
 
 创建 `tests/kgqa/test_cwq_end_to_end.py`：
 
@@ -1042,17 +1042,17 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 跑集成测试**
+- [x] **Step 2: 跑集成测试**
 
 Run: `python -m unittest tests.kgqa.test_cwq_end_to_end -v`
 Expected: PASS（4 个测试；首次跑含 BERT 加载与小子集前向，约 1-3 分钟）。若 hit1 断言失败，优先排查 gold/pred 口径（Plan2 的 name 口径全 0 教训——CWQ 应为 int gold id 经 id2ent → MID，与 prediction 的 MID 键同口径）。
 
-- [ ] **Step 3: 全量零回归**
+- [x] **Step 3: 全量零回归**
 
 Run: `python -m unittest discover -s tests/kgqa -p 'test*.py'`
 Expected: 全部 PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/kgqa/test_cwq_end_to_end.py
@@ -1077,7 +1077,7 @@ EOF
 - Consumes: Task 1-6 全部产物。
 - Produces: CWQ 正式 overall 数字（answer + path 指标）与实验记录文档。
 
-- [ ] **Step 1: 全量 dump（test 3531 条，扣除空子图）**
+- [x] **Step 1: 全量 dump（test 3531 条，扣除空子图）**
 
 ```bash
 python -m kgqa.cli.dump_scores --dataset cwq \
@@ -1089,7 +1089,7 @@ python -m kgqa.cli.dump_scores --dataset cwq \
 
 Expected: `[INFO] dump 完成 N 条 → ...`（N ≤ 3531；预计 10-30 分钟前向 + 缓存约 300-400MB。若显存不足，加 `--batch_size 8`）。
 
-- [ ] **Step 2: 全量评测**
+- [x] **Step 2: 全量评测**
 
 ```bash
 python -m kgqa.cli.eval --dataset cwq --backend offline \
@@ -1100,16 +1100,16 @@ python -m kgqa.cli.eval --dataset cwq --backend offline \
 
 Expected: stdout 打印 overall 指标 JSON；`hit1` 与 ckpt acc 0.4206 量级吻合（±0.02 内视为通过；显著偏离则排查口径后再判断）。
 
-- [ ] **Step 3: 写实验记录**
+- [x] **Step 3: 写实验记录**
 
 创建 `docs/experiments_kgqa_stage1_cwq_20260711.md`，结构 mirror `docs/experiments_kgqa_stage1_metaqa_20260710.md`：配置（ckpt/数据/流程/内核）、answer 指标表（overall 一行）、path 指标表、与旧 CompWebQ predict 内核的差异说明（单一内核收敛，不逐条复现）、过程记录（有效样本数 N、空子图扣除数、耗时、遇到的坑）。数字以实际运行输出为准填入。
 
-- [ ] **Step 4: 全量测试收尾 + 回填 plan checkbox**
+- [x] **Step 4: 全量测试收尾 + 回填 plan checkbox**
 
 Run: `python -m unittest discover -s tests/kgqa -p 'test*.py' -v`
 Expected: 全部 PASS。随后把本 plan 文件所有已完成 checkbox 勾选。
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add docs/experiments_kgqa_stage1_cwq_20260711.md docs/superpowers/plans/2026-07-11-kgqa-stage1-cwq.md
