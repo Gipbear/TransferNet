@@ -29,9 +29,9 @@
 - Modify(如需): `kgqa/retrieve/backends/{offline,online}.py` / `kgqa/types.py:RetrieveResult`(携带 gold)
 - Test: `tests/kgqa/test_retrieve_golden.py`
 
-- [ ] 失败测试:retrieve 输出 JSONL 每行含 `golden`,为 gold_ids 经 adapter id2ent 还原后的 name 列表(MetaQA 天然 name;WebQSP 为 MID→name,无映射时回退 MID 并保留原样)
-- [ ] 实现:`RetrieveResult` 加 `golden: list[str]`(默认空,旧消费方不受影响),两 backend 填充,retrieve.py 写出
-- [ ] 回归:tests/kgqa 全绿;抽 3 条 webqsp offline 检索确认 `golden` 与 qa 文件 gold 一致
+- [x] 失败测试:retrieve 输出 JSONL 每行含 `golden`,为 gold_ids 经 adapter id2ent 还原后的 name 列表(MetaQA 天然 name;WebQSP 为 MID→name,无映射时回退 MID 并保留原样)
+- [x] 实现:`RetrieveResult` 加 `golden: list[str]`(默认空,旧消费方不受影响),两 backend 填充,retrieve.py 写出
+- [x] 回归:tests/kgqa 全绿;抽 3 条 webqsp offline 检索确认 `golden` 与 qa 文件 gold 一致
 
 ### Task 2: `kgqa/pfit/formats.py` 迁移 + 与 llm_infer 文本级 parity
 
@@ -39,9 +39,9 @@
 - Create: `kgqa/pfit/__init__.py`、`kgqa/pfit/formats.py`
 - Test: `tests/kgqa/test_pfit_formats.py`
 
-- [ ] 失败测试(parity):对同一组假路径/问题,`kgqa.pfit.formats` 与 `llm_infer.kg_format` 在 arrow/tuple/chain/nl × mid/name × v1-v4 下产出**逐字符一致**的 prompt/completion(schema 系不在断言范围)
-- [ ] 实现:从 `llm_infer/kg_format.py` 迁移,删除 schema/schema_gloss 分支与 gloss 加载,问题清洗抽为可注入钩子(默认不清洗)
-- [ ] 回归全绿
+- [x] 失败测试(parity):对同一组假路径/问题,`kgqa.pfit.formats` 与 `llm_infer.kg_format` 在 arrow/tuple/chain/nl × mid/name × v1-v4 下产出**逐字符一致**的 prompt/completion(schema 系不在断言范围)
+- [x] 实现:从 `llm_infer/kg_format.py` 迁移,删除 schema/schema_gloss 分支与 gloss 加载,问题清洗抽为可注入钩子(默认不清洗)
+- [x] 回归全绿
 
 ### Task 3: `kgqa/pfit/specs.py` — PfitDatasetSpec 注册表
 
@@ -49,9 +49,9 @@
 - Create: `kgqa/pfit/specs.py`
 - Test: `tests/kgqa/test_pfit_specs.py`
 
-- [ ] 失败测试:`get_pfit_spec("webqsp")` 提供 entity_repr ∈ {mid,name}(name 需 mid2name)、BERT wordpiece 问题清洗、拒答开关可用、hop 恒 2;`get_pfit_spec("metaqa")` 仅 name、`[brackets]` 清洗、hop ∈ {1,2,3} 且分层键可用、拒答不可用(启用即抛错)
-- [ ] 实现:dataclass + 注册表,钩子为纯函数,复用 `kgqa/datasets/` 已有实体映射加载逻辑
-- [ ] 回归全绿
+- [x] 失败测试:`get_pfit_spec("webqsp")` 提供 entity_repr ∈ {mid,name}(name 需 mid2name)、BERT wordpiece 问题清洗、拒答开关可用、hop 恒 2;`get_pfit_spec("metaqa")` 仅 name、`[brackets]` 清洗、hop ∈ {1,2,3} 且分层键可用、拒答不可用(启用即抛错)
+- [x] 实现:dataclass + 注册表,钩子为纯函数,复用 `kgqa/datasets/` 已有实体映射加载逻辑
+- [x] 回归全绿
 
 ### Task 4: `kgqa/pfit/build.py` + `manifest.py` — 建集与配置快照
 
@@ -59,12 +59,12 @@
 - Create: `kgqa/pfit/build.py`、`kgqa/pfit/manifest.py`
 - Test: `tests/kgqa/test_pfit_build.py`
 
-- [ ] 失败测试 A(输入契约):读 kgqa retrieve JSONL;缺 `golden` 键时报错并提示重跑 retrieve
-- [ ] 失败测试 B(建集 parity,免 GPU 硬门槛):同一 WebQSP 检索输入 + 同配置 + 固定 seed,`kgqa.pfit.build` 与 `llm_infer/build_kgcot_dataset.py` 产物逐条 messages 文本一致(chain+name+v2 至少 20 条;再抽 arrow/tuple/nl 各 1 配置)
-- [ ] 失败测试 C(MetaQA 分层):hop 分层采样 N 条后各跳占比符合预期;混合跳数写入 `_meta.hop`
-- [ ] 失败测试 D(manifest):产物目录含 manifest.json(配置+上游文件指纹);同配置重跑跳过,改配置重跑报不一致
-- [ ] 实现:格式化走 formats.py,增强(shuffle/score/distractor/拒答)迁自老 build,采样支持按 hop 分层;`python -m kgqa.pfit.build` argparse 入口
-- [ ] 回归全绿
+- [x] 失败测试 A(输入契约):读 kgqa retrieve JSONL;缺 `golden` 键时报错并提示重跑 retrieve
+- [x] 失败测试 B(建集 parity,免 GPU 硬门槛):同一 WebQSP 检索输入 + 同配置 + 固定 seed,`kgqa.pfit.build` 与 `llm_infer/build_kgcot_dataset.py` 产物逐条 messages 文本一致(chain+name+v2 至少 20 条;再抽 arrow/tuple/nl 各 1 配置)
+- [x] 失败测试 C(MetaQA 分层):hop 分层采样 N 条后各跳占比符合预期;混合跳数写入 `_meta.hop`
+- [x] 失败测试 D(manifest):产物目录含 manifest.json(配置+上游文件指纹);同配置重跑跳过,改配置重跑报不一致
+- [x] 实现:格式化走 formats.py,增强(shuffle/score/distractor/拒答)迁自老 build,采样支持按 hop 分层;`python -m kgqa.pfit.build` argparse 入口
+- [x] 回归全绿
 
 ### Task 5: `kgqa/pfit/train.py` — QLoRA 训练迁移
 
@@ -72,9 +72,9 @@
 - Create: `kgqa/pfit/train.py`
 - Test: `tests/kgqa/test_pfit_train_prep.py`
 
-- [ ] 失败测试(纯函数,免 GPU):智能截断保金路径、prompt masking、序列整形与 `llm_infer/train_sft.py` 对应函数行为一致(直接对拍)
-- [ ] 实现:迁移 train_sft.py,入参改造为 manifest/目录约定(`--exp_dir` 读 sft_train.jsonl,adapter 写 `exp_dir/adapter/`);Unsloth 加载等 GPU 主体不在单测覆盖
-- [ ] 回归全绿(GPU 端到端留给 Task 9/10 smoke)
+- [x] 失败测试(纯函数,免 GPU):智能截断保金路径、prompt masking、序列整形与 `llm_infer/train_sft.py` 对应函数行为一致(直接对拍)
+- [x] 实现:迁移 train_sft.py,入参改造为 manifest/目录约定(`--exp_dir` 读 sft_train.jsonl,adapter 写 `exp_dir/adapter/`);Unsloth 加载等 GPU 主体不在单测覆盖
+- [x] 回归全绿(GPU 端到端留给 Task 9/10 smoke)
 
 ### Task 6: `kgqa/pfit/eval.py` — 推理 + 忠实度评测(含 by_hop)
 
@@ -82,9 +82,9 @@
 - Create: `kgqa/pfit/eval.py`
 - Test: `tests/kgqa/test_pfit_eval_metrics.py`
 
-- [ ] 失败测试(指标纯函数):EM/F1/hit/hallucination/citation 计算与 `llm_infer/eval_faithfulness.py` 对拍一致;`group_by=hop` 时 summary 含 overall + by_hop 分组
-- [ ] 实现:迁移 eval_faithfulness,推理层支持 adapter / base 零样本(无 adapter)/ `--no_paths` 三形态;输出 `eval/{predictions.jsonl,summary.json}`
-- [ ] 回归全绿
+- [x] 失败测试(指标纯函数):EM/F1/hit/hallucination/citation 计算与 `llm_infer/eval_faithfulness.py` 对拍一致;`group_by=hop` 时 summary 含 overall + by_hop 分组
+- [x] 实现:迁移 eval_faithfulness,推理层支持 adapter / base 零样本(无 adapter)/ `--no_paths` 三形态;输出 `eval/{predictions.jsonl,summary.json}`
+- [x] 回归全绿
 
 ### Task 7: MetaQA 分层 dump — `dump_scores --indices_file` + 索引工具
 
@@ -93,8 +93,10 @@
 - Create: `kgqa/pfit/sample_indices.py`(按 hop 分层生成索引文件)
 - Test: `tests/kgqa/test_dump_indices.py`
 
-- [ ] 失败测试:索引工具对带 hop 标签的 qa 数据分层采样 N 条,各跳占比正确、可复现(seed);dump_scores 传 `--indices_file` 时仅 dump 指定索引且缓存 meta 记录来源,不传时行为与现状逐字节兼容
-- [ ] 实现 + 回归全绿
+- [x] 失败测试:索引工具对带 hop 标签的 qa 数据分层采样 N 条,各跳占比正确、可复现(seed);dump_scores 传 `--indices_file` 时仅 dump 指定索引且缓存 meta 记录来源,不传时行为与现状逐字节兼容
+- [x] 实现 + 回归全绿
+
+> 实现偏差:改为独立分层子集 qa 工具 `kgqa/pfit/subset_qa.py`(+`tests/kgqa/test_pfit_subset_qa.py`),`dump_scores --qa_file <子集>` 原样使用、dump/producer 零改动;Task 10 实测后补 MetaQA 预处理 `.pt`(四段 pickle)格式支持(996d7d3)。
 
 ### Task 8: `scripts/run_pfit.sh` — 实验注册表与编排
 
@@ -102,27 +104,31 @@
 - Create: `scripts/run_pfit.sh`(可配套 `scripts/run_pfit_lib.sh`)
 - Test: `tests/run_pfit_lib_test.sh`(bash 函数级,承 run_ablation_lib 测试风格)
 
-- [ ] 注册 spec §4 的 8 个实验(webqsp_main / webqsp_spot_nl / webqsp_base_zeroshot / webqsp_nopaths / metaqa_main / metaqa_spot_nl / metaqa_base_zeroshot / metaqa_nopaths)
-- [ ] 三步流水 build→train→eval,断点续跑基于 manifest 一致性;`--exp <id> --phase build|train|eval|all`;`LIMIT=100` 环境变量支持 smoke
-- [ ] bash 测试通过(dry-run 校验命令拼装,不真跑训练)
+- [x] 注册 spec §4 的 8 个实验(webqsp_main / webqsp_spot_nl / webqsp_base_zeroshot / webqsp_nopaths / metaqa_main / metaqa_spot_nl / metaqa_base_zeroshot / metaqa_nopaths)
+- [x] 三步流水 build→train→eval,断点续跑基于 manifest 一致性;`--exp <id> --phase build|train|eval|all`;`LIMIT=100` 环境变量支持 smoke
+- [x] bash 测试通过(dry-run 校验命令拼装,不真跑训练)
 
 ### Task 9: WebQSP 数据准备 + smoke(~100 样本,GPU)
 
 **Files:**
 - 产出: `data/output/kgqa/webqsp/scores/train.pt`、`retrieve/{train,test}.jsonl`、`pfit/webqsp_main_smoke100/`
 
-- [ ] dump WebQSP train split 缓存 + offline retrieve train/test 至新目录(test 可复用既有缓存重跑 retrieve,确认 `golden` 字段在位)
-- [ ] `LIMIT=100 bash scripts/run_pfit.sh --exp webqsp_main --phase all`:三步走通,eval summary 产出且 hit>0,manifest/断点续跑生效
-- [ ] 建集 parity 测试(Task 4B)在真实 train 检索输出上复核一次
+- [x] dump WebQSP train split 缓存 + offline retrieve train/test 至新目录(test 可复用既有缓存重跑 retrieve,确认 `golden` 字段在位)
+- [x] `LIMIT=100 bash scripts/run_pfit.sh --exp webqsp_main --phase all`:三步走通,eval summary 产出且 hit>0,manifest/断点续跑生效
+- [x] 建集 parity 测试(Task 4B)在真实 train 检索输出上复核一次
+
+> 结果:检索参数 beam20 λ0.2(路径条数对齐 Ch4、λ 取 Ch5 修正官方值);smoke hit1 0.74/macro_f1 0.62;parity 4 配置×50 条逐字符一致。详见 `docs/experiments/experiments_kgqa_stage2_pfit_20260711.md`。
 
 ### Task 10: MetaQA 数据准备 + smoke(~100 样本,GPU)
 
 **Files:**
 - 产出: `data/output/kgqa/metaqa/scores/train_20k.pt`、`retrieve/{train_20k,test}.jsonl`、`pfit/metaqa_main_smoke100/`
 
-- [ ] 分层索引 20K → dump → retrieve(train_20k);test 检索输出同步落新目录
-- [ ] `LIMIT=100 bash scripts/run_pfit.sh --exp metaqa_main --phase all`:三步走通,summary 含 by_hop 分组且 hit>0
-- [ ] 人工抽看 ≥5 条 MetaQA SFT 样本:提示词/引用格式对短关系名无 WebQSP 隐性假设(spec 风险项)
+- [x] 分层索引 20K → dump → retrieve(train_20k);test 检索输出同步落新目录
+- [x] `LIMIT=100 bash scripts/run_pfit.sh --exp metaqa_main --phase all`:三步走通,summary 含 by_hop 分组且 hit>0
+- [x] 人工抽看 ≥5 条 MetaQA SFT 样本:提示词/引用格式对短关系名无 WebQSP 隐性假设(spec 风险项)
+
+> 结果:smoke hit1 0.96/macro_f1 0.91/幻觉 0;补充分层 eval(各 hop 10 条)三跳 hit1 全 1.0。抽看抓到并修复 `e_s` 小写占位符回填失效(2177bfc);`eval --limit` 取 test 前缀而 metaqa test 按 hop 分块,smoke 的 by_hop 仅 hop1,全量不受影响。
 
 ### Task 11: 文档与收尾
 
@@ -130,9 +136,9 @@
 - Create: `docs/experiments/experiments_kgqa_stage2_pfit_<date>.md`
 - Modify: `AGENTS.md`(pfit 命令与目录约定,替换 llm_infer 段落表述为「legacy,复现凭证」)
 
-- [ ] 实验记录:smoke 结果、目录约定、8 个实验的运行方式与「待用户跑」清单
-- [ ] AGENTS.md 更新;plan/spec checkbox 回填
-- [ ] 全套测试最终回归
+- [x] 实验记录:smoke 结果、目录约定、8 个实验的运行方式与「待用户跑」清单
+- [x] AGENTS.md 更新;plan/spec checkbox 回填
+- [x] 全套测试最终回归
 
 ---
 
