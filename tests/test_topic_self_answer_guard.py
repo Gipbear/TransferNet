@@ -15,10 +15,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from oh_my_agent.agent import CheckedBatchWebQAgent
-from oh_my_agent.llm_server.client import GenerateResponse
-from oh_my_agent.path_retrieve_server.client import PathRetrieveResponse
-from oh_my_agent.tools import (
+from kgqa.agent import CheckedBatchAgent
+from kgqa.llm_server.client import GenerateResponse
+from kgqa.server.client import PathRetrieveResponse
+from kgqa.agent.tools import (
     AnswerWithPathsTool,
     PathRetrieveTool,
     RejectedAnswerCheckTool,
@@ -80,7 +80,7 @@ class TopicSelfAnswerGuardTests(unittest.TestCase):
                 text_response("NONE"),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(
                 client=FakePathClient(make_response(raw_paths)), entity_map=entity_map
             ),
@@ -110,7 +110,7 @@ class TopicSelfAnswerGuardTests(unittest.TestCase):
         answer_client = FakeLLMClient(
             [text_response(f"{answer_lines}\n{answer}"), text_response("NONE")]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(
                 client=FakePathClient(
                     make_response(raw_paths, prediction, group_tails)
@@ -142,7 +142,7 @@ class TopicSelfAnswerGuardTests(unittest.TestCase):
                 text_response("NONE"),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(
                 client=FakePathClient(make_response(raw_paths)), entity_map=entity_map
             ),
@@ -168,7 +168,7 @@ class TopicSelfAnswerGuardTests(unittest.TestCase):
                 text_response("NONE"),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(
                 client=FakePathClient(make_response(raw_paths)), entity_map=entity_map
             ),
@@ -194,7 +194,7 @@ class TopicSelfAnswerGuardTests(unittest.TestCase):
                 text_response("NONE"),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(
                 client=FakePathClient(make_response(raw_paths)), entity_map=entity_map
             ),

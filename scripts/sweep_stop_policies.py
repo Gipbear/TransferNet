@@ -22,8 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from oh_my_agent.agent.checked_batch_replay import _ReplaySession
-from oh_my_agent.common import (
+from kgqa.agent.replay import _ReplaySession
+from kgqa.agent.common import (
     build_eval_record,
     cited_indices_for_answers,
     compute_answer_metrics,
@@ -34,7 +34,7 @@ from oh_my_agent.common import (
     load_entity_map,
     summarize_checked_batch_records,
 )
-from oh_my_agent.common.qa_data import WebQSPQASample
+from kgqa.agent.common.qa_data import WebQSPQASample
 
 RESULT_FILENAME = "checked_batch_eval.jsonl"
 SUMMARY_FILENAME = "checked_batch_eval_summary.json"

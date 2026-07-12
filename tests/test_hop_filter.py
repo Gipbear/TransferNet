@@ -6,10 +6,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from oh_my_agent.agent import CheckedBatchWebQAgent
-from oh_my_agent.llm_server.client import GenerateResponse
-from oh_my_agent.path_retrieve_server.client import PathRetrieveResponse
-from oh_my_agent.tools import (
+from kgqa.agent import CheckedBatchAgent
+from kgqa.llm_server.client import GenerateResponse
+from kgqa.server.client import PathRetrieveResponse
+from kgqa.agent.tools import (
     AnswerWithPathsTool,
     PathRetrieveTool,
     RejectedAnswerCheckTool,
@@ -77,7 +77,7 @@ class AgentHopFilterTests(unittest.TestCase):
                 text_response("NONE"),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(client=path_client, entity_map=entity_map),
             answer_tool=AnswerWithPathsTool(client=answer_client),
             check_tool=RejectedAnswerCheckTool(client=answer_client),
@@ -105,7 +105,7 @@ class AgentHopFilterTests(unittest.TestCase):
                 text_response("NONE"),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(client=path_client, entity_map=entity_map),
             answer_tool=AnswerWithPathsTool(client=answer_client),
             check_tool=RejectedAnswerCheckTool(client=answer_client),
@@ -140,7 +140,7 @@ class AgentHopFilterTests(unittest.TestCase):
                 text_response("NONE"),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(client=path_client, entity_map=entity_map),
             answer_tool=AnswerWithPathsTool(client=answer_client),
             check_tool=RejectedAnswerCheckTool(client=answer_client),

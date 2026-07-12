@@ -8,8 +8,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from oh_my_agent.agent import CheckedBatchWebQAgent
-from oh_my_agent.common import (
+from kgqa.agent import CheckedBatchAgent
+from kgqa.agent.common import (
     build_eval_record,
     compute_answer_metrics,
     compute_faithfulness,
@@ -18,10 +18,10 @@ from oh_my_agent.common import (
     llm_produced_answers,
     summarize_checked_batch_records,
 )
-from oh_my_agent.common.qa_data import WebQSPQASample
-from oh_my_agent.tools.answer_with_paths import AnswerWithPathsToolResult
-from oh_my_agent.tools.cited_path_check import CitedPathCheckResult
-from oh_my_agent.tools.path_retrieve import PathRetrieveToolResult
+from kgqa.agent.common.qa_data import WebQSPQASample
+from kgqa.agent.tools.answer_with_paths import AnswerWithPathsToolResult
+from kgqa.agent.tools.cited_path_check import CitedPathCheckResult
+from kgqa.agent.tools.path_retrieve import PathRetrieveToolResult
 from scripts import sweep_stop_policies
 
 
@@ -182,7 +182,7 @@ class StopPolicySweepTests(unittest.TestCase):
             group_tails={},
         )
         answer_tool = _AnswerTool()
-        result = CheckedBatchWebQAgent(
+        result = CheckedBatchAgent(
             path_tool=_PathTool(retrieval, entity_map),
             answer_tool=answer_tool,
             check_tool=_CheckTool(answer_tool),
