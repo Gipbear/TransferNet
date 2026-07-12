@@ -1,6 +1,6 @@
 """Shared helpers for the simple WebQSP QA agent."""
 
-from .entity_mapping import (
+from kgqa.core.entity_map import (
     apply_entity_map,
     build_reverse_entity_map,
     expand_pred_answers_with_path_constraint,
@@ -19,7 +19,7 @@ from .eval_records import (
     record_answer_counts,
     summarize_checked_batch_records,
 )
-from .metrics import (
+from kgqa.core.answer_metrics import (
     aggregate_metrics,
     cited_indices_for_answers,
     compute_answer_metrics,
@@ -30,7 +30,7 @@ from .metrics import (
 from .output_parser import ParsedV2Output, REJECTION_SENTINEL, parse_v2_output
 from .paths import tail_from_edges, tail_from_path_dict
 from .prompting import SYSTEM_PROMPT_V2_NAME, build_reasoning_prompt, format_chain
-from .qa_data import WebQSPQASample, clean_question_text, load_webqsp_qa_samples
+from kgqa.core.qa_formats import WebQSPQASample, clean_question_text, load_webqsp_qa_samples
 
 __all__ = [
     "ParsedV2Output",

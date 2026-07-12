@@ -18,8 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
-from kgqa.agent.common.entity_mapping import load_entity_map
-from kgqa.agent.common.qa_data import load_webqsp_qa_samples
+from kgqa.core.entity_map import load_entity_map
+from kgqa.core.qa_formats import load_webqsp_qa_samples
 
 _PROJECT_DIR = Path(__file__).resolve().parents[2]
 

@@ -1,7 +1,7 @@
 """答案级评测：复用 kgqa.agent.common 指标，增加 group_by 分组视图。"""
 from __future__ import annotations
 
-from kgqa.agent.common.metrics import compute_answer_metrics, aggregate_metrics
+from kgqa.core.answer_metrics import aggregate_metrics, compute_answer_metrics
 from kgqa.types import MetricSpec
 
 

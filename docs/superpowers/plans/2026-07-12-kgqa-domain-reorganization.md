@@ -97,10 +97,10 @@ kgqa/
 
 **Steps:**
 
-- [ ] 先为 core 契约、WebQSP 解析、实体映射和答案指标写等价性测试；覆盖原有 public symbol、返回值和异常类型。
-- [ ] 将实现迁入 `core`，旧模块缩为显式 `from ... import ...` 的兼容 shim。
-- [ ] 将 `datasets/webqsp.py` 和 `eval/answer_eval.py` 的业务 import 改为 `core`，以移除当前 `datasets -> agent`、`eval -> agent` 的反向边。
-- [ ] 更新边界测试，确认检索域不再 import `kgqa.agent`。
+- [x] 先为 core 契约、WebQSP 解析、实体映射和答案指标写等价性测试；覆盖原有 public symbol、返回值和异常类型。
+- [x] 将实现迁入 `core`，旧模块缩为显式 `from ... import ...` 的兼容 shim。
+- [x] 将 `datasets/webqsp.py` 和 `eval/answer_eval.py` 的业务 import 改为 `core`，以移除当前 `datasets -> agent`、`eval -> agent` 的反向边。
+- [x] 更新边界测试，确认检索域不再 import `kgqa.agent`。
 
 **Verify:**
 

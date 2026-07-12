@@ -5,8 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-
-REJECTION_SENTINEL = "(none)"
+from kgqa.core.answer_metrics import REJECTION_SENTINEL
 
 _ANSWER_RE = re.compile(r"Answer\s*[:：]\s*(.+)", re.IGNORECASE)
 _CITE_RE = re.compile(r"Supporting\s*Paths?\s*[:：]\s*([\d,\s]+)", re.IGNORECASE)

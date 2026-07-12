@@ -29,7 +29,7 @@ from kgqa.agent.common import (
     record_answer_counts,
     summarize_checked_batch_records,
 )
-from kgqa.agent.common.qa_data import WebQSPQASample
+from kgqa.core.qa_formats import WebQSPQASample
 from kgqa.agent.specs import AgentQASample, get_agent_spec
 from kgqa.agent.tools import (
     AnswerWithPathsTool,

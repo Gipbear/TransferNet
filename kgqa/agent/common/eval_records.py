@@ -5,11 +5,11 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from .entity_mapping import (
+from kgqa.core.entity_map import (
     expand_pred_answers_with_path_constraint,
     get_all_path_entities,
 )
-from .metrics import (
+from kgqa.core.answer_metrics import (
     aggregate_metrics,
     compute_answer_metrics,
     compute_faithfulness,

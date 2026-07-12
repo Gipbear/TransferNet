@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from kgqa.agent.common.qa_data import WebQSPQASample, load_webqsp_qa_samples
+from kgqa.core.qa_formats import WebQSPQASample, load_webqsp_qa_samples
 
 
 @dataclass(frozen=True)
