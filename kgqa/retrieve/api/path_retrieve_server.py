@@ -16,7 +16,7 @@ from dataclasses import asdict
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from kgqa.server import schema
+from . import schema
 
 
 class RetrieveRequest(BaseModel):

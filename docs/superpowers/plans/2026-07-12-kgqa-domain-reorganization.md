@@ -206,10 +206,10 @@ kgqa/
 
 **Steps:**
 
-- [ ] 检查 pfit 仅消费 retrieve JSONL；若使用 core 工具，先补逐字符 parity 测试再替换 import。
-- [ ] 禁止改动 pfit 的 format、prompt、解析、训练与评测实现，仅消除已经过时的路径引用。
-- [ ] 在兼容 shim 已通过全量测试后，更新 scripts/docs 至新 canonical 路径；保留旧路径以支持历史实验命令。
-- [ ] 生成一份 `data/analysis/YYYYMMDD_HHMM__kgqa-domain-reorg/README.md`，记录迁移前后目录、兼容模块、验证命令与尚未移除的 shim。
+- [x] 检查 pfit 仅消费 retrieve JSONL；若使用 core 工具，先补逐字符 parity 测试再替换 import。
+- [x] 禁止改动 pfit 的 format、prompt、解析、训练与评测实现，仅消除已经过时的路径引用。
+- [x] 在兼容 shim 已通过全量测试后，更新 scripts/docs 至新 canonical 路径；保留旧路径以支持历史实验命令。
+- [x] 生成一份 `data/analysis/YYYYMMDD_HHMM__kgqa-domain-reorg/README.md`，记录迁移前后目录、兼容模块、验证命令与尚未移除的 shim。
 
 **Verify:**
 

@@ -3,15 +3,15 @@ LLM HTTP 服务器：默认单进程加载 base + adapter，也可代理 Silicon
 
 Usage:
     # 带 adapter 启动
-    python -m kgqa.llm_server.server \
+    python -m kgqa.serving.llm.server \
         --adapter models/webqsp/ablation/groupJ_schema_name --port 8788
 
     # 不加载 adapter（纯 base 模型）
-    python -m kgqa.llm_server.server \
+    python -m kgqa.serving.llm.server \
         --port 8788
 
     # 代理 SiliconFlow zai-org/GLM-4.5-Air（非思考模式，需 SILICONFLOW_API_KEY）
-    SILICONFLOW_API_KEY=... python -m kgqa.llm_server.server \
+    SILICONFLOW_API_KEY=... python -m kgqa.serving.llm.server \
         --backend siliconflow --port 8788
 
 API:

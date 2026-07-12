@@ -2,7 +2,7 @@
 本地 LLM 服务器客户端封装。
 
 Usage:
-    from kgqa.llm_server.client import LLMClient
+    from kgqa.serving.llm.client import LLMClient
 
     client = LLMClient("http://localhost:8788")
 

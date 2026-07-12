@@ -120,7 +120,7 @@ start_server() {
 
   cd "${PROJECT_DIR}"
   local cmd=(
-    python -m kgqa.server.path_retrieve_server
+    python -m kgqa.retrieve.api.path_retrieve_server
     --dataset "${DATASET}"
     --cache "${CACHE}"
     --input_dir "${INPUT_DIR}"

@@ -21,7 +21,7 @@ esac
 
 run_dump() {
   mkdir -p "$(dirname "${CACHE}")"
-  python -m kgqa.cli.dump_scores \
+  python -m kgqa.retrieve.cli.dump_scores \
     --dataset webqsp \
     --input_dir "${INPUT_DIR}" \
     --ckpt "${CKPT}" \
