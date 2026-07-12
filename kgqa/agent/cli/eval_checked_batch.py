@@ -237,6 +237,32 @@ def _resolve_output_paths(output: str) -> dict[str, str]:
     }
 
 
+def _load_resumable_records(path: str, sample_items: list[tuple[int, AgentQASample]]) -> dict[int, dict[str, Any]]:
+    """读取同一输出目录中已完整写入的样本记录，供中断后续跑复用。"""
+    if not os.path.isfile(path):
+        return {}
+
+    expected_questions = {
+        sample_index: sample.question_raw for sample_index, sample in sample_items
+    }
+    records: dict[int, dict[str, Any]] = {}
+    with open(path, encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            sample_index = record.get("sample_index")
+            if sample_index not in expected_questions:
+                continue
+            if record.get("question_raw") != expected_questions[sample_index]:
+                raise ValueError(
+                    f"existing output sample {sample_index} does not match current input "
+                    f"(line {line_number}); choose a new --output directory"
+                )
+            records[sample_index] = record
+    return records
+
+
 def _parse_sample_indices(raw_value: str) -> list[int]:
     indices: list[int] = []
     seen: set[int] = set()
@@ -307,6 +333,7 @@ def main(argv: list[str] | None = None) -> int:
         sample_items = [(index, samples[index]) for index in selected_sample_indices]
     output_paths = _resolve_output_paths(args.output or _default_output_dir(args.dataset))
     os.makedirs(output_paths["dir"], exist_ok=True)
+    existing_records = _load_resumable_records(output_paths["records"], sample_items)
 
     path_tool = PathRetrieveTool(
         base_url=args.path_retrieve_url,
@@ -356,12 +383,18 @@ def main(argv: list[str] | None = None) -> int:
     total = len(sample_items)
     records: list[dict[str, Any]] = []
     t_start = time.monotonic()
-    with open(output_paths["records"], "w", encoding="utf-8") as output_handle, open(
-        output_paths["initial_retrieval"], "w", encoding="utf-8"
+    output_mode = "a" if existing_records else "w"
+    if existing_records:
+        print(f"[resume] reusing {len(existing_records)} completed samples", flush=True)
+    with open(output_paths["records"], output_mode, encoding="utf-8") as output_handle, open(
+        output_paths["initial_retrieval"], output_mode, encoding="utf-8"
     ) as retrieval_handle, open(
-        output_paths["initial_answer"], "w", encoding="utf-8"
+        output_paths["initial_answer"], output_mode, encoding="utf-8"
     ) as answer_handle:
         for progress_index, (sample_index, qa_sample) in enumerate(sample_items):
+            if sample_index in existing_records:
+                records.append(existing_records[sample_index])
+                continue
             sample = _record_sample(qa_sample)
             # 检索定位:样本自带 sample_index(metaqa 展示问题≠缓存问题)优先;
             # 否则沿 legacy 语义,仅显式选样时按文件序号定位
