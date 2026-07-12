@@ -21,6 +21,7 @@ from math import ceil, floor
 from typing import Optional
 
 from kgqa.pfit import manifest as manifest_mod
+from kgqa.runtime import add_runtime_arguments, configure_runtime, emit_event, update_progress
 from kgqa.pfit.formats import (
     build_user_content,
     load_entity_map,
@@ -544,24 +545,27 @@ def build_parser():
     p.add_argument("--synthetic_rejection_ratio", type=float, default=0.0)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--output_name", default="sft_train.jsonl")
+    add_runtime_arguments(p)
     return p
 
 
 def main(argv=None):
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s [%(levelname)s] %(message)s")
     a = build_parser().parse_args(argv)
-    run_build(dataset=a.dataset, input_path=a.input, exp_dir=a.exp_dir, fmt=a.fmt,
-              path_format=a.path_format, entity_repr=a.entity_repr,
-              entity_map_path=a.entity_map_path,
-              shuffle=not a.no_shuffle, show_score=a.show_score,
-              distractor_ratio=a.distractor_ratio,
-              dedupe_tail_paths=a.dedupe_tail_paths,
-              sample_n=a.sample_n, stratify_by_hop=a.stratify_by_hop,
-              include_rejection=a.include_rejection,
-              rejection_oversample=a.rejection_oversample,
-              synthetic_rejection_ratio=a.synthetic_rejection_ratio,
-              seed=a.seed, output_name=a.output_name)
+    run_dir = configure_runtime(a, command="第四章构建训练集", fallback_run_dir=a.exp_dir,
+                                manifest={"dataset": a.dataset, "input": a.input})
+    output = run_build(dataset=a.dataset, input_path=a.input, exp_dir=a.exp_dir, fmt=a.fmt,
+                       path_format=a.path_format, entity_repr=a.entity_repr,
+                       entity_map_path=a.entity_map_path,
+                       shuffle=not a.no_shuffle, show_score=a.show_score,
+                       distractor_ratio=a.distractor_ratio,
+                       dedupe_tail_paths=a.dedupe_tail_paths,
+                       sample_n=a.sample_n, stratify_by_hop=a.stratify_by_hop,
+                       include_rejection=a.include_rejection,
+                       rejection_oversample=a.rejection_oversample,
+                       synthetic_rejection_ratio=a.synthetic_rejection_ratio,
+                       seed=a.seed, output_name=a.output_name)
+    update_progress(run_dir, completed=1, total=1, status="completed", phase="构建训练集")
+    emit_event(run_dir, "phase_end", phase="构建训练集", output=output)
 
 
 if __name__ == "__main__":

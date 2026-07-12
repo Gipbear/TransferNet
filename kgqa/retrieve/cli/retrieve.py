@@ -7,11 +7,14 @@ import os
 
 from kgqa.retrieve.datasets.registry import get_adapter
 from kgqa.backbone import make_score_producer
+from kgqa.runtime import add_runtime_arguments, configure_runtime, emit_event, update_progress
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="kgqa 统一路径检索")
-    p.add_argument("--dataset", required=True)
+    p.add_argument("--dataset", required=True, help="数据集：webqsp | metaqa | cwq")
+    p.add_argument("--backbone", default="transfernet", choices=["transfernet", "rearev"],
+                   help="基础检索模型；ReaRev 当前仅支持 WebQSP 离线缓存")
     p.add_argument("--backend", choices=["offline", "online"], default="offline")
     p.add_argument("--cache", default=None)
     p.add_argument("--ckpt", default=None)
@@ -23,19 +26,34 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--threshold", type=float, default=0.01)
     p.add_argument("--alpha_final", type=float, default=1.0)
     p.add_argument("--limit", type=int, default=0)
-    p.add_argument("--output", default=None, help="逐样本 jsonl")
+    p.add_argument("--output", default=None, help="逐样本 JSONL 输出路径")
+    add_runtime_arguments(p)
     return p
 
 
-def _make_producer(dataset: str):
+def _make_producer(dataset: str, backbone: str = "transfernet"):
+    if backbone != "transfernet":
+        raise SystemExit("ReaRev 当前只支持离线 score 缓存检索，不能 online 检索")
     try:
         return make_score_producer(dataset)
     except KeyError as exc:
         raise SystemExit(str(exc)) from exc
 
 
+def _adapter_name(dataset: str, backbone: str) -> str:
+    """将 dataset/backbone 的正交接口映射到保留的适配器兼容别名。"""
+    if dataset == "webqsp-rearev":
+        return dataset
+    if backbone == "rearev":
+        if dataset != "webqsp":
+            raise SystemExit("ReaRev 当前只支持 WebQSP")
+        return "webqsp-rearev"
+    return dataset
+
+
 def build_backend(args):
-    adapter = get_adapter(args.dataset, input_dir=args.input_dir)
+    adapter_name = _adapter_name(args.dataset, args.backbone)
+    adapter = get_adapter(adapter_name, input_dir=args.input_dir)
     if args.backend == "offline":
         from kgqa.retrieve.backends.offline import OfflineBackend
         if not args.cache:
@@ -44,13 +62,20 @@ def build_backend(args):
     from kgqa.retrieve.backends.online import OnlineBackend
     if not (args.ckpt and args.qa_file):
         raise SystemExit("--backend online 需要 --ckpt 和 --qa_file")
-    backend = OnlineBackend(adapter, _make_producer(args.dataset), ckpt_path=args.ckpt,
+    backend = OnlineBackend(adapter, _make_producer(args.dataset, args.backbone), ckpt_path=args.ckpt,
                             input_dir=args.input_dir, qa_file=args.qa_file,
                             split=args.split)
     return backend
 
 
 def run_retrieval(args):
+    fallback = os.path.dirname(os.path.abspath(args.output)) if args.output else None
+    run_dir = configure_runtime(
+        args, command="路径检索",
+        fallback_run_dir=fallback,
+        manifest={"dataset": args.dataset, "backbone": args.backbone, "backend": args.backend,
+                  "cache": args.cache, "output": args.output},
+    )
     backend = build_backend(args)
     params = dict(beam_size=args.beam_size, lambda_val=args.lambda_val,
                   threshold=args.threshold, alpha_final=args.alpha_final)
@@ -64,6 +89,8 @@ def run_retrieval(args):
                     "topics": r.topics, "hop": r.hop, "golden": r.golden,
                     "mmr_reason_paths": r.paths, "prediction": r.prediction,
                 }, ensure_ascii=False) + "\n")
+    update_progress(run_dir, completed=len(results), total=len(results), status="completed", phase="路径检索")
+    emit_event(run_dir, "phase_end", phase="路径检索", samples=len(results))
     return backend, results
 
 

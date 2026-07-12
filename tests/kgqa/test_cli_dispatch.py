@@ -16,6 +16,14 @@ class TestRetrieveProducerDispatch(unittest.TestCase):
         with self.assertRaises(SystemExit):
             _make_producer("nope")
 
+    def test_rearev_only_allows_offline_adapter(self):
+        from kgqa.retrieve.cli.retrieve import _adapter_name, _make_producer
+        self.assertEqual(_adapter_name("webqsp", "rearev"), "webqsp-rearev")
+        with self.assertRaises(SystemExit):
+            _adapter_name("metaqa", "rearev")
+        with self.assertRaises(SystemExit):
+            _make_producer("webqsp", "rearev")
+
 
 class TestDumpParserLimit(unittest.TestCase):
     def test_limit_arg(self):
@@ -24,6 +32,8 @@ class TestDumpParserLimit(unittest.TestCase):
             ["--dataset", "cwq", "--ckpt", "c", "--input_dir", "d",
              "--qa_file", "q", "--output", "o", "--limit", "4"])
         self.assertEqual(args.limit, 4)
+        self.assertEqual(args.backbone, "transfernet")
+        self.assertTrue(hasattr(args, "run_dir"))
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ import os
 from kgqa.retrieve.cli.retrieve import build_parser as _retrieve_parser, run_retrieval
 from kgqa.retrieve.eval.answer_eval import answer_record, answer_summary
 from kgqa.retrieve.eval.path_eval import path_summary
+from kgqa.runtime import emit_event, update_progress
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -58,6 +59,9 @@ def main(argv=None):
         os.makedirs(os.path.dirname(os.path.abspath(args.summary)), exist_ok=True)
         with open(args.summary, "w", encoding="utf-8") as fh:
             json.dump(summary, fh, ensure_ascii=False, indent=2)
+    run_dir = getattr(args, "run_dir", "") or (os.path.dirname(os.path.abspath(args.summary)) if args.summary else "")
+    update_progress(run_dir, completed=len(results), total=len(results), status="completed", phase="检索评测")
+    emit_event(run_dir, "phase_end", phase="检索评测", samples=len(results))
     print(json.dumps(summary["answer"]["overall"], ensure_ascii=False), flush=True)
 
 

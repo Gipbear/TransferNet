@@ -34,6 +34,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
 logging.getLogger("transformers").setLevel(logging.ERROR)
 
 from kgqa.pfit import manifest as manifest_mod
+from kgqa.runtime import add_runtime_arguments, configure_runtime, emit_event, update_progress
 from kgqa.pfit.formats import (
     FORMAT_PROMPTS,
     apply_entity_map,
@@ -741,13 +742,14 @@ def build_parser():
     p.add_argument("--max_seq_length", type=int, default=2048)
     p.add_argument("--max_new_tokens", type=int, default=256)
     p.add_argument("--batch_size", type=int, default=4)
+    add_runtime_arguments(p)
     return p
 
 
 def main(argv=None):
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s [%(levelname)s] %(message)s")
     a = build_parser().parse_args(argv)
+    run_dir = configure_runtime(a, command="第四章路径监督评测", fallback_run_dir=a.exp_dir,
+                                manifest={"dataset": a.dataset, "input": a.input, "adapter": a.adapter})
     summary = run_eval(
         dataset=a.dataset, input_path=a.input, exp_dir=a.exp_dir,
         adapter=a.adapter, fmt=a.fmt, path_format=a.path_format,
@@ -757,6 +759,8 @@ def main(argv=None):
         num_runs=a.num_runs, reject_prompt=a.reject_prompt, no_paths=a.no_paths,
         limit=a.limit, model=a.model, max_seq_length=a.max_seq_length,
         max_new_tokens=a.max_new_tokens, batch_size=a.batch_size)
+    update_progress(run_dir, completed=1, total=1, status="completed", phase="路径监督评测")
+    emit_event(run_dir, "phase_end", phase="路径监督评测")
     print(json.dumps(summary.get("overall", summary), ensure_ascii=False, indent=2))
 
 

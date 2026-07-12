@@ -23,6 +23,7 @@ import sys
 from datetime import datetime
 
 from kgqa.pfit import manifest as manifest_mod
+from kgqa.runtime import add_runtime_arguments, configure_runtime, emit_event, update_progress
 
 log = logging.getLogger("pfit.train")
 
@@ -346,18 +347,21 @@ def build_parser():
     p.add_argument("--warmup_ratio", type=float, default=0.05)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--val_ratio", type=float, default=0.05)
+    add_runtime_arguments(p)
     return p
 
 
 def main(argv=None):
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s [%(levelname)s] %(message)s")
     a = build_parser().parse_args(argv)
-    run_train(exp_dir=a.exp_dir, train_file=a.train_file, model=a.model,
-              lora_rank=a.lora_rank, lora_alpha=a.lora_alpha,
-              lora_dropout=a.lora_dropout, lr=a.lr, batch_size=a.batch_size,
-              grad_accum=a.grad_accum, epochs=a.epochs, max_seq_len=a.max_seq_len,
-              warmup_ratio=a.warmup_ratio, seed=a.seed, val_ratio=a.val_ratio)
+    run_dir = configure_runtime(a, command="第四章路径监督训练", fallback_run_dir=a.exp_dir,
+                                manifest={"exp_dir": a.exp_dir, "seed": a.seed, "epochs": a.epochs})
+    adapter = run_train(exp_dir=a.exp_dir, train_file=a.train_file, model=a.model,
+                        lora_rank=a.lora_rank, lora_alpha=a.lora_alpha,
+                        lora_dropout=a.lora_dropout, lr=a.lr, batch_size=a.batch_size,
+                        grad_accum=a.grad_accum, epochs=a.epochs, max_seq_len=a.max_seq_len,
+                        warmup_ratio=a.warmup_ratio, seed=a.seed, val_ratio=a.val_ratio)
+    update_progress(run_dir, completed=1, total=1, status="completed", phase="路径监督训练")
+    emit_event(run_dir, "phase_end", phase="路径监督训练", adapter=adapter)
 
 
 if __name__ == "__main__":

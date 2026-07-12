@@ -7,11 +7,14 @@ import os
 import torch
 
 from kgqa.backbone import make_score_producer
+from kgqa.runtime import add_runtime_arguments, configure_runtime, emit_event, update_progress
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="kgqa 统一得分 dump")
-    p.add_argument("--dataset", required=True)
+    p.add_argument("--dataset", required=True, help="数据集：webqsp | metaqa | cwq")
+    p.add_argument("--backbone", default="transfernet", choices=["transfernet", "rearev"],
+                   help="基础检索模型；ReaRev 当前不支持生成 score 缓存")
     p.add_argument("--ckpt", required=True)
     p.add_argument("--input_dir", required=True)
     p.add_argument("--qa_file", required=True)
@@ -24,6 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="MetaQA 每跳保留前 N 条（分层小子集），0=全量")
     p.add_argument("--limit", type=int, default=0,
                    help="CWQ 取前 N 条非空子图样本（小子集），0=全量")
+    add_runtime_arguments(p)
     return p
 
 
@@ -48,6 +52,14 @@ def _bundle_to_cache(bundle) -> dict:
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
+    if args.backbone != "transfernet":
+        raise SystemExit("ReaRev 当前只支持消费既有离线 score 缓存，不能 dump_scores")
+    run_dir = configure_runtime(
+        args, command="生成检索得分缓存",
+        fallback_run_dir=os.path.dirname(os.path.abspath(args.output)),
+        manifest={"dataset": args.dataset, "backbone": args.backbone, "split": args.split,
+                  "topk": args.topk, "output": os.path.abspath(args.output)},
+    )
     try:
         producer = make_score_producer(
             args.dataset,
@@ -62,6 +74,9 @@ def main(argv=None):
                               batch_size=args.batch_size, topk=args.topk)
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     torch.save(_bundle_to_cache(bundle), args.output)
+    update_progress(run_dir, completed=len(bundle.samples), total=len(bundle.samples),
+                    status="completed", phase="生成得分缓存")
+    emit_event(run_dir, "phase_end", phase="生成得分缓存", samples=len(bundle.samples))
     print(f"[INFO] dump 完成 {len(bundle.samples)} 条 → {args.output}", flush=True)
 
 
