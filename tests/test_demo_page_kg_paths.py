@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from oh_my_agent.demo_page.kg_paths import KGPathResolver
+from kgqa.agent.demo_page.kg_paths import KGPathResolver
 
 
 class TestKGPathResolver(unittest.TestCase):

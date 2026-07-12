@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from oh_my_agent.common.qa_data import WebQSPQASample
-from oh_my_agent.demo_page.data import QuestionIndex, load_trace_index
+from kgqa.agent.common.qa_data import WebQSPQASample
+from kgqa.agent.demo_page.data import QuestionIndex, load_trace_index
 
 
 def _sample(q: str) -> WebQSPQASample:
