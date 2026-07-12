@@ -186,9 +186,9 @@ kgqa/
 
 **Steps:**
 
-- [ ] 先以 client/server contract 测试锁定 LLM API，随后移动实现与创建 shim。
-- [ ] 再移动 demo 页面；静态资源路径、FastAPI 路由和回放 JSON schema 必须保持。
-- [ ] 最后将 agent 的业务 import 指向 `core`、`retrieve.api.client`、`serving.llm.client`，不得经由旧兼容层。
+- [x] 先以 client/server contract 测试锁定 LLM API，随后移动实现与创建 shim。
+- [x] 再移动 demo 页面；静态资源路径、FastAPI 路由和回放 JSON schema 必须保持。
+- [x] 最后将 agent 的业务 import 指向 `core`、`retrieve.api.client`、`serving.llm.client`，不得经由旧兼容层。
 
 **Verify:**
 

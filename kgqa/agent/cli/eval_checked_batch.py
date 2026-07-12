@@ -36,7 +36,7 @@ from kgqa.agent.tools import (
     PathRetrieveTool,
     RejectedAnswerCheckTool,
 )
-from kgqa.llm_server.client import LLMClient, SILICONFLOW_MODEL, SiliconFlowLLMClient
+from kgqa.serving.llm.client import LLMClient, SILICONFLOW_MODEL, SiliconFlowLLMClient
 
 
 DEFAULT_INPUT_PATHS = {

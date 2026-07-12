@@ -7,7 +7,7 @@ from typing import Any
 
 from kgqa.agent.common.paths import tail_from_edges
 from kgqa.agent.common.prompting import format_chain
-from kgqa.llm_server.client import LLMClient
+from kgqa.serving.llm.client import LLMClient
 
 
 REJECTED_ANSWER_CHECK_SYSTEM = (

@@ -1,10 +1,4 @@
-"""HTTP server/client helpers for local LLM inference."""
+"""兼容路径：LLM 服务已迁至 :mod:`kgqa.serving.llm`。"""
+from kgqa.serving.llm import GenerateResponse, LLMClient, OpenAICompatibleLLMClient, SiliconFlowLLMClient
 
-from .client import GenerateResponse, LLMClient, OpenAICompatibleLLMClient, SiliconFlowLLMClient
-
-__all__ = [
-    "GenerateResponse",
-    "LLMClient",
-    "OpenAICompatibleLLMClient",
-    "SiliconFlowLLMClient",
-]
+__all__ = ["GenerateResponse", "LLMClient", "OpenAICompatibleLLMClient", "SiliconFlowLLMClient"]
