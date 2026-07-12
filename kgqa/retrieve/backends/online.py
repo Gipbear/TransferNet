@@ -1,7 +1,7 @@
 """在线后端：ScoreProducer 实时前向 → 同一 engine（edge source 逐样本分发）。"""
 from __future__ import annotations
 
-from kgqa.datasets.base import DatasetAdapter
+from kgqa.retrieve.datasets.base import DatasetAdapter
 from kgqa.backbone.base import ScoreProducer
 from kgqa.retrieve import engine
 from kgqa.retrieve.backends.base import RetrieveParams

@@ -8,8 +8,8 @@ from typing import Optional
 
 from utils.path_utils import path_to_rel_set
 
-from kgqa.types import RetrieveResult
-from kgqa.kg.base import KGEdgeSource
+from kgqa.core.contracts import RetrieveResult
+from kgqa.retrieve.graph.base import KGEdgeSource
 
 EPS = 1e-9
 

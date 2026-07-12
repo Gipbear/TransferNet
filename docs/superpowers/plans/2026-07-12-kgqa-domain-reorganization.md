@@ -142,6 +142,11 @@ kgqa/
 - Modify: 内部业务 import 与 `scripts/path_retrieve_server.sh`
 - Test: `tests/kgqa/test_retrieve_import_compat.py`、既有检索/服务测试
 
+**Task-local exception:** 用户未提交的 `kgqa/datasets/rearev_webqsp.py` 与其在
+`kgqa/datasets/registry.py` 的注册保持原样、不纳入本重组提交。新的
+`retrieve/datasets/registry.py` 仅注册计划内的 webqsp/metaqa/cwq；旧 registry 因此
+不是 shim，继续作为 ReaRev 的独立兼容入口。
+
 **Interfaces:**
 
 - `retrieve/cache` 接管现 `scores` 的加载与缓存序列化；缓存格式不变。
@@ -151,10 +156,10 @@ kgqa/
 
 **Steps:**
 
-- [ ] 先迁移 cache、graph、datasets，逐包改内部 import；保留 `scores`、`kg`、`datasets` shim。
-- [ ] 迁移 `engine.py`、`backends/`、路径/答案评测到 `retrieve`；不改任何检索计算语句。
-- [ ] 迁移 server 到 `retrieve/api`，先用 HTTP client contract 测试锁定 `/health`、`/info`、`/retrieve` 行为，再替换旧 `server` 为 shim。
-- [ ] 迁移 CLI 实现并保留旧模块的 `main()` 转发；仅在所有命令冒烟通过后更新项目内脚本到新路径。
+- [x] 先迁移 cache、graph、datasets，逐包改内部 import；保留 `scores`、`kg`、`datasets` shim。
+- [x] 迁移 `engine.py`、`backends/`、路径/答案评测到 `retrieve`；不改任何检索计算语句。
+- [x] 迁移 server 到 `retrieve/api`，先用 HTTP client contract 测试锁定 `/health`、`/info`、`/retrieve` 行为，再替换旧 `server` 为 shim。
+- [x] 迁移 CLI 实现并保留旧模块的 `main()` 转发；脚本路径更新按 Task 5 与兼容 shim 清单统一处理。
 
 **Verify:**
 
