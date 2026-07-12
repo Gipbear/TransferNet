@@ -7,12 +7,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from oh_my_agent.llm_server.client import GenerateResponse
-from oh_my_agent.tools import RejectedAnswerCheckTool
-from oh_my_agent.tools.cited_path_check import (
+from kgqa.agent.tools import RejectedAnswerCheckTool
+from kgqa.agent.tools.cited_path_check import (
     STRICT_REJECTED_ANSWER_CHECK_SYSTEM,
     parse_rejected_answer_indices,
 )
+from kgqa.llm_server.client import GenerateResponse
 
 
 class FakeLLMClient:

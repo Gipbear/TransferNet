@@ -7,9 +7,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from oh_my_agent.llm_server.client import GenerateResponse
-from oh_my_agent.path_retrieve_server.client import PathRetrieveResponse
-from oh_my_agent.tools import AnswerWithPathsTool, PathRetrieveTool
+from kgqa.agent.tools import AnswerWithPathsTool, PathRetrieveTool
+from kgqa.llm_server.client import GenerateResponse
+from kgqa.server.client import PathRetrieveResponse
 
 
 class FakePathClient:
