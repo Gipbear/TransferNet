@@ -20,11 +20,11 @@
 
 - 每个数据集先生成 `topk={100,250,500,1000}` 的 train/test score 缓存，用于观察
   top-k 饱和性。默认下游缓存为 `topk=500`，但应根据饱和性结果人工确认是否调整。
-- 固定 `threshold=0.01`、终点实体融合权重 `eta=1.0`，完整比较
-  `beam_size={20,50,100}` 与 `lambda_val={0.0,0.1,0.2,0.3,0.5}` 的笛卡尔积，共 15 组。
-  `lambda_val=0.0` 是无多样性惩罚对照；其余值控制 MMR 的关系集合重叠惩罚。
-- `parameter_scan` 只需填写两个取值列表；编排器自动展开笛卡尔积，并生成稳定候选编号。
-  例如 `beam=50，λ=0.2` 的编号为 `beam50_lambda02`。
+- 固定 `threshold=0.01`，完整比较 `beam_size`、`lambda_val` 与终点实体融合权重 `eta` 的
+  三维笛卡尔积。`lambda_val=0.0` 是无多样性惩罚对照；其余值控制 MMR 的关系集合重叠惩罚。
+- `parameter_scan` 填写三个取值列表；编排器自动展开三维网格，并生成稳定候选编号。
+  例如 `beam=50，λ=0.2，η=1.0` 的编号为 `beam50_lambda02_eta1`。
+- `retrieve.eta` 是 top-k 饱和性评测使用的基准值；参数扫描中每个候选的 `eta` 会覆盖该值。
 - `eta` 是论文中的终点实体分数融合权重。`alpha_final` 已废弃，现役命令、配置、接口和
   输出均不接受该字段。
 - 不根据测试集指标自动选择配置。完成扫描后，由人工在配置中填写确认理由和
@@ -37,27 +37,29 @@
 #    如需改默认 top-k 或扫描范围，直接编辑 retrieve 与 parameter_scan 字段。
 sed -n '1,160p' experiments/configs/ch3/webqsp_transfernet_v1.json
 
-# 1. 演练：只展示 8 个 score 缓存任务、8 个 top-k 评测任务和 15×2 个参数扫描任务。
+# 1. 演练：只展示 score 缓存、top-k 评测和“参数组数×数据划分数”的参数扫描任务。
 python -m experiments.run_ch3 --dataset webqsp --dry_run
 
-# 2. 实际运行：先生成并评测 top-k 饱和性缓存，再运行 beam/λ 完整对比。
+# 2. 实际运行：先生成并评测 top-k 饱和性缓存，再运行 beam/λ/eta 完整对比。
 python -m experiments.run_ch3 --dataset webqsp --phase all
 
-# 3. 审核每组 train/test 汇总指标与日志（示例为 beam=50、λ=0.2）。
+# 3. 审核每组 train/test 汇总指标与日志（示例为 beam=50、λ=0.2、eta=1.0）。
 cat data/output/kgqa/ch3_retrieval/webqsp/transfernet/confirmed_profiles/transfernet_v1/\
-candidates/beam50_lambda02/test_summary.json
+candidates/beam50_lambda02_eta1/test_summary.json
 
 # 4. 人工确认：在 JSON 中填写 confirmation_reason，设 status 为 confirmed，并令
-#    selected_candidate 为某个参数组 ID（如 beam50_lambda02）。随后发布正式检索结果。
+#    selected_candidate 为某个参数组 ID（如 beam50_lambda02_eta1）。随后发布正式检索结果。
 python -m experiments.run_ch3 --dataset webqsp --phase publish
 ```
 
-`parameter_scan` 的配置形式如下；新增 beam 或 λ 取值只需在对应列表中添加一个数值：
+`parameter_scan` 的配置形式如下；新增 beam、λ 或 eta 取值只需在对应列表中添加一个数值。
+总参数组数为三个列表长度的乘积：
 
 ```json
 "parameter_scan": {
   "beam_size": [20, 50, 100],
-  "lambda_val": [0.0, 0.1, 0.2, 0.3, 0.5]
+  "lambda_val": [0.0, 0.1, 0.2, 0.3, 0.5],
+  "eta": [0.5, 1.0, 1.5]
 }
 ```
 

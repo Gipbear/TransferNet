@@ -23,7 +23,7 @@ class TestExperimentRunners(unittest.TestCase):
                 "topk_candidates": [100],
                 "score_source": {"ckpt": "models/a.pt", "input_dir": "data/input/WebQSP", "splits": {"test": {"qa_file": "data/test.txt"}}},
                 "retrieve": {"beam_size": 50, "lambda_val": 0.2, "threshold": 0.01, "eta": 1.0},
-                "parameter_scan": {"beam_size": [50], "lambda_val": [0.0]},
+                "parameter_scan": {"beam_size": [50], "lambda_val": [0.0], "eta": [1.0]},
             })
             stream = io.StringIO()
             with redirect_stdout(stream):
@@ -32,30 +32,40 @@ class TestExperimentRunners(unittest.TestCase):
             self.assertIn("topk100_test/evaluation", stream.getvalue())
             self.assertIn('"--eta" "1.0"', stream.getvalue())
 
-    def test_ch3_webqsp_config_defines_complete_beam_lambda_scan(self):
+    def test_ch3_webqsp_config_defines_complete_beam_lambda_eta_scan(self):
         root = Path(__file__).resolve().parents[2]
         config = json.loads((root / "experiments/configs/ch3/webqsp_transfernet_v1.json").read_text(encoding="utf-8"))
-        pairs = {
-            (beam_size, lambda_val)
-            for beam_size in config["parameter_scan"]["beam_size"]
-            for lambda_val in config["parameter_scan"]["lambda_val"]
+        scan = config["parameter_scan"]
+        triples = {
+            (beam_size, lambda_val, eta)
+            for beam_size in scan["beam_size"]
+            for lambda_val in scan["lambda_val"]
+            for eta in scan["eta"]
         }
-        self.assertEqual(len(pairs), 15)
-        self.assertEqual(pairs, {
-            (beam_size, lambda_val)
-            for beam_size in (20, 50, 100)
-            for lambda_val in (0.0, 0.1, 0.2, 0.3, 0.5)
-        })
+        self.assertEqual(len(triples), len(scan["beam_size"]) * len(scan["lambda_val"]) * len(scan["eta"]))
+        self.assertIn((50, 0.2, 1.0), triples)
+        self.assertEqual(scan["eta"], [0.5, 1.0, 1.5])
         self.assertEqual(config["retrieve"]["eta"], 1.0)
 
     def test_ch3_parameter_scan_generates_stable_candidate_ids(self):
         items = run_ch3._parameter_scan_items({
-            "parameter_scan": {"beam_size": [20, 50], "lambda_val": [0.0, 0.2]},
+            "parameter_scan": {"beam_size": [20, 50], "lambda_val": [0.0, 0.2], "eta": [0.5, 1.0]},
         })
         self.assertEqual(
             [item["id"] for item in items],
-            ["beam20_lambda0", "beam20_lambda02", "beam50_lambda0", "beam50_lambda02"],
+            [
+                "beam20_lambda0_eta05", "beam20_lambda0_eta1",
+                "beam20_lambda02_eta05", "beam20_lambda02_eta1",
+                "beam50_lambda0_eta05", "beam50_lambda0_eta1",
+                "beam50_lambda02_eta05", "beam50_lambda02_eta1",
+            ],
         )
+
+    def test_ch3_parameter_scan_requires_eta_list(self):
+        with self.assertRaisesRegex(ValueError, "parameter_scan.eta 必须是非空列表"):
+            run_ch3._parameter_scan_items({
+                "parameter_scan": {"beam_size": [50], "lambda_val": [0.2]},
+            })
 
     def test_ch3_rejects_deprecated_alpha_final(self):
         config = {

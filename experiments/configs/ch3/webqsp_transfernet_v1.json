@@ -19,7 +19,8 @@
   },
   "retrieve": {"beam_size": 50, "lambda_val": 0.2, "threshold": 0.01, "eta": 1.0},
   "parameter_scan": {
-    "beam_size": [20, 50, 100],
-    "lambda_val": [0.0, 0.1, 0.2, 0.3, 0.5]
+    "beam_size": [3, 5, 10, 20, 50, 100],
+    "lambda_val": [0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0],
+    "eta": [0.5, 1.0, 1.5]
   }
 }
