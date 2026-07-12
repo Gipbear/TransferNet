@@ -5,13 +5,14 @@ import argparse
 from dataclasses import asdict
 
 from fastapi import FastAPI
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class RetrieveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     sample_index: int
     beam_size: int = 50
-    method: str = "tail_blend"
     lambda_val: float = 0.2
     threshold: float = 0.01
     alpha_final: float = 1.0
@@ -27,7 +28,7 @@ def create_app(backend) -> FastAPI:
     @app.post("/retrieve")
     def retrieve(req: RetrieveRequest):
         result = backend.retrieve(
-            req.sample_index, beam_size=req.beam_size, method=req.method,
+            req.sample_index, beam_size=req.beam_size,
             lambda_val=req.lambda_val, threshold=req.threshold, alpha_final=req.alpha_final,
         )
         return asdict(result)

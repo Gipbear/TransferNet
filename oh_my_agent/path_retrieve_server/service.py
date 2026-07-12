@@ -2,7 +2,7 @@
 
 This module intentionally keeps only the single-sample retrieval path used by
 ``scripts.offline_path_search``: reconstruct sparse scores, expand candidates,
-apply tail_blend scoring, then select paths with MMR.
+apply the unified candidate scoring, then select paths with MMR.
 """
 
 from __future__ import annotations
@@ -13,19 +13,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from scripts.offline_path_search import (
-    LogNormStrategy,
-    _method_hop_numbers,
-    _path_to_triples,
+from kgqa.kg.global_kg import GlobalKG
+from kgqa.retrieve.engine import (
+    candidate_hop_numbers,
     candidate_to_tuple,
-    final_ent_score_dict,
-    load_score_cache,
-    rebuild_valid_edges_dict,
+    drop_loopback_paths,
+    path_to_triples,
     reconstruct_ent_dict,
     reconstruct_rel_dict,
     search_path_candidates,
     select_path_candidates,
 )
+from kgqa.scores.base import load_score_cache
 
 
 # TransferNet 实体预测阈值:e_score ≥ 此值视为"预测答案"。group_tails 过滤、
@@ -38,22 +37,6 @@ def normalize_question(question: str) -> str:
     text = re.sub(r"\[(cls|sep|pad)\]", " ", text)
     text = re.sub(r"\s+##", "", text)   # merge BERT WordPiece subword tokens
     return re.sub(r"\s+", " ", text).strip()
-
-
-def drop_loopback_paths(
-    paths: list[tuple[list[int], list[int], float]],
-) -> list[tuple[list[int], list[int], float]]:
-    """剔除"绕回 topic"的无效路径——尾实体(node_ids[-1])等于 topic(node_ids[0])。
-
-    答案=被问的实体本身在逻辑上不可能成立:WebQSP test 全集此类路径 9777 条
-    (占 13.4%),**0 条尾是 gold**。源头剔除后 LLM 看不到这些路径,既不会引用、
-    也不会被诱导产出自指答案,零损失(无 gold 反例)。
-    """
-    return [
-        (node_ids, rel_ids, score)
-        for node_ids, rel_ids, score in paths
-        if not node_ids or node_ids[-1] != node_ids[0]
-    ]
 
 
 def group_tails_from_path(
@@ -105,7 +88,6 @@ class CachedRetrievalResult:
     mmr_reason_paths: list[dict[str, Any]]
     prediction: dict[str, float]
     elapsed_ms: float
-    method: str
     alpha_final: float
     threshold: float
     beam_size: int
@@ -122,7 +104,6 @@ class CachedRetrievalResult:
             "mmr_reason_paths": self.mmr_reason_paths,
             "prediction": self.prediction,
             "elapsed_ms": self.elapsed_ms,
-            "method": self.method,
             "alpha_final": self.alpha_final,
             "threshold": self.threshold,
             "beam_size": self.beam_size,
@@ -141,7 +122,7 @@ class CachedPathRetriever:
         self.meta = self.cache["meta"]
         self.id2ent = self.meta.get("id2ent", {})
         self.id2rel = self.meta.get("id2rel", {})
-        self.valid_edges_dict = rebuild_valid_edges_dict(self.input_dir)
+        self.valid_edges_dict = GlobalKG.from_input_dir(self.input_dir).valid_edges_dict
         self.question_index = self._build_question_index()
 
     def _build_question_index(self) -> dict[str, int]:
@@ -157,15 +138,12 @@ class CachedPathRetriever:
         question: Optional[str] = None,
         sample_index: Optional[int] = None,
         topic_entities: Optional[list[str]] = None,
-        method: str = "tail_blend",
         alpha_final: float = 1.0,
         threshold: float = 0.01,
         beam_size: int = 50,
         lambda_val: float = 0.2,
         drop_loopback: bool = True,
     ) -> CachedRetrievalResult:
-        if method not in {"tail_blend", "baseline"}:
-            raise ValueError(f"unknown method: {method}")
         if beam_size < 1:
             raise ValueError("beam_size must be >= 1")
 
@@ -177,12 +155,16 @@ class CachedPathRetriever:
             raise ValueError(f"topic_entities mismatch: expected {topics}, got {topic_entities}")
 
         hop_num = int(sample["hop_attn"].argmax().item()) + 1
-        hop_nums = _method_hop_numbers(method, hop_num, len(sample["rel_probs"]))
+        hop_nums = candidate_hop_numbers(len(sample["rel_probs"]))
         rel_dicts, ent_dicts = self._reconstruct_scores(sample, threshold, max(hop_nums))
 
-        scoring = LogNormStrategy()
         path_candidates = []
-        final_scores = final_ent_score_dict(sample)
+        final_scores = {
+            int(entity_id): float(score)
+            for entity_id, score in zip(
+                sample["e_score_indices"].tolist(), sample["e_score_values"].tolist()
+            )
+        }
         for candidate_hop in hop_nums:
             path_candidates.extend(search_path_candidates(
                 sample["topic_ids"],
@@ -190,7 +172,6 @@ class CachedPathRetriever:
                 ent_dicts,
                 candidate_hop,
                 self.valid_edges_dict,
-                scoring,
                 beam_size,
                 final_ent_scores=final_scores,
                 order_start=len(path_candidates),
@@ -199,7 +180,6 @@ class CachedPathRetriever:
         selected = select_path_candidates(
             path_candidates,
             beam_size,
-            method=method,
             alpha_final=alpha_final,
             lambda_val=lambda_val,
         )
@@ -222,7 +202,6 @@ class CachedPathRetriever:
             mmr_reason_paths=self._serialize_paths(paths),
             prediction=self._prediction(sample),
             elapsed_ms=round(elapsed_ms, 1),
-            method=method,
             alpha_final=alpha_final,
             threshold=threshold,
             beam_size=beam_size,
@@ -288,7 +267,7 @@ class CachedPathRetriever:
     def _serialize_paths(self, paths: list[tuple[list[int], list[int], float]]):
         return [
             {
-                "path": _path_to_triples(nodes, rels, self.id2ent, self.id2rel),
+                "path": path_to_triples(nodes, rels, self.id2ent, self.id2rel),
                 "log_score": round(float(score), 6),
             }
             for nodes, rels, score in paths

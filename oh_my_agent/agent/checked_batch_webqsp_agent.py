@@ -242,7 +242,6 @@ class CheckedBatchWebQAgent:
         question: str,
         topic_mid: str,
         *,
-        method: str = "tail_blend",
         alpha_final: float = 1.0,
         threshold: float = 0.01,
         beam_size: int = 50,
@@ -287,7 +286,6 @@ class CheckedBatchWebQAgent:
         retrieval = self.path_tool(
             question,
             topic_mid,
-            method=method,
             alpha_final=alpha_final,
             threshold=threshold,
             beam_size=beam_size,

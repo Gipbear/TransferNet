@@ -12,7 +12,7 @@ class TestOfflineBackend(unittest.TestCase):
     def test_retrieve_single(self):
         adapter = get_adapter("webqsp", input_dir="data/input/WebQSP")
         backend = OfflineBackend(adapter, cache_path=CACHE)
-        r = backend.retrieve(0, beam_size=50, method="tail_blend", lambda_val=0.2)
+        r = backend.retrieve(0, beam_size=50, lambda_val=0.2)
         self.assertEqual(r.sample_index, 0)
         self.assertGreaterEqual(len(r.paths), 1)
         self.assertTrue(all("path" in p and "log_score" in p for p in r.paths))

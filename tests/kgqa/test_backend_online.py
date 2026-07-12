@@ -16,7 +16,7 @@ class TestOnlineBackend(unittest.TestCase):
         adapter = get_adapter("webqsp", input_dir=INPUT_DIR)
         backend = OnlineBackend(
             adapter, WebQSPScoreProducer(), ckpt_path=CKPT,
-            input_dir=INPUT_DIR, qa_file=QA, split="test", limit=3,
+            input_dir=INPUT_DIR, qa_file=QA, split="test",
         )
         r = backend.retrieve(0, beam_size=50)
         self.assertGreaterEqual(len(r.paths), 1)

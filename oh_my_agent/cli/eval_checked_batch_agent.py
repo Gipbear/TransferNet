@@ -61,7 +61,6 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Run a comma/space-separated list of 0-based sample indices",
     )
-    parser.add_argument("--path_method", choices=["tail_blend", "baseline"], default="tail_blend")
     parser.add_argument("--alpha_final", type=float, default=1.0)
     parser.add_argument("--path_threshold", type=float, default=0.01)
     parser.add_argument("--beam_size", type=int, default=50)
@@ -333,7 +332,6 @@ def main(argv: list[str] | None = None) -> int:
             result = agent.run(
                 sample.question,
                 sample.topic_mid,
-                method=args.path_method,
                 alpha_final=args.alpha_final,
                 threshold=args.path_threshold,
                 beam_size=args.beam_size,
@@ -424,7 +422,6 @@ def main(argv: list[str] | None = None) -> int:
             "output_path": output_paths["records"],
             "initial_retrieval_path": output_paths["initial_retrieval"],
             "initial_answer_path": output_paths["initial_answer"],
-            "path_method": args.path_method,
             "alpha_final": args.alpha_final,
             "path_threshold": args.path_threshold,
             "beam_size": args.beam_size,

@@ -1,3 +1,4 @@
+import math
 import unittest
 import torch
 
@@ -31,10 +32,24 @@ class TestEngine(unittest.TestCase):
         self.assertEqual(set(d), {1})
         self.assertAlmostEqual(d[1], 0.8, places=5)
 
+    def test_candidate_score_is_tail_blend_with_length_normalization(self):
+        candidate = engine.PathCandidate(
+            nodes=[0, 1, 2], rels=[1, 2], hop=2,
+            base_score=-8.0, final_tail_score=0.25,
+        )
+
+        score = engine.compute_candidate_score(candidate, alpha_final=2.0)
+
+        expected = (-8.0 + 2.0 * math.log(0.25 + engine.EPS)) / 2
+        self.assertAlmostEqual(score, expected)
+
+    def test_candidate_hops_include_every_available_step(self):
+        self.assertEqual(engine.candidate_hop_numbers(3), [1, 2, 3])
+
     def test_retrieve_one_returns_paths_and_prediction(self):
         r = engine.retrieve_one(
             _Sample(), self.kg, self.id2ent, self.id2rel,
-            method="tail_blend", beam_size=10, threshold=0.01, lambda_val=0.2,
+            beam_size=10, threshold=0.01, lambda_val=0.2,
         )
         self.assertEqual(r.question, "toy question")
         self.assertEqual(r.hop, 1)

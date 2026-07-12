@@ -16,12 +16,12 @@ class TestBackendParity(unittest.TestCase):
         from kgqa.models.webqsp import WebQSPScoreProducer
         from kgqa.retrieve.backends.online import OnlineBackend
 
-        params = dict(beam_size=50, method="tail_blend", lambda_val=0.2,
+        params = dict(beam_size=50, lambda_val=0.2,
                       threshold=0.01, alpha_final=1.0)
         adapter = get_adapter("webqsp", input_dir=INPUT_DIR)
         offline = OfflineBackend(adapter, cache_path=CACHE)
         online = OnlineBackend(adapter, WebQSPScoreProducer(), ckpt_path=CKPT,
-                               input_dir=INPUT_DIR, qa_file=QA, split="test", limit=3)
+                               input_dir=INPUT_DIR, qa_file=QA, split="test")
 
         for i in range(3):
             ro = offline.retrieve(i, **params)

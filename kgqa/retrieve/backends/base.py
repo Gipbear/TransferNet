@@ -9,7 +9,6 @@ from kgqa.types import RetrieveResult
 
 @dataclass(frozen=True)
 class RetrieveParams:
-    method: str = "tail_blend"
     alpha_final: float = 1.0
     threshold: float = 0.01
     beam_size: int = 50

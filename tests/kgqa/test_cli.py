@@ -9,7 +9,9 @@ CACHE = "data/output/WebQSP/path_retrieve_server/score_cache/webqsp_test_1581.pt
 class TestCLI(unittest.TestCase):
     def test_parsers_build(self):
         from kgqa.cli import retrieve, eval as eval_cli, dump_scores
-        self.assertIsNotNone(retrieve.build_parser())
+        retrieve_parser = retrieve.build_parser()
+        self.assertIsNotNone(retrieve_parser)
+        self.assertNotIn("--method", retrieve_parser.format_help())
         self.assertIsNotNone(eval_cli.build_parser())
         self.assertIsNotNone(dump_scores.build_parser())
 
