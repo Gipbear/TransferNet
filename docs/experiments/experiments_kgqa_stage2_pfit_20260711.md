@@ -50,6 +50,25 @@ data/output/kgqa/<ds>/            # ds = webqsp | metaqa,与旧实验结果隔�
 - MetaQA 补充分层 eval(各 hop 10 条,借 smoke adapter):1/2/3-hop hit1 全 1.0、幻觉 0,by_hop 分组与 3-hop 长 prompt 通路验证通过。
 - **注意**:`eval --limit N` 取 test 前缀,而 MetaQA test.jsonl 按 hop 分块有序,smoke 的 by_hop 仅含 hop1;全量跑不受影响。
 
+## 全量结果(2026-07-12,PR 前置门槛)
+
+`webqsp_main` 全量跑通(build 2948 条 → train 2 epochs → eval test 1581,单 run),输出 `data/output/kgqa/webqsp/pfit/webqsp_main/`:
+
+| 指标 | webqsp_main(单 run) | 论文表4-9 PFIT+Cite(3-run mean) | 差值 |
+|---|---|---|---|
+| Hit@1 | **85.83** | 85.17 | +0.66 |
+| Hits | **89.44** | 89.02 | +0.42 |
+| Macro F1 | **77.91** | 77.22 | +0.69 |
+| EM | **63.63** | 61.55 | +2.08 |
+| Cit-P | **83.35** | 81.83 | +1.52 |
+| Cit-R | **86.50** | 86.30 | +0.20 |
+| HalRate | 0.14 | 0.04 | +0.10 |
+
+- 对照口径:**论文终稿 `docs/chapter5-writing` 分支 `chapter4_new.md` 表 4-9 PFIT+Cite 行**(全量 test、3 次推理均值,配置同构 chain+Cite+K=20)。全指标 parity 且略高(+0.4~+2.1pt),幻觉同为近零量级 → **PR 前置门槛通过**。
+- 勿用 `data/analysis/chapter5_metrics.json` 里的 `ch4_finetuned_single_batch`(hit1 0.7884)对照,那是论文 Ch4 重跑前的过时旧基线(论文现行数字归档见 `data/analysis/20260614_1800__chapter34_word_latest`)。
+- rejection 段全 miss(100 条 unanswerable 全部作答)符合预期:main 配置 `include_rejection=false`。
+- format_compliance 0.9994;train 数据 hop 分布 1-hop 1756 / 2-hop 1192,skip 48。
+
 ## smoke 期间发现并修复的问题
 
 1. `subset_qa` 仅支持 JSON,而 MetaQA dump 实际输入是四段 pickle 的预处理 `.pt` → 支持双格式,`.pt` 按 hops 分层采索引、四数组同索引切片(996d7d3)。
@@ -65,7 +84,7 @@ bash scripts/run_pfit.sh --exp <exp_id> [--phase build|train|eval|all]
 
 | exp_id | 类型 | 状态 |
 |---|---|---|
-| webqsp_main | 训练(chain+name+v2,Ch4 groupAname_v2 parity 锚) | smoke ✅,**全量待用户跑(PR 前置门槛候选)** |
+| webqsp_main | 训练(chain+name+v2,Ch4 groupAname_v2 parity 锚) | smoke ✅,**全量 ✅(2026-07-12,见「全量结果」节,PR 门槛通过)** |
 | webqsp_spot_nl | 训练(nl+name+v2,对照 Ch4 groupD) | 待用户跑 |
 | webqsp_base_zeroshot | eval-only(base 零样本;`FMT=v1` 换格式) | 待用户跑 |
 | webqsp_nopaths | eval-only(无路径;`ADAPTER=<dir>` 得微调变体) | 待用户跑 |

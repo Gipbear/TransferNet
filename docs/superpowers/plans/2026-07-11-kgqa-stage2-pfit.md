@@ -144,4 +144,5 @@
 
 ## PR 合入前置门槛(用户执行)
 
-- [ ] 用户选定一个配置(预期 `webqsp_main` 或 `metaqa_main`)跑完整 build→train→eval,人工核指标(WebQSP 对照 Ch4 groupAname_v2 量级);其余实验后置自跑
+- [x] 用户选定一个配置(预期 `webqsp_main` 或 `metaqa_main`)跑完整 build→train→eval,人工核指标(WebQSP 对照 Ch4 groupAname_v2 量级);其余实验后置自跑
+  - 2026-07-12 `webqsp_main` 全量完成:hit1 85.83 / F1 77.91 / EM 63.63,对照论文终稿表4-9 PFIT+Cite(85.17/77.22/61.55)全指标 parity 且略高,门槛通过(详见实验记录「全量结果」节)
