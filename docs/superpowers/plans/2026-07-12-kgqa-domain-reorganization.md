@@ -73,11 +73,11 @@ kgqa/
 
 **Steps:**
 
-- [ ] 运行基线：`python -m unittest discover -s tests -t . -p 'test*.py' -v`。
-- [ ] 新增静态边界测试，扫描 `kgqa/core/`、`kgqa/backbone/`、`kgqa/retrieve/` 的 Python import：断言它们不 import `kgqa.agent`；断言 `kgqa.core` 不 import `kgqa.{backbone,retrieve,pfit,agent,serving}`。
+- [x] 运行基线：`python -m unittest discover -s tests -t . -p 'test*.py' -v`。
+- [x] 新增静态边界测试，扫描 `kgqa/core/`、`kgqa/backbone/`、`kgqa/retrieve/` 的 Python import：断言它们不 import `kgqa.agent`；断言 `kgqa.core` 不 import `kgqa.{backbone,retrieve,pfit,agent,serving}`。
 - [ ] 在测试中白名单 legacy 兼容模块，避免把过渡 shim 误判为业务依赖；业务实现文件必须满足新边界。
 
-**Verify:** 基线与新增边界测试均通过；真实 checkpoint/cache 测试仅在 `RUN_KGQA_ARTIFACT_TESTS=1` 时执行。
+**Verify:** 基线与新增边界测试均通过；真实 checkpoint/cache 测试仅在 `RUN_KGQA_ARTIFACT_TESTS=1` 时执行。2026-07-12 默认测试基线通过，artifact 测试按预期跳过。
 
 ## Task 1: 提取 `core`，先消除现有反向依赖
 
