@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from kgqa.agent.common.qa_data import WebQSPQASample
-from kgqa.agent.demo_page.data import QuestionIndex, load_trace_index
+from kgqa.agent.web.data import QuestionIndex, load_trace_index
 
 
 def _sample(q: str) -> WebQSPQASample:

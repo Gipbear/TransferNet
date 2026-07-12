@@ -22,15 +22,6 @@ class TestBackboneFactory(unittest.TestCase):
         self.assertIsInstance(cwq, CWQScoreProducer)
         self.assertEqual(cwq.limit, 5)
 
-    def test_legacy_models_paths_reexport_backbone_symbols(self):
-        from kgqa.backbone import make_score_producer
-        from kgqa.backbone.cwq import CWQScoreProducer
-        from kgqa.models import make_score_producer as legacy_make_score_producer
-        from kgqa.models.cwq import CWQScoreProducer as LegacyCWQScoreProducer
-
-        self.assertIs(make_score_producer, legacy_make_score_producer)
-        self.assertIs(CWQScoreProducer, LegacyCWQScoreProducer)
-
     def test_unknown_dataset_raises_keyerror(self):
         from kgqa.backbone import make_score_producer
 

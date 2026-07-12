@@ -50,7 +50,7 @@ class TestEngineGolden(unittest.TestCase):
 
 class TestCliWritesGolden(unittest.TestCase):
     def test_output_jsonl_contains_golden(self):
-        from kgqa.cli import retrieve as retrieve_cli
+        from kgqa.retrieve.cli import retrieve as retrieve_cli
 
         result = RetrieveResult(
             question="q", topics=["m.topic"], hop=1,

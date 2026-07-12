@@ -6,7 +6,7 @@ QA 样本加载、实体映射(MID→name 或恒等)、hop 范围、by_hop 汇�
 QA 源形态:
 - webqsp:原始 QA 文本(tab 分隔,问句尾 ``[MID]`` 标注 topic),问题经 BERT
   特殊 token 清洗后同时用于检索服务定位(服务端 normalize)与 LLM 提示词。
-- metaqa:``kgqa.cli.retrieve`` 输出 JSONL(question 为 vocab 解码的 ``e_s``
+- metaqa:``kgqa.retrieve.cli.retrieve`` 输出 JSONL(question 为 vocab 解码的 ``e_s``
   占位形态,topics/golden 天然实体名)。检索定位走 ``sample_index``,
   LLM 提示词用 ``e_s`` 回填 topic 后的展示问题。
 """

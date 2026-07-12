@@ -15,7 +15,7 @@ class TestBackendParity(unittest.TestCase):
     def test_online_matches_offline_first3(self):
         from kgqa.datasets.registry import get_adapter
         from kgqa.retrieve.backends.offline import OfflineBackend
-        from kgqa.models.webqsp import WebQSPScoreProducer
+        from kgqa.backbone.webqsp import WebQSPScoreProducer
         from kgqa.retrieve.backends.online import OnlineBackend
 
         params = dict(beam_size=50, lambda_val=0.2,

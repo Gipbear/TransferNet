@@ -4,9 +4,9 @@ import unittest
 from fastapi import HTTPException
 
 from kgqa.agent.common.qa_data import WebQSPQASample
-from kgqa.agent.demo_page.data import QuestionIndex
-from kgqa.agent.demo_page.schema import ReplayIn, RetrieveIn
-from kgqa.agent.demo_page.server import create_app
+from kgqa.agent.web.data import QuestionIndex
+from kgqa.agent.web.schema import ReplayIn, RetrieveIn
+from kgqa.agent.web.server import create_app
 
 
 def _questions():

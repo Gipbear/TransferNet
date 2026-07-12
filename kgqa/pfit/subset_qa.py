@@ -1,7 +1,7 @@
 """按 hop 分层采样生成子集 qa 文件(与源同格式)。
 
 MetaQA train 329K 全量 dump 不可行(约 6GB);先分层采子集,
-`kgqa.cli.dump_scores --qa_file <子集>` 原样使用,dump/producer 零改动。
+`kgqa.retrieve.cli.dump_scores --qa_file <子集>` 原样使用,dump/producer 零改动。
 
 支持两种源格式(自动识别,输出与源同格式):
 - JSON 数组(带 hop 字段的原始 qa 文件)

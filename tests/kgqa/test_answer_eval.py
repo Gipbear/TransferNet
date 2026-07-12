@@ -1,5 +1,5 @@
 import unittest
-from kgqa.eval.answer_eval import answer_record, answer_summary
+from kgqa.retrieve.eval.answer_eval import answer_record, answer_summary
 from kgqa.types import MetricSpec
 
 

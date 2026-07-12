@@ -225,3 +225,19 @@ kgqa/
 - 单元测试全绿；需要真实模型/缓存的 parity 测试在本地 artifact 可用时通过。
 - Ch3 检索结果、Ch4 pfit 输入输出、Ch5 HTTP/trace 契约未发生未记录的变化。
 - 旧路径兼容层有明确清单；删除 shim 仅在后续 breaking-change 计划中进行。
+
+## Task 6: 清理未受保护的兼容 shim（breaking change）
+
+本任务由后续需求触发，覆盖上述“保留旧入口”约定：项目内调用、测试和运行说明全部切到 canonical 路径后，删除不被 ReaRev 或只读 parity 目录依赖的 shim。`kgqa/datasets/`、`kgqa/kg/`、`kgqa/scores/` 与 `kgqa/types.py` 因 ReaRev 适配仍依赖，明确不在本任务范围。
+
+**Steps:**
+
+- [x] 将项目内测试、活动脚本和运行说明切换到 `backbone`、`retrieve`、`serving`、`agent.web`。
+- [ ] 删除 `kgqa/models/`、`kgqa/eval/`、`kgqa/cli/`、`kgqa/server/`、`kgqa/llm_server/` 与 `kgqa/agent/demo_page/`，并移除兼容性测试。
+- [ ] 删除 `kgqa/**/__pycache__/` 运行产物；不得删除用户的 ReaRev 文件。
+
+**Verify:**
+
+- `rg` 确认项目运行代码和测试不再引用已删除的旧路径。
+- `python -m unittest discover -s tests -t . -p 'test*.py' -v`
+- `bash tests/run_pfit_lib_test.sh && bash tests/run_ablation_lib_test.sh`

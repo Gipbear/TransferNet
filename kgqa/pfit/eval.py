@@ -646,7 +646,7 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
     if missing_golden:
         raise ValueError(
             f"输入缺 golden 字段({missing_golden}/{len(samples)} 条);"
-            "请用带 golden 输出的 kgqa.cli.retrieve 重跑检索")
+            "请用带 golden 输出的 kgqa.retrieve.cli.retrieve 重跑检索")
     log.info("样本数: %d  adapter=%s  fmt=%s  path_format=%s",
              len(samples), adapter or "None(零样本)", fmt, path_format)
 
@@ -720,7 +720,7 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
 def build_parser():
     p = argparse.ArgumentParser(description="pfit 推理 + 忠实度评测")
     p.add_argument("--dataset", required=True, help="webqsp | metaqa")
-    p.add_argument("--input", required=True, help="kgqa.cli.retrieve 输出 JSONL(test split)")
+    p.add_argument("--input", required=True, help="kgqa.retrieve.cli.retrieve 输出 JSONL(test split)")
     p.add_argument("--exp_dir", required=True, help="实验目录(写 eval/ 与 manifest)")
     p.add_argument("--adapter", default=None, help="LoRA adapter 目录(缺省=base 零样本)")
     p.add_argument("--format", default="v2", dest="fmt",

@@ -8,8 +8,8 @@ if str(ROOT) not in sys.path:
 
 from kgqa.agent import CheckedBatchAgent
 from kgqa.agent.cli.eval_checked_batch import build_parser
-from kgqa.llm_server.client import GenerateResponse
-from kgqa.server.client import PathRetrieveResponse
+from kgqa.serving.llm.client import GenerateResponse
+from kgqa.retrieve.api.client import PathRetrieveResponse
 from kgqa.agent.tools import (
     AnswerWithPathsTool,
     PathRetrieveTool,

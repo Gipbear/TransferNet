@@ -2,7 +2,7 @@
 
 import unittest
 
-from kgqa.llm_server.constraints import (
+from kgqa.serving.llm.constraints import (
     build_reject_list_prefix_fn,
     reject_list_complete,
     valid_reject_list_prefix,

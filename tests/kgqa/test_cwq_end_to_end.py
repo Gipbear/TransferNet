@@ -15,7 +15,7 @@ QA_FILE = "data/input/CWQ/test_simple.json"
 class TestCWQEndToEnd(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from kgqa.cli.dump_scores import main as dump_main
+        from kgqa.retrieve.cli.dump_scores import main as dump_main
         cls.cache = os.path.join(tempfile.mkdtemp(), "cwq_small.pt")
         dump_main(["--dataset", "cwq", "--ckpt", CKPT, "--input_dir", INPUT_DIR,
                    "--qa_file", QA_FILE, "--output", cls.cache, "--limit", "20"])
@@ -38,8 +38,8 @@ class TestCWQEndToEnd(unittest.TestCase):
         self.assertTrue(any(r.paths for r in results))
 
     def test_answer_eval_hit1_positive(self):
-        from kgqa.cli.eval import _gold_strings
-        from kgqa.eval.answer_eval import answer_record, answer_summary
+        from kgqa.retrieve.cli.eval import _gold_strings
+        from kgqa.retrieve.eval.answer_eval import answer_record, answer_summary
         backend = self._offline()
         adapter = backend.adapter
         spec = adapter.metric_spec()
@@ -57,7 +57,7 @@ class TestCWQEndToEnd(unittest.TestCase):
 
     def test_online_offline_parity_first3(self):
         from kgqa.datasets.registry import get_adapter
-        from kgqa.models.cwq import CWQScoreProducer
+        from kgqa.backbone.cwq import CWQScoreProducer
         from kgqa.retrieve.backends.online import OnlineBackend
         adapter = get_adapter("cwq", input_dir=INPUT_DIR)
         online = OnlineBackend(adapter, CWQScoreProducer(limit=20), ckpt_path=CKPT,

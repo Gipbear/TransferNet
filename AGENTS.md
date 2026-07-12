@@ -36,9 +36,9 @@ python -m WebQSP.predict --input_dir <DATA_DIR> --ckpt <CKPT_PATH> --mode test
 `kgqa/` 是 stage1 重构出的统一 KGQA 检索框架,通过 dataset adapter 注册表分发 webqsp / metaqa / cwq:
 
 ```bash
-python -m kgqa.cli.dump_scores --dataset <DS> ...   # 生成 score 缓存
-python -m kgqa.cli.retrieve --dataset <DS> --backend offline|online --input_dir <DIR> ...  # offline=score 缓存,online=ckpt 实时
-python -m kgqa.cli.eval ...
+python -m kgqa.retrieve.cli.dump_scores --dataset <DS> ...   # 生成 score 缓存
+python -m kgqa.retrieve.cli.retrieve --dataset <DS> --backend offline|online --input_dir <DIR> ...  # offline=score 缓存,online=ckpt 实时
+python -m kgqa.retrieve.cli.eval ...
 ```
 
 ### kgqa/pfit 训练流水(Ch4 现役,stage2)
@@ -85,7 +85,7 @@ bash tests/run_pfit_lib_test.sh     # run_pfit.sh 命令拼装 dry-run 测试
 
 两个常驻 HTTP 服务,一次加载多次复用:
 
-- `path_retrieve_server`(默认 `http://localhost:8789`):score 缓存检索,由 `kgqa.server.path_retrieve_server` 提供;通过 `DATASET`/`INPUT_DIR`/`CACHE` 覆盖可服务 WebQSP 或 MetaQA
+- `path_retrieve_server`(默认 `http://localhost:8789`):score 缓存检索,由 `kgqa.retrieve.api.path_retrieve_server` 提供;通过 `DATASET`/`INPUT_DIR`/`CACHE` 覆盖可服务 WebQSP 或 MetaQA
 - `llm_server`(默认 `http://localhost:8788`):base model + LoRA adapter 生成
 
 ```bash
@@ -94,7 +94,7 @@ bash tests/run_pfit_lib_test.sh     # run_pfit.sh 命令拼装 dry-run 测试
 PORT_BUSY_ACTION=kill ./scripts/llm_server.sh start  # 端口被旧进程占用且确认要替换时
 ```
 
-- 服务已启动时,一律通过 HTTP client 调用(`kgqa.server.client`、`kgqa.llm_server.client.LLMClient`),不要在测试或对比脚本里重新加载 base model / adapter / 检索器。
+- 服务已启动时,一律通过 HTTP client 调用(`kgqa.retrieve.api.client`、`kgqa.serving.llm.client.LLMClient`),不要在测试或对比脚本里重新加载 base model / adapter / 检索器。
 - 做路径检索一致性(parity)检查时,把已有 JSONL 里的 `topics`/`hop`/`beam_size`/`lambda_val` 原样传给服务;`log_score` 允许 `1e-6` 量级浮点差,重点比对三元组序列和 prediction 是否一致。
 
 评测入口是批量 CLI(依赖上述两个服务):

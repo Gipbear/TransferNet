@@ -17,9 +17,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from kgqa.llm_server.client import GenerateResponse
-from kgqa.llm_server.engine import ModelEngine
-from kgqa.llm_server.scheduler import BatchScheduler
+from kgqa.serving.llm.client import GenerateResponse
+from kgqa.serving.llm.engine import ModelEngine
+from kgqa.serving.llm.scheduler import BatchScheduler
 
 
 class FakeTokenizer:
@@ -135,7 +135,7 @@ class ModelEngineTests(unittest.TestCase):
 
     def test_generate_batch_logs_metadata(self):
         """generate_batch emits a log with input/output tokens, use_adapter, max_new_tokens."""
-        from kgqa.llm_server.engine import log as engine_log
+        from kgqa.serving.llm.engine import log as engine_log
 
         model = TrackingModel()
         engine = _make_engine(model, FakeTokenizer(), adapter_loaded=False)

@@ -16,8 +16,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from kgqa.agent import CheckedBatchAgent
-from kgqa.llm_server.client import GenerateResponse
-from kgqa.server.client import PathRetrieveResponse
+from kgqa.serving.llm.client import GenerateResponse
+from kgqa.retrieve.api.client import PathRetrieveResponse
 from kgqa.agent.tools import (
     AnswerWithPathsTool,
     PathRetrieveTool,

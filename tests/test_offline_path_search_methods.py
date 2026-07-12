@@ -121,7 +121,7 @@ class OfflinePathMethodTest(unittest.TestCase):
         wrapper = (ROOT / "scripts" / "run_offline_path_search.sh").read_text(encoding="utf-8")
 
         self.assertIn("--dataset", wrapper)
-        self.assertIn("kgqa.cli.dump_scores", wrapper)
+        self.assertIn("kgqa.retrieve.cli.dump_scores", wrapper)
         self.assertNotIn("CompWebQ.dump_scores", wrapper)
         self.assertNotIn("WebQSP.dump_scores", wrapper)
         self.assertNotIn("--method", wrapper)

@@ -1,11 +1,11 @@
-"""core 的 canonical 实现与旧路径兼容导出必须保持同一对象。"""
+"""core 的跨域契约与辅助函数。"""
 from __future__ import annotations
 
 import unittest
 
 
 class TestCoreContracts(unittest.TestCase):
-    def test_contract_types_are_reexported_from_legacy_modules(self):
+    def test_contract_types_are_available_from_core(self):
         from kgqa.core.contracts import (
             CacheMeta,
             MetricSpec,
@@ -17,29 +17,15 @@ class TestCoreContracts(unittest.TestCase):
             ScoreLoader,
             ScoreProducer,
         )
-        from kgqa.models.base import ScoreProducer as LegacyScoreProducer
-        from kgqa.scores.base import (
-            CacheMeta as LegacyCacheMeta,
-            SampleScore as LegacySampleScore,
-            ScoreBundle as LegacyScoreBundle,
-            ScoreLoader as LegacyScoreLoader,
-        )
-        from kgqa.types import (
-            MetricSpec as LegacyMetricSpec,
-            QASample as LegacyQASample,
-            ReasonPath as LegacyReasonPath,
-            RetrieveResult as LegacyRetrieveResult,
-        )
-
-        self.assertIs(QASample, LegacyQASample)
-        self.assertIs(ReasonPath, LegacyReasonPath)
-        self.assertIs(RetrieveResult, LegacyRetrieveResult)
-        self.assertIs(MetricSpec, LegacyMetricSpec)
-        self.assertIs(SampleScore, LegacySampleScore)
-        self.assertIs(CacheMeta, LegacyCacheMeta)
-        self.assertIs(ScoreBundle, LegacyScoreBundle)
-        self.assertIs(ScoreLoader, LegacyScoreLoader)
-        self.assertIs(ScoreProducer, LegacyScoreProducer)
+        self.assertEqual(QASample.__module__, "kgqa.core.contracts")
+        self.assertEqual(ReasonPath.__module__, "kgqa.core.contracts")
+        self.assertEqual(RetrieveResult.__module__, "kgqa.core.contracts")
+        self.assertEqual(MetricSpec.__module__, "kgqa.core.contracts")
+        self.assertEqual(SampleScore.__module__, "kgqa.core.contracts")
+        self.assertEqual(CacheMeta.__module__, "kgqa.core.contracts")
+        self.assertEqual(ScoreBundle.__module__, "kgqa.core.contracts")
+        self.assertEqual(ScoreLoader.__module__, "kgqa.core.contracts")
+        self.assertEqual(ScoreProducer.__module__, "kgqa.core.contracts")
 
     def test_shared_helpers_are_reexported_from_agent_compatibility_paths(self):
         from kgqa.agent.common.entity_mapping import load_entity_map as legacy_load_entity_map
