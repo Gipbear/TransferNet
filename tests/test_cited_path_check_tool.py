@@ -12,7 +12,7 @@ from kgqa.agent.tools.cited_path_check import (
     STRICT_REJECTED_ANSWER_CHECK_SYSTEM,
     parse_rejected_answer_indices,
 )
-from kgqa.llm_server.client import GenerateResponse
+from kgqa.serving.llm.client import GenerateResponse
 
 
 class FakeLLMClient:

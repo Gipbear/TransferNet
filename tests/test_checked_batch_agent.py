@@ -12,8 +12,8 @@ if str(ROOT) not in sys.path:
 
 from kgqa.agent import CheckedBatchAgent
 from kgqa.agent.cli import eval_checked_batch as eval_checked_batch_agent
-from kgqa.llm_server.client import GenerateResponse, LLMClient, SiliconFlowLLMClient
-from kgqa.server.client import PathRetrieveClient, PathRetrieveResponse
+from kgqa.serving.llm.client import GenerateResponse, LLMClient, SiliconFlowLLMClient
+from kgqa.retrieve.api.client import PathRetrieveClient, PathRetrieveResponse
 from kgqa.agent.tools import AnswerWithPathsTool, PathRetrieveTool, RejectedAnswerCheckTool
 from tests.agent_fixtures import FakeLLMClient, FakePathClient
 

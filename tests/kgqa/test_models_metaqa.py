@@ -10,7 +10,7 @@ TEST_PT = "data/input/MetaQA_KB/test.pt"
 @unittest.skipUnless(artifact_test_available(CKPT, TEST_PT), ARTIFACT_TEST_SKIP_REASON)
 class TestMetaQAScoreProducer(unittest.TestCase):
     def test_produce_small_stratified(self):
-        from kgqa.models.metaqa import MetaQAScoreProducer
+        from kgqa.backbone.metaqa import MetaQAScoreProducer
         producer = MetaQAScoreProducer(per_hop_limit=2)
         producer.load_checkpoint(CKPT)
         bundle = producer.produce(INPUT_DIR, TEST_PT, split="test", batch_size=64, topk=500)

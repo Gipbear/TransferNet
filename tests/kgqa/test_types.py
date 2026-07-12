@@ -1,5 +1,5 @@
 import unittest
-from kgqa.types import QASample, ReasonPath, RetrieveResult, MetricSpec
+from kgqa.core.contracts import QASample, ReasonPath, RetrieveResult, MetricSpec
 
 
 class TestTypes(unittest.TestCase):

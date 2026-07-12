@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from kgqa.kg.global_kg import GlobalKG
+from kgqa.retrieve.graph.global_kg import GlobalKG
 from kgqa.retrieve.engine import (
     PathCandidate,
     candidate_hop_numbers,
@@ -38,7 +38,7 @@ from kgqa.retrieve.engine import (
     search_path_candidates,
     select_path_candidates,
 )
-from kgqa.scores.base import load_score_cache
+from kgqa.retrieve.cache.base import load_score_cache
 from utils.path_utils import build_valid_edges_dict, compute_path_diversity, compute_path_metrics
 
 

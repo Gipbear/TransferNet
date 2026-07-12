@@ -7,7 +7,7 @@ from typing import Any
 
 from kgqa.agent.common import apply_entity_map, load_entity_map, map_entities
 from kgqa.agent.specs import get_agent_spec
-from kgqa.server.client import PathRetrieveClient, PathRetrieveResponse
+from kgqa.retrieve.api.client import PathRetrieveClient, PathRetrieveResponse
 
 
 @dataclass(frozen=True)

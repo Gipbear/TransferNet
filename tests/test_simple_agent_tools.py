@@ -8,8 +8,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from kgqa.agent.tools import AnswerWithPathsTool, PathRetrieveTool
-from kgqa.llm_server.client import GenerateResponse
-from kgqa.server.client import PathRetrieveResponse
+from kgqa.serving.llm.client import GenerateResponse
+from kgqa.retrieve.api.client import PathRetrieveResponse
 
 
 class FakePathClient:

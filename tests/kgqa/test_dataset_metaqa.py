@@ -3,9 +3,9 @@ import os
 import tempfile
 import unittest
 
-from kgqa.datasets.metaqa import MetaQAAdapter
-from kgqa.datasets.registry import get_adapter
-from kgqa.types import MetricSpec, QASample
+from kgqa.retrieve.datasets.metaqa import MetaQAAdapter
+from kgqa.retrieve.datasets.registry import get_adapter
+from kgqa.core.contracts import MetricSpec, QASample
 
 
 class TestMetaQAAdapter(unittest.TestCase):

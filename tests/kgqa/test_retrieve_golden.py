@@ -6,9 +6,9 @@ from unittest import mock
 
 import torch
 
-from kgqa.kg.global_kg import GlobalKG
+from kgqa.retrieve.graph.global_kg import GlobalKG
 from kgqa.retrieve import engine
-from kgqa.types import RetrieveResult
+from kgqa.core.contracts import RetrieveResult
 
 
 class _Sample:
@@ -50,7 +50,7 @@ class TestEngineGolden(unittest.TestCase):
 
 class TestCliWritesGolden(unittest.TestCase):
     def test_output_jsonl_contains_golden(self):
-        from kgqa.cli import retrieve as retrieve_cli
+        from kgqa.retrieve.cli import retrieve as retrieve_cli
 
         result = RetrieveResult(
             question="q", topics=["m.topic"], hop=1,

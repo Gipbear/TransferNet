@@ -36,19 +36,19 @@ class LambdaDefaultTests(unittest.TestCase):
         self.assertEqual(param_default(PathRetrieveTool.__call__, "lambda_val"), 0.2)
 
     def test_server_client_default(self):
-        from kgqa.server.client import PathRetrieveClient
+        from kgqa.retrieve.api.client import PathRetrieveClient
 
         self.assertEqual(
             param_default(PathRetrieveClient.retrieve, "lambda_val"), 0.2
         )
 
     def test_server_schema_default(self):
-        from kgqa.server.schema import RetrieveRequest
+        from kgqa.retrieve.api.schema import RetrieveRequest
 
         self.assertEqual(RetrieveRequest(sample_index=0).lambda_val, 0.2)
 
     def test_service_default(self):
-        from kgqa.server.service import PathRetrieveService
+        from kgqa.retrieve.api.service import PathRetrieveService
 
         self.assertEqual(
             param_default(PathRetrieveService.retrieve, "lambda_val"), 0.2

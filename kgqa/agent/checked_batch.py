@@ -11,7 +11,7 @@ from kgqa.agent.common import (
     expand_pred_answers_with_path_constraint,
     tail_from_path_dict,
 )
-from kgqa.agent.common.metrics import norm_entity
+from kgqa.core.answer_metrics import norm_entity
 from kgqa.agent.tools import (
     AnswerWithPathsTool,
     PathRetrieveTool,

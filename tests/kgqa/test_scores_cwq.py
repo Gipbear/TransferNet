@@ -27,7 +27,7 @@ def _write_fake_cache(path):
 
 class TestCWQScoreLoader(unittest.TestCase):
     def test_load_restores_triples_and_meta(self):
-        from kgqa.scores.cwq import CWQScoreLoader
+        from kgqa.retrieve.cache.cwq import CWQScoreLoader
         path = os.path.join(tempfile.mkdtemp(), "fake_cwq.pt")
         _write_fake_cache(path)
         bundle = CWQScoreLoader().load(path)

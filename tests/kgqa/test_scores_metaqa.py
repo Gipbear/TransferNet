@@ -4,7 +4,7 @@ import unittest
 
 import torch
 
-from kgqa.scores.metaqa import MetaQAScoreLoader
+from kgqa.retrieve.cache.metaqa import MetaQAScoreLoader
 
 
 class TestMetaQAScoreLoader(unittest.TestCase):

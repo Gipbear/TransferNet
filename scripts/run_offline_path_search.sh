@@ -3,7 +3,7 @@
 # run_offline_path_search.sh
 #
 # 两步式离线路径搜索实验脚本：
-#   Step 1 (dump)   : 运行 kgqa.cli.dump_scores，
+#   Step 1 (dump)   : 运行 kgqa.retrieve.cli.dump_scores，
 #                     将模型中间得分矩阵写入缓存文件
 #   Step 2 (search) : 运行 scripts/offline_path_search.py，离线重放路径搜索
 #
@@ -232,7 +232,7 @@ run_dump() {
         --topk       "$TOPK" \
         --output     "$CACHE"
     )
-    python -m kgqa.cli.dump_scores "${dump_args[@]}"
+    python -m kgqa.retrieve.cli.dump_scores "${dump_args[@]}"
     echo "[$(ts)] dump 完成，耗时 $((SECONDS - t0))s"
 }
 

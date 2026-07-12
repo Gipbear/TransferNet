@@ -10,7 +10,7 @@ from kgqa.agent.common import (
     build_reasoning_prompt,
     parse_v2_output,
 )
-from kgqa.llm_server.client import LLMClient
+from kgqa.serving.llm.client import LLMClient
 
 
 @dataclass(frozen=True)

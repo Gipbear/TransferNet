@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import torch
-from kgqa.scores.base import SampleScore
+from kgqa.retrieve.cache.base import SampleScore
 
 
 def toy_sample_score() -> SampleScore:

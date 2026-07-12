@@ -6,7 +6,7 @@ import unittest
 
 class TestCWQProducerHelpers(unittest.TestCase):
     def test_read_vocab_line_order(self):
-        from kgqa.models.cwq import _read_vocab
+        from kgqa.backbone.cwq import _read_vocab
         fd, path = tempfile.mkstemp(suffix=".txt")
         os.close(fd)
         with open(path, "w", encoding="utf-8") as fh:
@@ -18,7 +18,7 @@ class TestCWQProducerHelpers(unittest.TestCase):
         self.assertEqual(vocab, {"m.0a": 0, "m.0b": 1})
 
     def test_valid_lines_skips_empty_subgraph_and_limits(self):
-        from kgqa.models.cwq import _valid_lines
+        from kgqa.backbone.cwq import _valid_lines
         rows = [
             {"question": "q1", "subgraph": {"tuples": [[0, 0, 1]]}},
             {"question": "q2", "subgraph": {"tuples": []}},

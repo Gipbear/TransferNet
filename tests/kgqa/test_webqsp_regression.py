@@ -13,14 +13,14 @@ def _rels_from(path_dict):
 @unittest.skipUnless(artifact_test_available(CACHE), ARTIFACT_TEST_SKIP_REASON)
 class TestWebQSPRegression(unittest.TestCase):
     def test_offline_paths_match_legacy(self):
-        from kgqa.kg.global_kg import GlobalKG
+        from kgqa.retrieve.graph.global_kg import GlobalKG
         from kgqa.retrieve.engine import (
             candidate_hop_numbers, candidate_to_tuple,
             reconstruct_ent_dict, reconstruct_rel_dict, search_path_candidates,
             select_path_candidates,
         )
-        from kgqa.scores.base import load_score_cache
-        from kgqa.datasets.registry import get_adapter
+        from kgqa.retrieve.cache.base import load_score_cache
+        from kgqa.retrieve.datasets.registry import get_adapter
         from kgqa.retrieve.backends.offline import OfflineBackend
 
         params = dict(alpha_final=1.0, threshold=0.01,

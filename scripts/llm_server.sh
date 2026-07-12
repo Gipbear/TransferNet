@@ -237,7 +237,7 @@ start_server() {
 
   cd "${PROJECT_DIR}"
   if [[ "${LLM_BACKEND}" == "siliconflow" ]]; then
-    nohup python -m kgqa.llm_server.server \
+    nohup python -m kgqa.serving.llm.server \
       --backend siliconflow \
       --siliconflow-base-url "${SILICONFLOW_BASE_URL}" \
       --siliconflow-model "${SILICONFLOW_MODEL}" \
@@ -245,7 +245,7 @@ start_server() {
       --port "${PORT}" \
       > "${LOG_PATH}" 2>&1 &
   else
-    nohup python -m kgqa.llm_server.server \
+    nohup python -m kgqa.serving.llm.server \
       --model "${MODEL_SNAPSHOT}" \
       --adapter "${ADAPTER_PATH}" \
       --host "${LLM_SERVER_HOST}" \

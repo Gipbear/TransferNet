@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from kgqa.kg.global_kg import GlobalKG
+from kgqa.retrieve.graph.global_kg import GlobalKG
 from kgqa.retrieve.engine import (
     candidate_hop_numbers,
     candidate_to_tuple,
@@ -24,7 +24,7 @@ from kgqa.retrieve.engine import (
     search_path_candidates,
     select_path_candidates,
 )
-from kgqa.scores.base import load_score_cache
+from kgqa.retrieve.cache.base import load_score_cache
 
 
 # TransferNet 实体预测阈值:e_score ≥ 此值视为"预测答案"。group_tails 过滤、

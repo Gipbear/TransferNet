@@ -1,6 +1,6 @@
 import unittest
-from kgqa.eval.path_eval import path_record, path_summary
-from kgqa.types import MetricSpec, RetrieveResult
+from kgqa.retrieve.eval.path_eval import path_record, path_summary
+from kgqa.core.contracts import MetricSpec, RetrieveResult
 
 
 def _result(idx, hop, tail):

@@ -3,7 +3,7 @@ from unittest import mock
 
 import torch
 
-from kgqa.scores.base import CacheMeta, SampleScore, ScoreBundle
+from kgqa.retrieve.cache.base import CacheMeta, SampleScore, ScoreBundle
 
 
 def _fake_bundle(n=2):

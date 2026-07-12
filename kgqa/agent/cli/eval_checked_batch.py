@@ -29,14 +29,14 @@ from kgqa.agent.common import (
     record_answer_counts,
     summarize_checked_batch_records,
 )
-from kgqa.agent.common.qa_data import WebQSPQASample
+from kgqa.core.qa_formats import WebQSPQASample
 from kgqa.agent.specs import AgentQASample, get_agent_spec
 from kgqa.agent.tools import (
     AnswerWithPathsTool,
     PathRetrieveTool,
     RejectedAnswerCheckTool,
 )
-from kgqa.llm_server.client import LLMClient, SILICONFLOW_MODEL, SiliconFlowLLMClient
+from kgqa.serving.llm.client import LLMClient, SILICONFLOW_MODEL, SiliconFlowLLMClient
 
 
 DEFAULT_INPUT_PATHS = {

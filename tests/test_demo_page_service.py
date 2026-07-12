@@ -1,7 +1,7 @@
 """demo_page 图变换与轨迹变换的单元测试。"""
 import unittest
 
-from kgqa.agent.demo_page.service import paths_to_graph, shape_replay_result
+from kgqa.agent.web.service import paths_to_graph, shape_replay_result
 
 
 def _paths():

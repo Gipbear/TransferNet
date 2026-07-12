@@ -1,6 +1,6 @@
 import unittest
 from pydantic import ValidationError
-from kgqa.types import RetrieveResult
+from kgqa.core.contracts import RetrieveResult
 
 
 class _StubBackend:
@@ -17,7 +17,7 @@ class _StubBackend:
 
 class TestServer(unittest.TestCase):
     def setUp(self):
-        from kgqa.server.path_retrieve_server import RetrieveRequest, create_app
+        from kgqa.retrieve.api.path_retrieve_server import RetrieveRequest, create_app
         self.backend = _StubBackend()
         self.request_type = RetrieveRequest
         app = create_app(self.backend)

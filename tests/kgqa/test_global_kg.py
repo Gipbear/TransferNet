@@ -1,5 +1,5 @@
 import unittest
-from kgqa.kg.global_kg import GlobalKG
+from kgqa.retrieve.graph.global_kg import GlobalKG
 
 
 class TestGlobalKG(unittest.TestCase):

@@ -4,7 +4,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, asdict
 
-from kgqa.types import RetrieveResult
+from kgqa.core.contracts import RetrieveResult
 
 
 @dataclass(frozen=True)

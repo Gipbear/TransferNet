@@ -1,10 +1,10 @@
 """离线后端：读得分缓存 → engine（edge source 逐样本分发）。"""
 from __future__ import annotations
 
-from kgqa.datasets.base import DatasetAdapter
+from kgqa.retrieve.datasets.base import DatasetAdapter
 from kgqa.retrieve import engine
 from kgqa.retrieve.backends.base import RetrieveBackend, RetrieveParams
-from kgqa.types import RetrieveResult
+from kgqa.core.contracts import RetrieveResult
 
 
 class OfflineBackend(RetrieveBackend):

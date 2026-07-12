@@ -13,7 +13,7 @@ class TestGoldStringsNameKey(unittest.TestCase):
     def test_name_key_maps_int_id_via_id2ent(self):
         # gold_key=name 时整数 gold_id 须先经 id2ent 还原实体名（与 pred 同口径）
         from types import SimpleNamespace
-        from kgqa.cli.eval import _gold_strings
+        from kgqa.retrieve.cli.eval import _gold_strings
 
         class _IdentityAdapter:
             def entity_name(self, e):
@@ -29,14 +29,14 @@ class TestGoldStringsNameKey(unittest.TestCase):
 class TestMetaQAEndToEnd(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        from kgqa.cli.dump_scores import main as dump_main
+        from kgqa.retrieve.cli.dump_scores import main as dump_main
         cls.cache = os.path.join(tempfile.mkdtemp(), "metaqa_small.pt")
         dump_main(["--dataset", "metaqa", "--ckpt", CKPT, "--input_dir", INPUT_DIR,
                    "--qa_file", TEST_PT, "--output", cls.cache,
                    "--per_hop_limit", "3", "--batch_size", "64"])
 
     def _offline(self):
-        from kgqa.datasets.registry import get_adapter
+        from kgqa.retrieve.datasets.registry import get_adapter
         from kgqa.retrieve.backends.offline import OfflineBackend
         adapter = get_adapter("metaqa", input_dir=INPUT_DIR)
         return OfflineBackend(adapter, cache_path=self.cache)
@@ -53,8 +53,8 @@ class TestMetaQAEndToEnd(unittest.TestCase):
         self.assertTrue(any(r.paths for r in by_hop[3]))
 
     def test_answer_eval_by_hop(self):
-        from kgqa.cli.eval import _gold_strings
-        from kgqa.eval.answer_eval import answer_record, answer_summary
+        from kgqa.retrieve.cli.eval import _gold_strings
+        from kgqa.retrieve.eval.answer_eval import answer_record, answer_summary
         backend = self._offline()
         adapter = backend.adapter
         spec = adapter.metric_spec()
@@ -72,8 +72,8 @@ class TestMetaQAEndToEnd(unittest.TestCase):
         self.assertGreater(summary["overall"]["hit1"], 0.0)
 
     def test_online_offline_parity_first3(self):
-        from kgqa.datasets.registry import get_adapter
-        from kgqa.models.metaqa import MetaQAScoreProducer
+        from kgqa.retrieve.datasets.registry import get_adapter
+        from kgqa.backbone.metaqa import MetaQAScoreProducer
         from kgqa.retrieve.backends.online import OnlineBackend
         adapter = get_adapter("metaqa", input_dir=INPUT_DIR)
         online = OnlineBackend(adapter, MetaQAScoreProducer(per_hop_limit=3),

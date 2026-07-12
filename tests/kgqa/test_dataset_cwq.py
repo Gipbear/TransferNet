@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from types import SimpleNamespace
 
-from kgqa.types import MetricSpec, QASample
+from kgqa.core.contracts import MetricSpec, QASample
 
 
 def _write_test_jsonl():
@@ -29,7 +29,7 @@ def _write_test_jsonl():
 
 class TestCWQAdapter(unittest.TestCase):
     def _adapter(self):
-        from kgqa.datasets.cwq import CWQAdapter
+        from kgqa.retrieve.datasets.cwq import CWQAdapter
         return CWQAdapter(input_dir="data/input/CWQ")
 
     def test_load_qa_parses_and_skips_empty_subgraph(self):
@@ -76,7 +76,7 @@ class TestCWQAdapter(unittest.TestCase):
         self.assertEqual(adapter.entity_name("m.0b"), "m.0b")
 
     def test_registry_returns_cwq(self):
-        from kgqa.datasets.registry import get_adapter
+        from kgqa.retrieve.datasets.registry import get_adapter
         adapter = get_adapter("cwq", input_dir="data/input/CWQ")
         self.assertEqual(adapter.name, "cwq")
 

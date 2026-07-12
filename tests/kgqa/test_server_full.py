@@ -8,8 +8,8 @@ import unittest
 
 import torch
 
-from kgqa.kg.global_kg import GlobalKG
-from kgqa.scores.base import CacheMeta, SampleScore, ScoreBundle
+from kgqa.retrieve.graph.global_kg import GlobalKG
+from kgqa.retrieve.cache.base import CacheMeta, SampleScore, ScoreBundle
 
 CACHE = "data/output/WebQSP/path_retrieve_server/score_cache/webqsp_test_1581.pt"
 INPUT_DIR = "data/input/WebQSP"
@@ -56,7 +56,7 @@ class _ToyAdapter:
 
 class TestPathRetrieveService(unittest.TestCase):
     def _service(self, **kwargs):
-        from kgqa.server.service import PathRetrieveService
+        from kgqa.retrieve.api.service import PathRetrieveService
         return PathRetrieveService(_ToyAdapter(), cache_path="toy.pt", **kwargs)
 
     def test_retrieve_by_sample_index(self):
@@ -101,8 +101,8 @@ class TestPathRetrieveService(unittest.TestCase):
 
 class TestServiceApp(unittest.TestCase):
     def setUp(self):
-        from kgqa.server.path_retrieve_server import create_service_app
-        from kgqa.server.service import PathRetrieveService
+        from kgqa.retrieve.api.path_retrieve_server import create_service_app
+        from kgqa.retrieve.api.service import PathRetrieveService
         service = PathRetrieveService(_ToyAdapter(), cache_path="toy.pt")
         app = create_service_app(service)
         self.endpoints = {
@@ -118,7 +118,7 @@ class TestServiceApp(unittest.TestCase):
         self.assertEqual(info["num_samples"], 1)
 
     def test_retrieve_endpoint_schema_compat(self):
-        from kgqa.server.schema import RetrieveRequest
+        from kgqa.retrieve.api.schema import RetrieveRequest
         body = self.endpoints["/retrieve"](
             RetrieveRequest(question="toy question", topic_entities=["m.topic"])
         )
@@ -130,7 +130,7 @@ class TestServiceApp(unittest.TestCase):
 
     def test_retrieve_endpoint_404_on_unknown_question(self):
         from fastapi import HTTPException
-        from kgqa.server.schema import RetrieveRequest
+        from kgqa.retrieve.api.schema import RetrieveRequest
         with self.assertRaises(HTTPException) as ctx:
             self.endpoints["/retrieve"](RetrieveRequest(question="no such question"))
         self.assertEqual(ctx.exception.status_code, 404)
@@ -145,8 +145,8 @@ class TestServiceLegacyParity(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from kgqa.datasets.registry import get_adapter
-        from kgqa.server.service import PathRetrieveService
+        from kgqa.retrieve.datasets.registry import get_adapter
+        from kgqa.retrieve.api.service import PathRetrieveService
         from oh_my_agent.path_retrieve_server.service import CachedPathRetriever
 
         adapter = get_adapter("webqsp", input_dir=INPUT_DIR)

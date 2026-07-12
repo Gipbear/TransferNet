@@ -1,4 +1,4 @@
-"""pfit 建集:kgqa.cli.retrieve 输出 JSONL → Unsloth SFT messages JSONL。
+"""pfit 建集:kgqa.retrieve.cli.retrieve 输出 JSONL → Unsloth SFT messages JSONL。
 
 迁自 llm_infer/build_kgcot_dataset.py。同输入 + 同配置 + 同 seed 时与 legacy
 产物 messages 逐条一致(RNG 调用序列严格复刻);数据集差异全部经 PfitDatasetSpec。
@@ -481,7 +481,7 @@ def run_build(*, dataset: str, input_path: str, exp_dir: str, fmt: str,
     if missing_golden:
         raise ValueError(
             f"输入缺 golden 字段({missing_golden}/{len(records)} 条);"
-            "请用带 golden 输出的 kgqa.cli.retrieve 重跑检索")
+            "请用带 golden 输出的 kgqa.retrieve.cli.retrieve 重跑检索")
     log.info("读入 %d 条  dataset=%s fmt=%s path_format=%s entity_repr=%s",
              len(records), dataset, fmt, path_format, entity_repr)
 
@@ -523,7 +523,7 @@ def run_build(*, dataset: str, input_path: str, exp_dir: str, fmt: str,
 def build_parser():
     p = argparse.ArgumentParser(description="pfit 建集:retrieve JSONL → SFT JSONL")
     p.add_argument("--dataset", required=True, help="webqsp | metaqa")
-    p.add_argument("--input", required=True, help="kgqa.cli.retrieve 输出 JSONL")
+    p.add_argument("--input", required=True, help="kgqa.retrieve.cli.retrieve 输出 JSONL")
     p.add_argument("--exp_dir", required=True, help="实验目录(产物+manifest)")
     p.add_argument("--format", default="v2", dest="fmt",
                    choices=["v1", "v2", "v3", "v4", "v11"])

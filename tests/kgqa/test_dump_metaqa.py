@@ -14,8 +14,8 @@ TEST_PT = "data/input/MetaQA_KB/test.pt"
 class TestDumpBundleHopField(unittest.TestCase):
     def test_bundle_to_cache_writes_hop(self):
         # 纯函数测试，无需 ckpt
-        from kgqa.cli.dump_scores import _bundle_to_cache
-        from kgqa.scores.base import CacheMeta, SampleScore, ScoreBundle
+        from kgqa.retrieve.cli.dump_scores import _bundle_to_cache
+        from kgqa.retrieve.cache.base import CacheMeta, SampleScore, ScoreBundle
         s = SampleScore(question="q", topic_ids=[1], gold_ids=[1],
                         hop_attn=torch.tensor([1.0, 0.0, 0.0]),
                         rel_probs=[torch.tensor([0.0])], ent_indices=[torch.tensor([1])],
@@ -30,7 +30,7 @@ class TestDumpBundleHopField(unittest.TestCase):
 @unittest.skipUnless(artifact_test_available(CKPT, TEST_PT), ARTIFACT_TEST_SKIP_REASON)
 class TestDumpMetaQAEndToEnd(unittest.TestCase):
     def test_dump_metaqa_small(self):
-        from kgqa.cli.dump_scores import main
+        from kgqa.retrieve.cli.dump_scores import main
         out = os.path.join(tempfile.mkdtemp(), "metaqa_small.pt")
         main(["--dataset", "metaqa", "--ckpt", CKPT, "--input_dir", INPUT_DIR,
               "--qa_file", TEST_PT, "--output", out, "--per_hop_limit", "2",

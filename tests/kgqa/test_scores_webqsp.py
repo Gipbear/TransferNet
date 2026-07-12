@@ -1,6 +1,6 @@
 import unittest
 
-from kgqa.scores.webqsp import WebQSPScoreLoader
+from kgqa.retrieve.cache.webqsp import WebQSPScoreLoader
 from tests.kgqa.integration import ARTIFACT_TEST_SKIP_REASON, artifact_test_available
 
 CACHE = "data/output/WebQSP/path_retrieve_server/score_cache/webqsp_test_1581.pt"
