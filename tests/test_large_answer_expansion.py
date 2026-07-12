@@ -6,11 +6,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from oh_my_agent.agent import CheckedBatchWebQAgent
-from oh_my_agent.cli.eval_checked_batch_agent import build_parser
-from oh_my_agent.llm_server.client import GenerateResponse
-from oh_my_agent.path_retrieve_server.client import PathRetrieveResponse
-from oh_my_agent.tools import (
+from kgqa.agent import CheckedBatchAgent
+from kgqa.agent.cli.eval_checked_batch import build_parser
+from kgqa.llm_server.client import GenerateResponse
+from kgqa.server.client import PathRetrieveResponse
+from kgqa.agent.tools import (
     AnswerWithPathsTool,
     PathRetrieveTool,
     RejectedAnswerCheckTool,
@@ -77,7 +77,7 @@ def build_agent(question, prediction):
             text_response("NONE"),
         ]
     )
-    return CheckedBatchWebQAgent(
+    return CheckedBatchAgent(
         path_tool=PathRetrieveTool(client=path_client, entity_map=ENTITY_MAP),
         answer_tool=AnswerWithPathsTool(client=answer_client),
         check_tool=RejectedAnswerCheckTool(client=answer_client),
@@ -117,7 +117,7 @@ class LargeAnswerExpansionTests(unittest.TestCase):
                 text_response("NONE"),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(client=path_client, entity_map=entity_map),
             answer_tool=AnswerWithPathsTool(client=answer_client),
             check_tool=RejectedAnswerCheckTool(client=answer_client),
@@ -201,7 +201,7 @@ class LargeAnswerExpansionTests(unittest.TestCase):
                 text_response("NONE"),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(client=FakePathClient(response), entity_map=ENTITY_MAP),
             answer_tool=AnswerWithPathsTool(client=answer_client),
             check_tool=RejectedAnswerCheckTool(client=answer_client),
@@ -231,7 +231,7 @@ class LargeAnswerExpansionTests(unittest.TestCase):
                 text_response("NONE"),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(client=FakePathClient(response), entity_map=ENTITY_MAP),
             answer_tool=AnswerWithPathsTool(client=answer_client),
             check_tool=RejectedAnswerCheckTool(client=answer_client),

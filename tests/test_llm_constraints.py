@@ -2,7 +2,7 @@
 
 import unittest
 
-from oh_my_agent.llm_server.constraints import (
+from kgqa.llm_server.constraints import (
     build_reject_list_prefix_fn,
     reject_list_complete,
     valid_reject_list_prefix,

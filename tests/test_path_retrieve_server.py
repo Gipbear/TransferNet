@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# legacy 对拍:锁定只读保留的 oh_my_agent 检索服务行为(kgqa 侧等价覆盖见
+# tests/kgqa/test_server_full.py;legacy 物理删除时本文件一并退役)
 from oh_my_agent.path_retrieve_server.service import CachedPathRetriever, normalize_question
 
 

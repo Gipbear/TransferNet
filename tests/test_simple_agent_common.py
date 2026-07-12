@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from oh_my_agent.common import (
+from kgqa.agent.common import (
     build_reverse_entity_map,
     expand_pred_answers_with_path_constraint,
     load_webqsp_qa_samples,

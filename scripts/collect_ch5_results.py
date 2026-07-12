@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from oh_my_agent.common.metrics import aggregate_metrics
+from kgqa.agent.common.metrics import aggregate_metrics
 
 # 列:展示名 -> summary 键
 COLUMNS = [

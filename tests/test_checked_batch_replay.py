@@ -13,20 +13,20 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from oh_my_agent.agent import CheckedBatchWebQAgent
-from oh_my_agent.agent.checked_batch_replay import replay_record
-from oh_my_agent.common.eval_records import build_eval_record
-from oh_my_agent.common import get_all_path_entities
-from oh_my_agent.common.metrics import (
+from kgqa.agent import CheckedBatchAgent
+from kgqa.agent.replay import replay_record
+from kgqa.agent.common.eval_records import build_eval_record
+from kgqa.agent.common import get_all_path_entities
+from kgqa.agent.common.metrics import (
     compute_answer_metrics,
     compute_faithfulness,
     label_golden_indices,
     llm_produced_answers,
 )
-from oh_my_agent.common.qa_data import WebQSPQASample
-from oh_my_agent.tools.answer_with_paths import AnswerWithPathsToolResult
-from oh_my_agent.tools.cited_path_check import CitedPathCheckResult
-from oh_my_agent.tools.path_retrieve import PathRetrieveToolResult
+from kgqa.agent.common.qa_data import WebQSPQASample
+from kgqa.agent.tools.answer_with_paths import AnswerWithPathsToolResult
+from kgqa.agent.tools.cited_path_check import CitedPathCheckResult
+from kgqa.agent.tools.path_retrieve import PathRetrieveToolResult
 
 
 # ---- 脚本化(fake)工具:生成"真实运行"的录制,answer/check 与后处理标志无关 ----
@@ -128,7 +128,7 @@ def _run_real(entity_map, retrieval, answer_scripts, accepts, *, batch_size=2, h
     # hybrid=True 还原 canonical:check_tool_after_first 非 None,启用 all_wrong_after_answer 早停
     answer_tool = _ScriptedAnswer(answer_scripts)
     check = _ScriptedCheck(answer_tool, accepts)
-    agent = CheckedBatchWebQAgent(
+    agent = CheckedBatchAgent(
         path_tool=_ScriptedPath(retrieval, entity_map),
         answer_tool=answer_tool,
         check_tool=check,

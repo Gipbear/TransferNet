@@ -16,10 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from oh_my_agent.path_retrieve_server.service import (
-    CachedPathRetriever,
-    drop_loopback_paths,
-)
+from kgqa.server.service import drop_loopback_paths
+# legacy 集成对拍:CachedPathRetriever 只读保留,kgqa 侧等价覆盖见 tests/kgqa/test_server_full.py
+from oh_my_agent.path_retrieve_server.service import CachedPathRetriever
 
 
 class DropLoopbackPureFunctionTests(unittest.TestCase):
