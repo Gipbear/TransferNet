@@ -1,6 +1,6 @@
 import unittest
 from pydantic import ValidationError
-from kgqa.types import RetrieveResult
+from kgqa.core.contracts import RetrieveResult
 
 
 class _StubBackend:

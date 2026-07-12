@@ -1,6 +1,6 @@
 import unittest
 from kgqa.retrieve.eval.answer_eval import answer_record, answer_summary
-from kgqa.types import MetricSpec
+from kgqa.core.contracts import MetricSpec
 
 
 class TestAnswerEval(unittest.TestCase):

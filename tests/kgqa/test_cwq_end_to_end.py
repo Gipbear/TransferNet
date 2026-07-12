@@ -21,7 +21,7 @@ class TestCWQEndToEnd(unittest.TestCase):
                    "--qa_file", QA_FILE, "--output", cls.cache, "--limit", "20"])
 
     def _offline(self):
-        from kgqa.datasets.registry import get_adapter
+        from kgqa.retrieve.datasets.registry import get_adapter
         from kgqa.retrieve.backends.offline import OfflineBackend
         adapter = get_adapter("cwq", input_dir=INPUT_DIR)
         return OfflineBackend(adapter, cache_path=self.cache)
@@ -56,7 +56,7 @@ class TestCWQEndToEnd(unittest.TestCase):
         self.assertGreater(summary["overall"]["hit1"], 0.0)
 
     def test_online_offline_parity_first3(self):
-        from kgqa.datasets.registry import get_adapter
+        from kgqa.retrieve.datasets.registry import get_adapter
         from kgqa.backbone.cwq import CWQScoreProducer
         from kgqa.retrieve.backends.online import OnlineBackend
         adapter = get_adapter("cwq", input_dir=INPUT_DIR)

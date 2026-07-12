@@ -10,7 +10,7 @@ QA = "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"
 class TestOnlineBackend(unittest.TestCase):
     @unittest.skipUnless(artifact_test_available(CKPT, QA), ARTIFACT_TEST_SKIP_REASON)
     def test_online_retrieve_smoke(self):
-        from kgqa.datasets.registry import get_adapter
+        from kgqa.retrieve.datasets.registry import get_adapter
         from kgqa.backbone.webqsp import WebQSPScoreProducer
         from kgqa.retrieve.backends.online import OnlineBackend
 

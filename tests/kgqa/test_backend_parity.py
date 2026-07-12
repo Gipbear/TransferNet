@@ -13,7 +13,7 @@ QA = "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"
 )
 class TestBackendParity(unittest.TestCase):
     def test_online_matches_offline_first3(self):
-        from kgqa.datasets.registry import get_adapter
+        from kgqa.retrieve.datasets.registry import get_adapter
         from kgqa.retrieve.backends.offline import OfflineBackend
         from kgqa.backbone.webqsp import WebQSPScoreProducer
         from kgqa.retrieve.backends.online import OnlineBackend

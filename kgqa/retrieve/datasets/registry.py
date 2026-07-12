@@ -1,13 +1,15 @@
-"""计划内三套数据集的检索适配器注册表。"""
+"""统一检索适配器注册表。"""
 from kgqa.retrieve.datasets.base import DatasetAdapter
 from kgqa.retrieve.datasets.cwq import CWQAdapter
 from kgqa.retrieve.datasets.metaqa import MetaQAAdapter
+from kgqa.retrieve.datasets.rearev_webqsp import ReaRevWebQSPAdapter
 from kgqa.retrieve.datasets.webqsp import WebQSPAdapter
 
 _REGISTRY: dict[str, type[DatasetAdapter]] = {
     "webqsp": WebQSPAdapter,
     "metaqa": MetaQAAdapter,
     "cwq": CWQAdapter,
+    "webqsp-rearev": ReaRevWebQSPAdapter,
 }
 
 

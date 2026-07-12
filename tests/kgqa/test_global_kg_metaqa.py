@@ -4,7 +4,7 @@ import unittest
 
 import numpy as np
 
-from kgqa.kg.global_kg import GlobalKG
+from kgqa.retrieve.graph.global_kg import GlobalKG
 
 
 class TestGlobalKGMetaQA(unittest.TestCase):

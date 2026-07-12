@@ -142,10 +142,9 @@ kgqa/
 - Modify: 内部业务 import 与 `scripts/path_retrieve_server.sh`
 - Test: `tests/kgqa/test_retrieve_import_compat.py`、既有检索/服务测试
 
-**Task-local exception:** 用户未提交的 `kgqa/datasets/rearev_webqsp.py` 与其在
-`kgqa/datasets/registry.py` 的注册保持原样、不纳入本重组提交。新的
-`retrieve/datasets/registry.py` 仅注册计划内的 webqsp/metaqa/cwq；旧 registry 因此
-不是 shim，继续作为 ReaRev 的独立兼容入口。
+**Task-local exception（后续已解除）:** 初始重组时 ReaRev 适配器保持原样；后续已迁入
+`retrieve/datasets/rearev_webqsp.py` 并注册为 `webqsp-rearev`。旧
+`kgqa/datasets/{registry,rearev_webqsp}.py` 仅保留兼容转发。
 
 **Interfaces:**
 
@@ -228,12 +227,12 @@ kgqa/
 
 ## Task 6: 清理未受保护的兼容 shim（breaking change）
 
-本任务由后续需求触发，覆盖上述“保留旧入口”约定：项目内调用、测试和运行说明全部切到 canonical 路径后，删除不被 ReaRev 或只读 parity 目录依赖的 shim。`kgqa/datasets/`、`kgqa/kg/`、`kgqa/scores/` 与 `kgqa/types.py` 因 ReaRev 适配仍依赖，明确不在本任务范围。
+本任务由后续需求触发，覆盖上述“保留旧入口”约定：项目内调用、测试和运行说明全部切到 canonical 路径后，删除不再需要的 shim。ReaRev adapter 已迁入 canonical `retrieve/datasets/`；只读 parity 的 `oh_my_agent` 也改为直接依赖 `retrieve.graph` 与 `retrieve.cache`。
 
 **Steps:**
 
 - [x] 将项目内测试、活动脚本和运行说明切换到 `backbone`、`retrieve`、`serving`、`agent.web`。
-- [x] 删除 `kgqa/models/`、`kgqa/eval/`、`kgqa/cli/`、`kgqa/server/`、`kgqa/llm_server/` 与 `kgqa/agent/demo_page/`，并移除兼容性测试。
+- [x] 删除 `kgqa/models/`、`kgqa/eval/`、`kgqa/cli/`、`kgqa/server/`、`kgqa/llm_server/`、`kgqa/kg/`、`kgqa/scores/`、`kgqa/datasets/`、`kgqa/types.py` 与 `kgqa/agent/demo_page/`，并移除兼容性测试。
 - [x] 删除 `kgqa/**/__pycache__/` 运行产物；不得删除用户的 ReaRev 文件。
 
 **Verify:**

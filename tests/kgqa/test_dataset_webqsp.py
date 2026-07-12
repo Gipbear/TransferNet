@@ -2,9 +2,9 @@ import os
 import tempfile
 import unittest
 
-from kgqa.datasets.registry import get_adapter
-from kgqa.datasets.webqsp import WebQSPAdapter
-from kgqa.types import QASample, MetricSpec
+from kgqa.retrieve.datasets.registry import get_adapter
+from kgqa.retrieve.datasets.webqsp import WebQSPAdapter
+from kgqa.core.contracts import QASample, MetricSpec
 
 
 class TestWebQSPAdapter(unittest.TestCase):

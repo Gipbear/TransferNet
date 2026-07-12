@@ -36,7 +36,7 @@ class TestMetaQAEndToEnd(unittest.TestCase):
                    "--per_hop_limit", "3", "--batch_size", "64"])
 
     def _offline(self):
-        from kgqa.datasets.registry import get_adapter
+        from kgqa.retrieve.datasets.registry import get_adapter
         from kgqa.retrieve.backends.offline import OfflineBackend
         adapter = get_adapter("metaqa", input_dir=INPUT_DIR)
         return OfflineBackend(adapter, cache_path=self.cache)
@@ -72,7 +72,7 @@ class TestMetaQAEndToEnd(unittest.TestCase):
         self.assertGreater(summary["overall"]["hit1"], 0.0)
 
     def test_online_offline_parity_first3(self):
-        from kgqa.datasets.registry import get_adapter
+        from kgqa.retrieve.datasets.registry import get_adapter
         from kgqa.backbone.metaqa import MetaQAScoreProducer
         from kgqa.retrieve.backends.online import OnlineBackend
         adapter = get_adapter("metaqa", input_dir=INPUT_DIR)

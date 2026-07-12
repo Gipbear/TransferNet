@@ -8,8 +8,8 @@ import unittest
 
 import torch
 
-from kgqa.kg.global_kg import GlobalKG
-from kgqa.scores.base import CacheMeta, SampleScore, ScoreBundle
+from kgqa.retrieve.graph.global_kg import GlobalKG
+from kgqa.retrieve.cache.base import CacheMeta, SampleScore, ScoreBundle
 
 CACHE = "data/output/WebQSP/path_retrieve_server/score_cache/webqsp_test_1581.pt"
 INPUT_DIR = "data/input/WebQSP"
@@ -145,7 +145,7 @@ class TestServiceLegacyParity(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from kgqa.datasets.registry import get_adapter
+        from kgqa.retrieve.datasets.registry import get_adapter
         from kgqa.retrieve.api.service import PathRetrieveService
         from oh_my_agent.path_retrieve_server.service import CachedPathRetriever
 

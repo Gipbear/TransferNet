@@ -1,4 +1,4 @@
-"""kgqa 顶层目录只保留当前能力域与受保护的 ReaRev 兼容层。"""
+"""kgqa 顶层目录只保留当前能力域。"""
 from __future__ import annotations
 
 import unittest
@@ -16,16 +16,14 @@ class TestPackageLayout(unittest.TestCase):
             "cli",
             "server",
             "llm_server",
+            "kg",
+            "scores",
+            "datasets",
+            "types.py",
             "agent/demo_page",
         ):
             with self.subTest(relative=relative):
                 self.assertFalse((KGQA_ROOT / relative).exists())
-
-    def test_rearev_compatibility_surface_remains(self):
-        for relative in ("datasets", "kg", "scores", "types.py"):
-            with self.subTest(relative=relative):
-                self.assertTrue((KGQA_ROOT / relative).exists())
-
 
 if __name__ == "__main__":
     unittest.main()

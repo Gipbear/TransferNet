@@ -6,9 +6,9 @@ from unittest import mock
 
 import torch
 
-from kgqa.kg.global_kg import GlobalKG
+from kgqa.retrieve.graph.global_kg import GlobalKG
 from kgqa.retrieve import engine
-from kgqa.types import RetrieveResult
+from kgqa.core.contracts import RetrieveResult
 
 
 class _Sample:

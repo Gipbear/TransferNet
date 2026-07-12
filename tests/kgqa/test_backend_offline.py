@@ -1,6 +1,6 @@
 import unittest
 
-from kgqa.datasets.registry import get_adapter
+from kgqa.retrieve.datasets.registry import get_adapter
 from kgqa.retrieve.backends.offline import OfflineBackend
 from tests.kgqa.integration import ARTIFACT_TEST_SKIP_REASON, artifact_test_available
 

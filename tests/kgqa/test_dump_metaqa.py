@@ -15,7 +15,7 @@ class TestDumpBundleHopField(unittest.TestCase):
     def test_bundle_to_cache_writes_hop(self):
         # 纯函数测试，无需 ckpt
         from kgqa.retrieve.cli.dump_scores import _bundle_to_cache
-        from kgqa.scores.base import CacheMeta, SampleScore, ScoreBundle
+        from kgqa.retrieve.cache.base import CacheMeta, SampleScore, ScoreBundle
         s = SampleScore(question="q", topic_ids=[1], gold_ids=[1],
                         hop_attn=torch.tensor([1.0, 0.0, 0.0]),
                         rel_probs=[torch.tensor([0.0])], ent_indices=[torch.tensor([1])],
