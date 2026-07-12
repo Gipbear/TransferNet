@@ -91,12 +91,17 @@ class CachedRetrievalResult:
     mmr_reason_paths: list[dict[str, Any]]
     prediction: dict[str, float]
     elapsed_ms: float
-    alpha_final: float
+    eta: float
     threshold: float
     beam_size: int
     lambda_val: float
     cache_path: str
     group_tails: dict[str, list[str]]
+
+    @property
+    def alpha_final(self) -> float:
+        """历史属性兼容；新代码应读取 eta。"""
+        return self.eta
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -107,7 +112,8 @@ class CachedRetrievalResult:
             "mmr_reason_paths": self.mmr_reason_paths,
             "prediction": self.prediction,
             "elapsed_ms": self.elapsed_ms,
-            "alpha_final": self.alpha_final,
+            "eta": self.eta,
+            "alpha_final": self.eta,
             "threshold": self.threshold,
             "beam_size": self.beam_size,
             "lambda_val": self.lambda_val,
@@ -146,12 +152,15 @@ class PathRetrieveService:
         question: Optional[str] = None,
         sample_index: Optional[int] = None,
         topic_entities: Optional[list[str]] = None,
-        alpha_final: float = 1.0,
+        eta: float = 1.0,
+        alpha_final: float | None = None,
         threshold: float = 0.01,
         beam_size: int = 50,
         lambda_val: float = 0.2,
         drop_loopback: bool = True,
     ) -> CachedRetrievalResult:
+        if alpha_final is not None:
+            eta = alpha_final
         if beam_size < 1:
             raise ValueError("beam_size must be >= 1")
 
@@ -185,7 +194,7 @@ class PathRetrieveService:
         selected = select_path_candidates(
             path_candidates,
             beam_size,
-            alpha_final=alpha_final,
+            eta=eta,
             lambda_val=lambda_val,
         )
         candidates = [candidate_to_tuple(candidate) for candidate in selected]
@@ -207,7 +216,7 @@ class PathRetrieveService:
             mmr_reason_paths=self._serialize_paths(paths),
             prediction=self._prediction(sample),
             elapsed_ms=round(elapsed_ms, 1),
-            alpha_final=alpha_final,
+            eta=eta,
             threshold=threshold,
             beam_size=beam_size,
             lambda_val=lambda_val,

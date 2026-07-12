@@ -26,7 +26,8 @@ class RetrieveRequest(BaseModel):
     beam_size: int = 50
     lambda_val: float = 0.2
     threshold: float = 0.01
-    alpha_final: float = 1.0
+    eta: float = 1.0
+    alpha_final: float | None = None
 
 
 def create_app(backend) -> FastAPI:
@@ -38,9 +39,10 @@ def create_app(backend) -> FastAPI:
 
     @app.post("/retrieve")
     def retrieve(req: RetrieveRequest):
+        eta = req.alpha_final if req.alpha_final is not None else req.eta
         result = backend.retrieve(
             req.sample_index, beam_size=req.beam_size,
-            lambda_val=req.lambda_val, threshold=req.threshold, alpha_final=req.alpha_final,
+            lambda_val=req.lambda_val, threshold=req.threshold, eta=eta,
         )
         return asdict(result)
 
@@ -59,7 +61,7 @@ def create_service_app(service, *, drop_loopback: bool | None = None) -> FastAPI
                 question=req.question,
                 sample_index=req.sample_index,
                 topic_entities=req.topic_entities,
-                alpha_final=req.alpha_final,
+                eta=req.eta,
                 threshold=req.threshold,
                 beam_size=req.beam_size,
                 lambda_val=req.lambda_val,

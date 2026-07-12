@@ -122,11 +122,16 @@ class TestServiceApp(unittest.TestCase):
         body = self.endpoints["/retrieve"](
             RetrieveRequest(question="toy question", topic_entities=["m.topic"])
         )
-        # legacy 响应字段全在位
+        # 现役 eta 与历史兼容字段均在位
         for key in ("question", "sample_index", "topics", "hop", "mmr_reason_paths",
-                    "prediction", "elapsed_ms", "alpha_final", "threshold",
+                    "prediction", "elapsed_ms", "eta", "alpha_final", "threshold",
                     "beam_size", "lambda_val", "cache_path", "group_tails"):
             self.assertIn(key, body)
+
+    def test_request_accepts_legacy_alpha_final(self):
+        from kgqa.retrieve.api.schema import RetrieveRequest
+        request = RetrieveRequest(question="toy question", alpha_final=0.7)
+        self.assertEqual(request.eta, 0.7)
 
     def test_retrieve_endpoint_404_on_unknown_question(self):
         from fastapi import HTTPException

@@ -22,13 +22,30 @@ class TestExperimentRunners(unittest.TestCase):
                 "backbone": "transfernet", "config_id": "v1", "topk": 500,
                 "topk_candidates": [100],
                 "score_source": {"ckpt": "models/a.pt", "input_dir": "data/input/WebQSP", "splits": {"test": {"qa_file": "data/test.txt"}}},
-                "retrieve": {"beam_size": 50, "lambda_val": 0.2, "threshold": 0.01, "alpha_final": 1.0},
+                "retrieve": {"beam_size": 50, "lambda_val": 0.2, "threshold": 0.01, "eta": 1.0},
                 "parameter_scan": [{"id": "对照", "retrieve": {"lambda_val": 0.0}}],
             })
             stream = io.StringIO()
             with redirect_stdout(stream):
                 run_ch3.main(["--dataset", "webqsp", "--config", str(config), "--project_dir", str(root), "--dry_run"])
             self.assertIn("data/output/kgqa/ch3_retrieval/webqsp/transfernet", stream.getvalue())
+            self.assertIn("topk100_test/evaluation", stream.getvalue())
+            self.assertIn('"--eta" "1.0"', stream.getvalue())
+
+    def test_ch3_webqsp_config_defines_complete_beam_lambda_scan(self):
+        root = Path(__file__).resolve().parents[2]
+        config = json.loads((root / "experiments/configs/ch3/webqsp_transfernet_v1.json").read_text(encoding="utf-8"))
+        pairs = {
+            (item["retrieve"]["beam_size"], item["retrieve"]["lambda_val"])
+            for item in config["parameter_scan"]
+        }
+        self.assertEqual(len(pairs), 15)
+        self.assertEqual(pairs, {
+            (beam_size, lambda_val)
+            for beam_size in (20, 50, 100)
+            for lambda_val in (0.0, 0.1, 0.2, 0.3, 0.5)
+        })
+        self.assertEqual(config["retrieve"]["eta"], 1.0)
 
     def test_ch4_requires_confirmed_profile_before_dry_run(self):
         with tempfile.TemporaryDirectory() as directory:

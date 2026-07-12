@@ -60,6 +60,7 @@ class PathRetrieveClientTests(unittest.TestCase):
                 "question": "what does jamaican people speak",
                 "sample_index": None,
                 "topic_entities": ["m.03_r3"],
+                "eta": 1.0,
                 "alpha_final": 1.0,
                 "threshold": 0.01,
                 "beam_size": 50,

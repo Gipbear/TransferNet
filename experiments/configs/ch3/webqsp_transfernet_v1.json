@@ -10,16 +10,29 @@
   "topk": 500,
   "topk_candidates": [100, 250, 500, 1000],
   "score_source": {
-    "ckpt": "",
+    "ckpt": "data/ckpt/WebQSP/model-49-0.7154.pt",
     "input_dir": "data/input/WebQSP",
     "splits": {
       "train": {"qa_file": "data/input/WebQSP/QA_data/WebQuestionsSP/qa_train_webqsp_fixed.txt"},
       "test": {"qa_file": "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"}
     }
   },
-  "retrieve": {"beam_size": 50, "lambda_val": 0.2, "threshold": 0.01, "alpha_final": 1.0},
+  "retrieve": {"beam_size": 50, "lambda_val": 0.2, "threshold": 0.01, "eta": 1.0},
   "parameter_scan": [
-    {"id": "无多样性对照", "retrieve": {"lambda_val": 0.0}},
-    {"id": "候选配置", "retrieve": {"lambda_val": 0.2}}
+    {"id": "beam20_lambda0", "label": "beam=20，λ=0.0", "retrieve": {"beam_size": 20, "lambda_val": 0.0}},
+    {"id": "beam20_lambda01", "label": "beam=20，λ=0.1", "retrieve": {"beam_size": 20, "lambda_val": 0.1}},
+    {"id": "beam20_lambda02", "label": "beam=20，λ=0.2", "retrieve": {"beam_size": 20, "lambda_val": 0.2}},
+    {"id": "beam20_lambda03", "label": "beam=20，λ=0.3", "retrieve": {"beam_size": 20, "lambda_val": 0.3}},
+    {"id": "beam20_lambda05", "label": "beam=20，λ=0.5", "retrieve": {"beam_size": 20, "lambda_val": 0.5}},
+    {"id": "beam50_lambda0", "label": "beam=50，λ=0.0", "retrieve": {"beam_size": 50, "lambda_val": 0.0}},
+    {"id": "beam50_lambda01", "label": "beam=50，λ=0.1", "retrieve": {"beam_size": 50, "lambda_val": 0.1}},
+    {"id": "beam50_lambda02", "label": "beam=50，λ=0.2", "retrieve": {"beam_size": 50, "lambda_val": 0.2}},
+    {"id": "beam50_lambda03", "label": "beam=50，λ=0.3", "retrieve": {"beam_size": 50, "lambda_val": 0.3}},
+    {"id": "beam50_lambda05", "label": "beam=50，λ=0.5", "retrieve": {"beam_size": 50, "lambda_val": 0.5}},
+    {"id": "beam100_lambda0", "label": "beam=100，λ=0.0", "retrieve": {"beam_size": 100, "lambda_val": 0.0}},
+    {"id": "beam100_lambda01", "label": "beam=100，λ=0.1", "retrieve": {"beam_size": 100, "lambda_val": 0.1}},
+    {"id": "beam100_lambda02", "label": "beam=100，λ=0.2", "retrieve": {"beam_size": 100, "lambda_val": 0.2}},
+    {"id": "beam100_lambda03", "label": "beam=100，λ=0.3", "retrieve": {"beam_size": 100, "lambda_val": 0.3}},
+    {"id": "beam100_lambda05", "label": "beam=100，λ=0.5", "retrieve": {"beam_size": 100, "lambda_val": 0.5}}
   ]
 }

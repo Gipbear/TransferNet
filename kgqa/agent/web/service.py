@@ -5,7 +5,7 @@ from typing import Any
 
 # 终版（gatev2）配置：检索三参数 + 校验后处理 run flags。
 # 与 scripts/_sweep_ch5_thresholds.py 的 BASE 保持一致，改动需同步。
-FINAL_RETRIEVAL = {"beam_size": 50, "lambda_val": 0.2, "alpha_final": 1.0}
+FINAL_RETRIEVAL = {"beam_size": 50, "lambda_val": 0.2, "eta": 1.0}
 FINAL_CHECK_FLAGS = dict(
     batch_size=20,
     expansion_min_answers=8,

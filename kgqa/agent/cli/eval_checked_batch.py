@@ -79,7 +79,8 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Run a comma/space-separated list of 0-based sample indices",
     )
-    parser.add_argument("--alpha_final", type=float, default=1.0)
+    parser.add_argument("--eta", type=float, default=1.0, help="终点实体分数融合权重 η")
+    parser.add_argument("--alpha_final", type=float, dest="eta", help=argparse.SUPPRESS)
     parser.add_argument("--path_threshold", type=float, default=0.01)
     parser.add_argument("--beam_size", type=int, default=50)
     parser.add_argument("--lambda_val", type=float, default=0.2)
@@ -415,7 +416,7 @@ def main(argv: list[str] | None = None) -> int:
             result = agent.run(
                 sample.question,
                 sample.topic_mid,
-                alpha_final=args.alpha_final,
+                eta=args.eta,
                 threshold=args.path_threshold,
                 beam_size=args.beam_size,
                 lambda_val=args.lambda_val,
@@ -508,7 +509,7 @@ def main(argv: list[str] | None = None) -> int:
             "output_path": output_paths["records"],
             "initial_retrieval_path": output_paths["initial_retrieval"],
             "initial_answer_path": output_paths["initial_answer"],
-            "alpha_final": args.alpha_final,
+            "eta": args.eta,
             "path_threshold": args.path_threshold,
             "beam_size": args.beam_size,
             "lambda_val": args.lambda_val,

@@ -65,17 +65,20 @@ class PathRetrieveTool:
         question: str | None = None,
         topic_mid: str | None = None,
         *,
-        alpha_final: float = 1.0,
+        eta: float = 1.0,
+        alpha_final: float | None = None,
         threshold: float = 0.01,
         beam_size: int = 50,
         lambda_val: float = 0.2,
         sample_index: int | None = None,
     ) -> PathRetrieveToolResult:
+        if alpha_final is not None:
+            eta = alpha_final
         response = self.client.retrieve(
             question,
             sample_index=sample_index,
             topic_entities=[topic_mid] if topic_mid is not None else None,
-            alpha_final=alpha_final,
+            eta=eta,
             threshold=threshold,
             beam_size=beam_size,
             lambda_val=lambda_val,

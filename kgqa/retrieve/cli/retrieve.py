@@ -24,7 +24,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--beam_size", type=int, default=50)
     p.add_argument("--lambda_val", type=float, default=0.2)
     p.add_argument("--threshold", type=float, default=0.01)
-    p.add_argument("--alpha_final", type=float, default=1.0)
+    p.add_argument("--eta", type=float, default=1.0,
+                   help="终点实体分数融合权重 η（论文符号）")
+    p.add_argument("--alpha_final", type=float, dest="eta", help=argparse.SUPPRESS)
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--output", default=None, help="逐样本 JSONL 输出路径")
     add_runtime_arguments(p)
@@ -78,7 +80,7 @@ def run_retrieval(args):
     )
     backend = build_backend(args)
     params = dict(beam_size=args.beam_size, lambda_val=args.lambda_val,
-                  threshold=args.threshold, alpha_final=args.alpha_final)
+                  threshold=args.threshold, eta=args.eta)
     results = backend.retrieve_all(limit=args.limit, **params)
     if args.output:
         os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)

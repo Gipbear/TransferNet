@@ -39,11 +39,12 @@ def _score_source(config: dict[str, Any], split: str) -> dict[str, str]:
 
 def _retrieve_args(config: dict[str, Any], override: dict[str, Any]) -> list[str]:
     params = {**config["retrieve"], **override}
+    eta = params.get("eta", params.get("alpha_final", 1.0))
     return [
         "--beam_size", str(params["beam_size"]),
         "--lambda_val", str(params["lambda_val"]),
         "--threshold", str(params["threshold"]),
-        "--alpha_final", str(params["alpha_final"]),
+        "--eta", str(eta),
     ]
 
 
@@ -67,10 +68,10 @@ def main(argv: list[str] | None = None) -> int:
             for split in config.get("score_source", {}).get("splits", {}):
                 source = _score_source(config, split)
                 score_id = f"topk{topk}_{split}"
-                run_dir = saturation_dir / score_id
+                score_run_dir = saturation_dir / score_id / "score"
                 cache_path = paths.score_dir(args.dataset, args.backbone, score_id) / f"{split}.pt"
                 configure_runtime(
-                    argparse.Namespace(run_dir=str(run_dir), log_level="INFO"),
+                    argparse.Namespace(run_dir=str(score_run_dir), log_level="INFO"),
                     command="第三章 top-k 饱和性得分缓存",
                     manifest={"config_path": str(config_path), "topk": topk, "split": split, "output": str(cache_path)},
                 )
@@ -80,11 +81,30 @@ def main(argv: list[str] | None = None) -> int:
                     "--input_dir", str(resolve_path(project_dir, source["input_dir"])),
                     "--qa_file", str(resolve_path(project_dir, source["qa_file"])),
                     "--split", split, "--topk", str(topk), "--output", str(cache_path),
-                    "--run_dir", str(run_dir),
+                    "--run_dir", str(score_run_dir),
                 ]
-                run_command(command, run_dir, dry_run=args.dry_run)
-                update_progress(run_dir, completed=1, total=1, status="completed", phase="得分缓存")
-                emit_event(run_dir, "phase_end", phase="得分缓存")
+                run_command(command, score_run_dir, dry_run=args.dry_run)
+                update_progress(score_run_dir, completed=1, total=1, status="completed", phase="得分缓存")
+                emit_event(score_run_dir, "phase_end", phase="得分缓存")
+
+                evaluation_run_dir = saturation_dir / score_id / "evaluation"
+                output = saturation_dir / score_id / f"{split}.jsonl"
+                summary = saturation_dir / score_id / f"{split}_summary.json"
+                configure_runtime(
+                    argparse.Namespace(run_dir=str(evaluation_run_dir), log_level="INFO"),
+                    command="第三章 top-k 饱和性检索评测",
+                    manifest={"config_path": str(config_path), "topk": topk, "split": split, "cache": str(cache_path)},
+                )
+                evaluation_command = [
+                    sys.executable, "-m", "kgqa.retrieve.cli.eval", "--dataset", args.dataset,
+                    "--backend", "offline", "--cache", str(cache_path),
+                    "--input_dir", str(resolve_path(project_dir, source["input_dir"])),
+                    "--output", str(output), "--summary", str(summary), "--run_dir", str(evaluation_run_dir),
+                    *_retrieve_args(config, {}),
+                ]
+                run_command(evaluation_command, evaluation_run_dir, dry_run=args.dry_run)
+                update_progress(evaluation_run_dir, completed=1, total=1, status="completed", phase="top-k 饱和性评测")
+                emit_event(evaluation_run_dir, "phase_end", phase="top-k 饱和性评测")
 
     if args.phase in {"scan", "all"}:
         scan_items = config.get("parameter_scan", [])

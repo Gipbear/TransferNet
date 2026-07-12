@@ -242,7 +242,8 @@ class CheckedBatchAgent:
         question: str,
         topic_mid: str,
         *,
-        alpha_final: float = 1.0,
+        eta: float = 1.0,
+        alpha_final: float | None = None,
         threshold: float = 0.01,
         beam_size: int = 50,
         lambda_val: float = 0.2,
@@ -283,10 +284,12 @@ class CheckedBatchAgent:
         self._expansion_top_groups = expansion_top_groups
         self._drop_topic_self = drop_topic_self
 
+        if alpha_final is not None:
+            eta = alpha_final
         retrieval = self.path_tool(
             question,
             topic_mid,
-            alpha_final=alpha_final,
+            eta=eta,
             threshold=threshold,
             beam_size=beam_size,
             lambda_val=lambda_val,

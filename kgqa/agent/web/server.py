@@ -74,7 +74,7 @@ def create_app(*, questions: QuestionIndex,
         try:
             resp = retrieve_fn(sample_index=req.sample_index,
                                beam_size=req.beam_size, lambda_val=req.lambda_val,
-                               alpha_final=req.alpha_final)
+                               eta=req.eta)
         except requests.exceptions.RequestException as exc:
             # 注意：requests 的连接异常不是内建 ConnectionError 子类，必须按 requests 体系捕获
             raise HTTPException(status_code=502, detail=(
@@ -86,7 +86,7 @@ def create_app(*, questions: QuestionIndex,
             "is_final_config": (
                 req.beam_size == FINAL_RETRIEVAL["beam_size"]
                 and req.lambda_val == FINAL_RETRIEVAL["lambda_val"]
-                and req.alpha_final == FINAL_RETRIEVAL["alpha_final"]),
+                and req.eta == FINAL_RETRIEVAL["eta"]),
             "elapsed_ms": resp.elapsed_ms,
         }
 

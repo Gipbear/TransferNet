@@ -1,7 +1,8 @@
 # KGQA 可复现实验入口
 
 本目录是第三、四、五章的现役实验编排入口。历史保留脚本仍在 `scripts/`，仅用于
-论文复现核对；新实验不得再向旧目录写入产物。
+论文复现核对；新实验不得再向旧目录写入产物。本文档按章节补充运行方式；当前先给出
+第三章。
 
 ## 术语
 
@@ -13,39 +14,57 @@
 
 路径和命令行参数使用英文标识，但所有配置说明、注释和结果报告均使用中文。
 
-## 运行顺序
+## 第三章：检索实验
 
-1. 在 `configs/ch3/` 中填写实际 checkpoint 和 CWQ QA 文件；先执行 top-k 饱和性实验及参数扫描。
-2. 审核候选结果，填写 `confirmation_reason`，并将对应第三章配置的 `status` 改为
-   `confirmed`，同时填写 `selected_candidate`。这一步是人工确认，脚本不会根据测试集
-   指标自动修改这些字段。
-3. 发布被确认候选的 train/test JSONL。第四、五章只读取此正式目录。
-4. 使用该配置运行第四章或第五章。未确认的配置会被拒绝。
+### 实验设计
+
+- 每个数据集先生成 `topk={100,250,500,1000}` 的 train/test score 缓存，用于观察
+  top-k 饱和性。默认下游缓存为 `topk=500`，但应根据饱和性结果人工确认是否调整。
+- 固定 `threshold=0.01`、终点实体融合权重 `eta=1.0`，完整比较
+  `beam_size={20,50,100}` 与 `lambda_val={0.0,0.1,0.2,0.3,0.5}` 的笛卡尔积，共 15 组。
+  `lambda_val=0.0` 是无多样性惩罚对照；其余值控制 MMR 的关系集合重叠惩罚。
+- `eta` 是论文中的终点实体分数融合权重，替代旧称 `alpha_final`。现役命令和配置使用
+  `eta`；旧参数 `--alpha_final` 仍可被读取，仅为兼容历史脚本。
+- 不根据测试集指标自动选择配置。完成扫描后，由人工在配置中填写确认理由和
+  `selected_candidate`，再发布给第四、五章使用。
+
+### 运行步骤
 
 ```bash
-# 仅展示第三章将运行的命令和输出位置
+# 0. 先核对 WebQSP 配置：在以下文件填写或确认 checkpoint；其余数据集也在 configs/ch3/。
+#    如需改默认 top-k 或扫描范围，直接编辑 retrieve 与 parameter_scan 字段。
+sed -n '1,160p' experiments/configs/ch3/webqsp_transfernet_v1.json
+
+# 1. 演练：只展示 8 个 score 缓存任务、8 个 top-k 评测任务和 15×2 个参数扫描任务。
 python -m experiments.run_ch3 --dataset webqsp --dry_run
 
-# 生成 WebQSP 的 top-k 得分缓存和检索参数扫描结果
+# 2. 实际运行：先生成并评测 top-k 饱和性缓存，再运行 beam/λ 完整对比。
 python -m experiments.run_ch3 --dataset webqsp --phase all
 
-# 人工确认后，将所选候选结果发布为第四、五章的正式上游输入
+# 3. 审核每组 train/test 汇总指标与日志（示例为 beam=50、λ=0.2）。
+cat data/output/kgqa/ch3_retrieval/webqsp/transfernet/confirmed_profiles/transfernet_v1/\
+candidates/beam50_lambda02/test_summary.json
+
+# 4. 人工确认：在 JSON 中填写 confirmation_reason，设 status 为 confirmed，并令
+#    selected_candidate 为某个参数组 ID（如 beam50_lambda02）。随后发布正式检索结果。
 python -m experiments.run_ch3 --dataset webqsp --phase publish
-
-# 第四章：主实验的三个随机种子
-python -m experiments.run_ch4 \
-  --dataset webqsp \
-  --config experiments/configs/ch4/webqsp_v1.json \
-  --profile experiments/configs/ch3/webqsp_transfernet_v1.json \
-  --experiment 主实验
-
-# 第五章：基准正式评测；路径服务和语言模型服务需先就绪
-python -m experiments.run_ch5 \
-  --dataset webqsp \
-  --config experiments/configs/ch5/webqsp_v1.json \
-  --profile experiments/configs/ch3/webqsp_transfernet_v1.json \
-  --phase benchmark
 ```
 
-所有新产物位于 `data/output/kgqa/`：共享 score 缓存位于 `shared/`，第三章位于
-`ch3_retrieval/`，第四章位于 `ch4_pfit/`，第五章位于 `ch5_pv_gac/`。
+可单独执行 `--phase scores`、`--phase scan` 或 `--phase publish`，便于中断后按阶段恢复。
+每个任务目录都有 `run_manifest.json`、`progress.json`、`logs/run.log`、
+`logs/events.jsonl` 和 `logs/console.log`。第三章产物如下：
+
+```text
+data/output/kgqa/
+├── shared/webqsp/backbones/transfernet/scores/
+│   └── topk{100,250,500,1000}_{train,test}/
+└── ch3_retrieval/webqsp/transfernet/
+    ├── topk_saturation/transfernet_v1/
+    │   ├── topk{100,250,500,1000}_{train,test}/{score,evaluation}/
+    │   └── parameter_scan/<参数组>/<split>/
+    └── confirmed_profiles/transfernet_v1/
+        ├── candidates/<参数组>/{train,test}.jsonl
+        ├── candidates/<参数组>/{train,test}_summary.json
+        ├── {train,test}.jsonl                 # 仅人工确认并发布后产生
+        └── confirmed_config.json               # 同上
+```

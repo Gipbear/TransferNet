@@ -25,18 +25,22 @@ class PathRetrieveClient:
         *,
         sample_index: Optional[int] = None,
         topic_entities: Optional[list[str]] = None,
-        alpha_final: float = 1.0,
+        eta: float = 1.0,
+        alpha_final: float | None = None,
         threshold: float = 0.01,
         beam_size: int = 50,
         lambda_val: float = 0.2,
     ) -> PathRetrieveResponse:
+        if alpha_final is not None:
+            eta = alpha_final
         return self._post(
             "/retrieve",
             {
                 "question": question,
                 "sample_index": sample_index,
                 "topic_entities": topic_entities,
-                "alpha_final": alpha_final,
+                "eta": eta,
+                "alpha_final": eta,
                 "threshold": threshold,
                 "beam_size": beam_size,
                 "lambda_val": lambda_val,
