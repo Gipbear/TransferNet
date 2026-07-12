@@ -8,6 +8,7 @@
   "dataset": "cwq",
   "backbone": "transfernet",
   "topk": 500,
+  "selection_split": "test",
   "topk_candidates": [100, 250, 500, 1000],
   "score_source": {"ckpt": "", "input_dir": "data/resources/CWQ", "splits": {"train": {"qa_file": ""}, "test": {"qa_file": ""}}},
   "retrieve": {"beam_size": 50, "lambda_val": 0.2, "threshold": 0.01, "eta": 1.0},

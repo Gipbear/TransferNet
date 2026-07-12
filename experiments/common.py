@@ -35,26 +35,27 @@ def run_command(command: list[str], run_dir: Path, *, dry_run: bool) -> None:
             handle.write(f"[演练] {text}\n")
         return
     console_path.parent.mkdir(parents=True, exist_ok=True)
-    with console_path.open("a", encoding="utf-8") as handle:
-        handle.write(f"$ {text}\n")
+    with console_path.open("ab") as handle:
+        handle.write(f"$ {text}\n".encode("utf-8"))
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
         )
         assert process.stdout is not None
-        last_chunk = "\n"
+        last_byte = b"\n"
         with process.stdout:
-            while chunk := process.stdout.read(1):
+            while chunk := process.stdout.read1(8192):
                 handle.write(chunk)
-                sys.stdout.write(chunk)
+                if hasattr(sys.stdout, "buffer"):
+                    sys.stdout.buffer.write(chunk)
+                else:
+                    sys.stdout.write(chunk.decode("utf-8", errors="replace"))
                 sys.stdout.flush()
-                last_chunk = chunk
+                last_byte = chunk[-1:]
         returncode = process.wait()
-        if last_chunk != "\n":
-            handle.write("\n")
+        if last_byte != b"\n":
+            handle.write(b"\n")
     if returncode:
         raise SystemExit(f"命令失败（退出码 {returncode}）: {text}")
 

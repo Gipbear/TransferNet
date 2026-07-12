@@ -61,6 +61,15 @@ def _runtime_args(args: argparse.Namespace) -> list[str]:
             *( ["--no_progress"] if args.no_progress else [])]
 
 
+def _scan_splits(config: dict[str, Any]) -> list[str]:
+    """参数扫描只在配置指定的数据划分上执行，默认使用测试集。"""
+    split = config.get("selection_split", "test")
+    available = config.get("score_source", {}).get("splits", {})
+    if split not in available:
+        raise ValueError(f"参数扫描数据划分不存在: {split}")
+    return [split]
+
+
 def _parameter_scan_items(config: dict[str, Any]) -> list[dict[str, Any]]:
     """将 beam、λ、eta 三维网格展开为稳定的候选编号。"""
     scan = config.get("parameter_scan")
@@ -116,15 +125,16 @@ def main(argv: list[str] | None = None) -> int:
     saturation_dir = paths.ch3_saturation_dir(args.dataset, args.backbone, config["config_id"])
     profile_dir = paths.ch3_profile_dir(args.dataset, args.backbone, config["config_id"])
     splits = list(config.get("score_source", {}).get("splits", {}))
+    scan_splits = _scan_splits(config)
     topk_values = config.get("topk_candidates", [100, 250, 500, 1000])
     scan_items = _parameter_scan_items(config) if args.phase in {"scan", "all"} else []
     task_total = 0
     if args.phase in {"scores", "all"}:
         task_total += len(topk_values) * len(splits) * 2
     if args.phase in {"scan", "all"}:
-        task_total += len(scan_items) * len(splits)
+        task_total += len(scan_items) * len(scan_splits)
     if args.phase == "publish":
-        task_total = 1
+        task_total = len(splits)
     task_progress = tqdm(total=task_total, desc="第三章实验任务", unit="项", dynamic_ncols=True,
                          disable=args.no_progress or args.dry_run)
 
@@ -176,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.phase in {"scan", "all"}:
         for item in scan_items:
             scan_id = item["id"]
-            for split in config.get("score_source", {}).get("splits", {}):
+            for split in scan_splits:
                 score_id = f"topk{config['topk']}_{split}"
                 cache_path = paths.score_dir(args.dataset, args.backbone, score_id) / f"{split}.pt"
                 run_dir = saturation_dir / "parameter_scan" / scan_id / split
@@ -206,6 +216,7 @@ def main(argv: list[str] | None = None) -> int:
         candidate_id = confirmed.get("selected_candidate")
         if not candidate_id:
             raise ValueError("已确认检索配置缺少 selected_candidate，无法发布正式检索结果")
+        selected_item = None
         run_dir = profile_dir / "publish"
         configure_runtime(
             argparse.Namespace(run_dir=str(run_dir), log_level="INFO"),
@@ -215,18 +226,44 @@ def main(argv: list[str] | None = None) -> int:
         for split in confirmed.get("score_source", {}).get("splits", {}):
             source = profile_dir / "candidates" / candidate_id / f"{split}.jsonl"
             target = profile_dir / f"{split}.jsonl"
-            if not source.is_file() and not args.dry_run:
-                raise ValueError(f"已选候选缺少 {split} 检索结果: {source}")
+            if not source.is_file():
+                if selected_item is None:
+                    selected_item = next(
+                        (item for item in _parameter_scan_items(config) if item["id"] == candidate_id),
+                        None,
+                    )
+                if selected_item is None:
+                    raise ValueError(f"已确认检索配置引用了未知参数组: {candidate_id}")
+                source_config = _score_source(config, split)
+                cache_path = paths.score_dir(args.dataset, args.backbone, f"topk{config['topk']}_{split}") / f"{split}.pt"
+                candidate_run_dir = saturation_dir / "parameter_scan" / candidate_id / split
+                summary = profile_dir / "candidates" / candidate_id / f"{split}_summary.json"
+                command = [
+                    sys.executable, "-m", "kgqa.retrieve.cli.eval", "--dataset", args.dataset,
+                    "--backend", "offline", "--cache", str(cache_path),
+                    "--input_dir", str(resolve_path(project_dir, source_config["input_dir"])),
+                    "--output", str(source), "--summary", str(summary), "--run_dir", str(candidate_run_dir),
+                    *_retrieve_args(config, selected_item["retrieve"]), *_runtime_args(args),
+                ]
+                if args.dry_run:
+                    print(f"[演练] 为已确认参数组补生成 {split} 检索结果")
+                else:
+                    configure_runtime(
+                        argparse.Namespace(run_dir=str(candidate_run_dir), log_level="INFO"),
+                        command="发布前补生成已确认检索结果",
+                        manifest={"config_path": str(config_path), "candidate": candidate_id, "split": split},
+                    )
+                    run_command(command, candidate_run_dir, dry_run=False)
             if args.dry_run:
                 print(f"[演练] 发布 {source} → {target}")
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)
+            task_progress.update(1)
         if not args.dry_run:
             shutil.copy2(config_path, profile_dir / "confirmed_config.json")
         update_progress(run_dir, completed=1, total=1, status="completed", phase="发布已确认检索配置")
         emit_event(run_dir, "phase_end", phase="发布已确认检索配置", candidate=candidate_id)
-        task_progress.update(1)
     task_progress.close()
     return 0
 

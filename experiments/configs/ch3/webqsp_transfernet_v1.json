@@ -8,6 +8,7 @@
   "dataset": "webqsp",
   "backbone": "transfernet",
   "topk": 500,
+  "selection_split": "test",
   "topk_candidates": [100, 250, 500, 1000],
   "score_source": {
     "ckpt": "data/ckpt/WebQSP/model-49-0.7154.pt",
@@ -17,7 +18,7 @@
       "test": {"qa_file": "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"}
     }
   },
-  "retrieve": {"beam_size": 50, "lambda_val": 0.2, "threshold": 0.01, "eta": 1.0},
+  "retrieve": {"beam_size": 20, "lambda_val": 0.2, "threshold": 0.01, "eta": 1.0},
   "parameter_scan": {
     "beam_size": [3, 5, 10, 20, 50, 100],
     "lambda_val": [0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0],

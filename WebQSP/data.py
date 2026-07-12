@@ -5,6 +5,7 @@ from collections import defaultdict
 from transformers import AutoTokenizer
 from tqdm import tqdm
 from utils.misc import invert_dict
+from utils.huggingface import from_pretrained_local_first
 
 
 def iter_file_with_progress(path, desc, unit):
@@ -59,7 +60,7 @@ class Dataset(torch.utils.data.Dataset):
 class DataLoader(torch.utils.data.DataLoader):
     def __init__(self, input_dir, fn, bert_name, ent2id, rel2id, batch_size, training=False):
         print('Reading questions from {}'.format(fn))
-        self.tokenizer = AutoTokenizer.from_pretrained(bert_name)
+        self.tokenizer = from_pretrained_local_first(AutoTokenizer, bert_name)
         self.ent2id = ent2id
         self.rel2id = rel2id
         self.id2ent = invert_dict(ent2id)
@@ -162,7 +163,8 @@ class DataLoader(torch.utils.data.DataLoader):
         )
 
 
-def load_data(input_dir, bert_name, batch_size):
+def load_graph(input_dir):
+    """加载 WebQSP 图谱，不构造问答 DataLoader。"""
     print('Read data...')
     ent2id = {}
     for line in open(os.path.join(input_dir, 'fbwq_full/entities.dict')):
@@ -185,6 +187,12 @@ def load_data(input_dir, bert_name, batch_size):
         p_rev = rel2id[l[1].strip()+'_reverse']
         triples.append((o, p_rev, s))
     triples = torch.LongTensor(triples)
+
+    return ent2id, rel2id, triples
+
+
+def load_data(input_dir, bert_name, batch_size):
+    ent2id, rel2id, triples = load_graph(input_dir)
 
     train_data = DataLoader(input_dir, os.path.join(input_dir, 'QA_data/WebQuestionsSP/qa_train_webqsp.txt'), bert_name, ent2id, rel2id, batch_size, training=True)
     test_data = DataLoader(input_dir, os.path.join(input_dir, 'QA_data/WebQuestionsSP/qa_test_webqsp_fixed.txt'), bert_name, ent2id, rel2id, batch_size)

@@ -7,7 +7,7 @@ import torch
 from tqdm import tqdm
 
 from utils.misc import batch_device
-from WebQSP.data import DataLoader, load_data
+from WebQSP.data import DataLoader, load_graph
 from WebQSP.model import TransferNet
 from WebQSP.predict import id_score_pairs
 from kgqa.backbone.base import ScoreProducer
@@ -28,7 +28,7 @@ class WebQSPScoreProducer(ScoreProducer):
                 show_progress: bool = True, progress_callback=None) -> ScoreBundle:
         assert self._ckpt_path, "先调用 load_checkpoint()"
         # qa_file 按调用方给定的路径（相对 CWD 或绝对）直接使用，不再拼 input_dir。
-        ent2id, rel2id, triples, _train, _val = load_data(input_dir, self.bert_name, batch_size)
+        ent2id, rel2id, triples = load_graph(input_dir)
         loader = DataLoader(input_dir, qa_file, self.bert_name, ent2id, rel2id, batch_size)
         args = SimpleNamespace(bert_name=self.bert_name)  # TransferNet 仅需 args.bert_name
         model = TransferNet(args, ent2id, rel2id, triples)

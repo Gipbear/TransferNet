@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from transformers import AutoModel
+from utils.huggingface import from_pretrained_local_first
 
 class TransferNet(nn.Module):
     def __init__(self, args, ent2id, rel2id, triples):
@@ -21,7 +22,9 @@ class TransferNet(nn.Module):
             torch.stack((idx, triples[:,1])), torch.FloatTensor([1] * Tsize), torch.Size([Tsize, num_relations]))
         print('triple size: {}'.format(Tsize))
 
-        self.bert_encoder = AutoModel.from_pretrained(args.bert_name, return_dict=True)
+        self.bert_encoder = from_pretrained_local_first(
+            AutoModel, args.bert_name, return_dict=True
+        )
         dim_hidden = self.bert_encoder.config.hidden_size
 
         self.step_encoders = []

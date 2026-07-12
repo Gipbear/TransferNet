@@ -8,6 +8,7 @@
   "dataset": "metaqa",
   "backbone": "transfernet",
   "topk": 500,
+  "selection_split": "test",
   "topk_candidates": [100, 250, 500, 1000],
   "score_source": {"ckpt": "", "input_dir": "data/input/MetaQA_KB", "splits": {"train": {"qa_file": "data/input/MetaQA_KB/train.pt"}, "test": {"qa_file": "data/input/MetaQA_KB/test.pt"}}},
   "retrieve": {"beam_size": 50, "lambda_val": 0.2, "threshold": 0.01, "eta": 1.0},

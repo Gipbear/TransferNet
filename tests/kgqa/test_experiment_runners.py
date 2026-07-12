@@ -22,13 +22,19 @@ class TestExperimentRunners(unittest.TestCase):
             stream = io.StringIO()
             with redirect_stdout(stream):
                 run_command(
-                    [sys.executable, "-c", "import sys; print('标准输出'); print('标准错误', file=sys.stderr)"],
+                    [
+                        sys.executable,
+                        "-c",
+                        "import sys; print('标准输出'); sys.stderr.write('\\r进度条'); sys.stderr.flush()",
+                    ],
                     run_dir,
                     dry_run=False,
                 )
             self.assertIn("标准输出", stream.getvalue())
-            self.assertIn("标准错误", stream.getvalue())
-            self.assertIn("标准输出", (run_dir / "logs/console.log").read_text(encoding="utf-8"))
+            self.assertIn("进度条", stream.getvalue())
+            console = (run_dir / "logs/console.log").read_bytes()
+            self.assertIn("标准输出".encode("utf-8"), console)
+            self.assertIn(b"\r", console)
 
     def test_ch3_dry_run_writes_under_unified_root(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -87,6 +93,26 @@ class TestExperimentRunners(unittest.TestCase):
             run_ch3._parameter_scan_items({
                 "parameter_scan": {"beam_size": [50], "lambda_val": [0.2]},
             })
+
+    def test_ch3_parameter_scan_uses_test_split_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = write_json(root / "ch3.json", {
+                "dataset": "webqsp", "backbone": "transfernet", "config_id": "v1", "topk": 500,
+                "selection_split": "test", "retrieve": {"beam_size": 50, "lambda_val": 0.2, "threshold": 0.01, "eta": 1.0},
+                "score_source": {"ckpt": "models/a.pt", "input_dir": "data/input/WebQSP", "splits": {
+                    "train": {"qa_file": "data/train.txt"}, "test": {"qa_file": "data/test.txt"},
+                }},
+                "parameter_scan": {"beam_size": [50], "lambda_val": [0.2], "eta": [1.0]},
+            })
+            stream = io.StringIO()
+            with redirect_stdout(stream):
+                run_ch3.main([
+                    "--dataset", "webqsp", "--config", str(config), "--project_dir", str(root),
+                    "--phase", "scan", "--dry_run", "--no_progress",
+                ])
+            self.assertIn("topk500_test", stream.getvalue())
+            self.assertNotIn("topk500_train", stream.getvalue())
 
     def test_ch3_rejects_deprecated_alpha_final(self):
         config = {
