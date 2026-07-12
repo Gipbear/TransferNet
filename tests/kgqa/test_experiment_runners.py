@@ -23,7 +23,7 @@ class TestExperimentRunners(unittest.TestCase):
                 "topk_candidates": [100],
                 "score_source": {"ckpt": "models/a.pt", "input_dir": "data/input/WebQSP", "splits": {"test": {"qa_file": "data/test.txt"}}},
                 "retrieve": {"beam_size": 50, "lambda_val": 0.2, "threshold": 0.01, "eta": 1.0},
-                "parameter_scan": [{"id": "对照", "retrieve": {"lambda_val": 0.0}}],
+                "parameter_scan": {"beam_size": [50], "lambda_val": [0.0]},
             })
             stream = io.StringIO()
             with redirect_stdout(stream):
@@ -36,8 +36,9 @@ class TestExperimentRunners(unittest.TestCase):
         root = Path(__file__).resolve().parents[2]
         config = json.loads((root / "experiments/configs/ch3/webqsp_transfernet_v1.json").read_text(encoding="utf-8"))
         pairs = {
-            (item["retrieve"]["beam_size"], item["retrieve"]["lambda_val"])
-            for item in config["parameter_scan"]
+            (beam_size, lambda_val)
+            for beam_size in config["parameter_scan"]["beam_size"]
+            for lambda_val in config["parameter_scan"]["lambda_val"]
         }
         self.assertEqual(len(pairs), 15)
         self.assertEqual(pairs, {
@@ -46,6 +47,15 @@ class TestExperimentRunners(unittest.TestCase):
             for lambda_val in (0.0, 0.1, 0.2, 0.3, 0.5)
         })
         self.assertEqual(config["retrieve"]["eta"], 1.0)
+
+    def test_ch3_parameter_scan_generates_stable_candidate_ids(self):
+        items = run_ch3._parameter_scan_items({
+            "parameter_scan": {"beam_size": [20, 50], "lambda_val": [0.0, 0.2]},
+        })
+        self.assertEqual(
+            [item["id"] for item in items],
+            ["beam20_lambda0", "beam20_lambda02", "beam50_lambda0", "beam50_lambda02"],
+        )
 
     def test_ch3_rejects_deprecated_alpha_final(self):
         config = {

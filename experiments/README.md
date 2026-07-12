@@ -23,6 +23,8 @@
 - 固定 `threshold=0.01`、终点实体融合权重 `eta=1.0`，完整比较
   `beam_size={20,50,100}` 与 `lambda_val={0.0,0.1,0.2,0.3,0.5}` 的笛卡尔积，共 15 组。
   `lambda_val=0.0` 是无多样性惩罚对照；其余值控制 MMR 的关系集合重叠惩罚。
+- `parameter_scan` 只需填写两个取值列表；编排器自动展开笛卡尔积，并生成稳定候选编号。
+  例如 `beam=50，λ=0.2` 的编号为 `beam50_lambda02`。
 - `eta` 是论文中的终点实体分数融合权重。`alpha_final` 已废弃，现役命令、配置、接口和
   输出均不接受该字段。
 - 不根据测试集指标自动选择配置。完成扫描后，由人工在配置中填写确认理由和
@@ -48,6 +50,15 @@ candidates/beam50_lambda02/test_summary.json
 # 4. 人工确认：在 JSON 中填写 confirmation_reason，设 status 为 confirmed，并令
 #    selected_candidate 为某个参数组 ID（如 beam50_lambda02）。随后发布正式检索结果。
 python -m experiments.run_ch3 --dataset webqsp --phase publish
+```
+
+`parameter_scan` 的配置形式如下；新增 beam 或 λ 取值只需在对应列表中添加一个数值：
+
+```json
+"parameter_scan": {
+  "beam_size": [20, 50, 100],
+  "lambda_val": [0.0, 0.1, 0.2, 0.3, 0.5]
+}
 ```
 
 可单独执行 `--phase scores`、`--phase scan` 或 `--phase publish`，便于中断后按阶段恢复。

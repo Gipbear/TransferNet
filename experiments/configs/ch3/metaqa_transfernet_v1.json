@@ -11,9 +11,5 @@
   "topk_candidates": [100, 250, 500, 1000],
   "score_source": {"ckpt": "", "input_dir": "data/input/MetaQA_KB", "splits": {"train": {"qa_file": "data/input/MetaQA_KB/train.pt"}, "test": {"qa_file": "data/input/MetaQA_KB/test.pt"}}},
   "retrieve": {"beam_size": 50, "lambda_val": 0.2, "threshold": 0.01, "eta": 1.0},
-  "parameter_scan": [
-    {"id": "beam20_lambda0", "label": "beam=20，λ=0.0", "retrieve": {"beam_size": 20, "lambda_val": 0.0}}, {"id": "beam20_lambda01", "label": "beam=20，λ=0.1", "retrieve": {"beam_size": 20, "lambda_val": 0.1}}, {"id": "beam20_lambda02", "label": "beam=20，λ=0.2", "retrieve": {"beam_size": 20, "lambda_val": 0.2}}, {"id": "beam20_lambda03", "label": "beam=20，λ=0.3", "retrieve": {"beam_size": 20, "lambda_val": 0.3}}, {"id": "beam20_lambda05", "label": "beam=20，λ=0.5", "retrieve": {"beam_size": 20, "lambda_val": 0.5}},
-    {"id": "beam50_lambda0", "label": "beam=50，λ=0.0", "retrieve": {"beam_size": 50, "lambda_val": 0.0}}, {"id": "beam50_lambda01", "label": "beam=50，λ=0.1", "retrieve": {"beam_size": 50, "lambda_val": 0.1}}, {"id": "beam50_lambda02", "label": "beam=50，λ=0.2", "retrieve": {"beam_size": 50, "lambda_val": 0.2}}, {"id": "beam50_lambda03", "label": "beam=50，λ=0.3", "retrieve": {"beam_size": 50, "lambda_val": 0.3}}, {"id": "beam50_lambda05", "label": "beam=50，λ=0.5", "retrieve": {"beam_size": 50, "lambda_val": 0.5}},
-    {"id": "beam100_lambda0", "label": "beam=100，λ=0.0", "retrieve": {"beam_size": 100, "lambda_val": 0.0}}, {"id": "beam100_lambda01", "label": "beam=100，λ=0.1", "retrieve": {"beam_size": 100, "lambda_val": 0.1}}, {"id": "beam100_lambda02", "label": "beam=100，λ=0.2", "retrieve": {"beam_size": 100, "lambda_val": 0.2}}, {"id": "beam100_lambda03", "label": "beam=100，λ=0.3", "retrieve": {"beam_size": 100, "lambda_val": 0.3}}, {"id": "beam100_lambda05", "label": "beam=100，λ=0.5", "retrieve": {"beam_size": 100, "lambda_val": 0.5}}
-  ]
+  "parameter_scan": {"beam_size": [20, 50, 100], "lambda_val": [0.0, 0.1, 0.2, 0.3, 0.5]}
 }

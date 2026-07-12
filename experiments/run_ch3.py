@@ -50,6 +50,35 @@ def _retrieve_args(config: dict[str, Any], override: dict[str, Any]) -> list[str
     ]
 
 
+def _parameter_scan_items(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """将简洁的 beam/λ 网格展开为稳定的候选编号。"""
+    scan = config.get("parameter_scan")
+    if not isinstance(scan, dict):
+        raise ValueError("parameter_scan 必须是包含 beam_size 与 lambda_val 列表的对象")
+    unsupported = set(scan) - {"beam_size", "lambda_val"}
+    if unsupported:
+        raise ValueError(f"parameter_scan 不接受字段: {', '.join(sorted(unsupported))}")
+    beam_sizes = scan.get("beam_size")
+    lambda_values = scan.get("lambda_val")
+    if not isinstance(beam_sizes, list) or not beam_sizes:
+        raise ValueError("parameter_scan.beam_size 必须是非空列表")
+    if not isinstance(lambda_values, list) or not lambda_values:
+        raise ValueError("parameter_scan.lambda_val 必须是非空列表")
+    if any(not isinstance(value, int) or value <= 0 for value in beam_sizes):
+        raise ValueError("parameter_scan.beam_size 必须是正整数列表")
+    if any(not isinstance(value, (int, float)) or value < 0 for value in lambda_values):
+        raise ValueError("parameter_scan.lambda_val 必须是非负数列表")
+    return [
+        {
+            "id": f"beam{beam_size}_lambda{float(lambda_val):g}".replace(".", ""),
+            "label": f"beam={beam_size}，λ={lambda_val}",
+            "retrieve": {"beam_size": beam_size, "lambda_val": lambda_val},
+        }
+        for beam_size in beam_sizes
+        for lambda_val in lambda_values
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     project_dir = Path(args.project_dir).resolve()
@@ -111,9 +140,7 @@ def main(argv: list[str] | None = None) -> int:
                 emit_event(evaluation_run_dir, "phase_end", phase="top-k 饱和性评测")
 
     if args.phase in {"scan", "all"}:
-        scan_items = config.get("parameter_scan", [])
-        if not scan_items:
-            raise ValueError("检索配置没有 parameter_scan，无法执行参数扫描")
+        scan_items = _parameter_scan_items(config)
         for item in scan_items:
             scan_id = item["id"]
             for split in config.get("score_source", {}).get("splits", {}):
@@ -126,7 +153,7 @@ def main(argv: list[str] | None = None) -> int:
                 configure_runtime(
                     argparse.Namespace(run_dir=str(run_dir), log_level="INFO"),
                     command="第三章检索参数扫描",
-                    manifest={"config_path": str(config_path), "candidate": scan_id, "split": split, "cache": str(cache_path)},
+                    manifest={"config_path": str(config_path), "candidate": scan_id, "candidate_label": item["label"], "split": split, "cache": str(cache_path)},
                 )
                 command = [
                     sys.executable, "-m", "kgqa.retrieve.cli.eval", "--dataset", args.dataset,
