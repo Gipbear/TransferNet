@@ -1,5 +1,6 @@
-import os
 import unittest
+
+from tests.kgqa.integration import ARTIFACT_TEST_SKIP_REASON, artifact_test_available
 
 CKPT = "data/ckpt/WebQSP_run_20260518_2241/model-49-0.7154.pt"
 INPUT_DIR = "data/input/WebQSP"
@@ -7,7 +8,7 @@ QA = "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"
 
 
 class TestOnlineBackend(unittest.TestCase):
-    @unittest.skipUnless(os.path.isfile(CKPT) and os.path.isfile(QA), "ckpt/QA 缺失，跳过")
+    @unittest.skipUnless(artifact_test_available(CKPT, QA), ARTIFACT_TEST_SKIP_REASON)
     def test_online_retrieve_smoke(self):
         from kgqa.datasets.registry import get_adapter
         from kgqa.models.webqsp import WebQSPScoreProducer

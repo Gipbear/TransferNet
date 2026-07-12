@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -17,9 +18,14 @@ from oh_my_agent.common import (
 
 class SimpleAgentCommonTests(unittest.TestCase):
     def test_load_webqsp_qa_samples_parses_topic_and_dedupes_gold(self):
-        qa_path = ROOT / "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"
-
-        samples = load_webqsp_qa_samples(str(qa_path), limit=1)
+        line = (
+            "what does jamaican people speak [m.03_r3]"
+            "\tm.01428y|m.04ygk0|m.01428y\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            qa_path = Path(tmp) / "qa.txt"
+            qa_path.write_text(line, encoding="utf-8")
+            samples = load_webqsp_qa_samples(str(qa_path), limit=1)
 
         self.assertEqual(len(samples), 1)
         self.assertEqual(samples[0].question, "what does jamaican people speak")

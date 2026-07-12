@@ -4,12 +4,14 @@ import unittest
 
 import torch
 
+from tests.kgqa.integration import ARTIFACT_TEST_SKIP_REASON, artifact_test_available
+
 CKPT = "data/ckpt/CWQ/model-29-0.4206.pt"
 INPUT_DIR = "data/input/CWQ"
 QA_FILE = "data/input/CWQ/test_simple.json"
 
 
-@unittest.skipUnless(os.path.isfile(CKPT) and os.path.isfile(QA_FILE), "ckpt/数据缺失，跳过")
+@unittest.skipUnless(artifact_test_available(CKPT, QA_FILE), ARTIFACT_TEST_SKIP_REASON)
 class TestCWQEndToEnd(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

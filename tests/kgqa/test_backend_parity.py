@@ -1,5 +1,6 @@
-import os
 import unittest
+
+from tests.kgqa.integration import ARTIFACT_TEST_SKIP_REASON, artifact_test_available
 
 CKPT = "data/ckpt/WebQSP_run_20260518_2241/model-49-0.7154.pt"
 CACHE = "data/output/WebQSP/path_retrieve_server/score_cache/webqsp_test_1581.pt"
@@ -7,8 +8,9 @@ INPUT_DIR = "data/input/WebQSP"
 QA = "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"
 
 
-@unittest.skipUnless(os.path.isfile(CKPT) and os.path.isfile(CACHE) and os.path.isfile(QA),
-                     "ckpt/缓存/QA 缺失，跳过")
+@unittest.skipUnless(
+    artifact_test_available(CKPT, CACHE, QA), ARTIFACT_TEST_SKIP_REASON
+)
 class TestBackendParity(unittest.TestCase):
     def test_online_matches_offline_first3(self):
         from kgqa.datasets.registry import get_adapter

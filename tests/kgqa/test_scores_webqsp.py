@@ -1,13 +1,13 @@
-import os
 import unittest
 
 from kgqa.scores.webqsp import WebQSPScoreLoader
+from tests.kgqa.integration import ARTIFACT_TEST_SKIP_REASON, artifact_test_available
 
 CACHE = "data/output/WebQSP/path_retrieve_server/score_cache/webqsp_test_1581.pt"
 
 
 class TestWebQSPScoreLoader(unittest.TestCase):
-    @unittest.skipUnless(os.path.isfile(CACHE), "缓存缺失，跳过")
+    @unittest.skipUnless(artifact_test_available(CACHE), ARTIFACT_TEST_SKIP_REASON)
     def test_load_bundle(self):
         bundle = WebQSPScoreLoader().load(CACHE)
         self.assertEqual(bundle.meta.dataset, "WebQSP")

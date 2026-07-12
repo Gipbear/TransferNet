@@ -15,22 +15,7 @@ from oh_my_agent.tools import (
     PathRetrieveTool,
     RejectedAnswerCheckTool,
 )
-
-
-class FakePathClient:
-    def __init__(self, response):
-        self.response = response
-
-    def retrieve(self, question, **kwargs):
-        return self.response
-
-
-class FakeLLMClient:
-    def __init__(self, responses):
-        self.responses = list(responses)
-
-    def generate(self, prompt, **kwargs):
-        return self.responses.pop(0)
+from tests.agent_fixtures import FakeLLMClient, FakePathClient
 
 
 def text_response(text, tokens=2):

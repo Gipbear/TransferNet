@@ -1,5 +1,6 @@
-import os
 import unittest
+
+from tests.kgqa.integration import ARTIFACT_TEST_SKIP_REASON, artifact_test_available
 
 CACHE = "data/output/WebQSP/path_retrieve_server/score_cache/webqsp_test_1581.pt"
 INPUT_DIR = "data/input/WebQSP"
@@ -9,7 +10,7 @@ def _rels_from(path_dict):
     return [e[1] for e in path_dict["path"]]
 
 
-@unittest.skipUnless(os.path.isfile(CACHE), "缓存缺失，跳过")
+@unittest.skipUnless(artifact_test_available(CACHE), ARTIFACT_TEST_SKIP_REASON)
 class TestWebQSPRegression(unittest.TestCase):
     def test_offline_paths_match_legacy(self):
         from kgqa.kg.global_kg import GlobalKG

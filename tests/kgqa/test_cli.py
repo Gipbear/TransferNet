@@ -3,6 +3,8 @@ import json
 import tempfile
 import unittest
 
+from tests.kgqa.integration import ARTIFACT_TEST_SKIP_REASON, artifact_test_available
+
 CACHE = "data/output/WebQSP/path_retrieve_server/score_cache/webqsp_test_1581.pt"
 
 
@@ -15,7 +17,7 @@ class TestCLI(unittest.TestCase):
         self.assertIsNotNone(eval_cli.build_parser())
         self.assertIsNotNone(dump_scores.build_parser())
 
-    @unittest.skipUnless(os.path.isfile(CACHE), "缓存缺失，跳过")
+    @unittest.skipUnless(artifact_test_available(CACHE), ARTIFACT_TEST_SKIP_REASON)
     def test_eval_writes_summary(self):
         from kgqa.cli import eval as eval_cli
         with tempfile.TemporaryDirectory() as d:

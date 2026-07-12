@@ -1,12 +1,13 @@
-import os
 import unittest
+
+from tests.kgqa.integration import ARTIFACT_TEST_SKIP_REASON, artifact_test_available
 
 CKPT = "data/ckpt/MetaQA_KB/model_epoch-6_acc-0.9937.pt"
 INPUT_DIR = "data/input/MetaQA_KB"
 TEST_PT = "data/input/MetaQA_KB/test.pt"
 
 
-@unittest.skipUnless(os.path.isfile(CKPT) and os.path.isfile(TEST_PT), "ckpt/数据缺失，跳过")
+@unittest.skipUnless(artifact_test_available(CKPT, TEST_PT), ARTIFACT_TEST_SKIP_REASON)
 class TestMetaQAScoreProducer(unittest.TestCase):
     def test_produce_small_stratified(self):
         from kgqa.models.metaqa import MetaQAScoreProducer

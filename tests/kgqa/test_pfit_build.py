@@ -62,7 +62,8 @@ class TestInputContract(unittest.TestCase):
             _write_jsonl(inp, _fake_records(3, with_golden=False))
             with self.assertRaises(ValueError) as ctx:
                 pfit_build.run_build(dataset="webqsp", input_path=inp,
-                                     exp_dir=os.path.join(d, "exp"), fmt="v2")
+                                     exp_dir=os.path.join(d, "exp"), fmt="v2",
+                                     entity_repr="mid")
             self.assertIn("golden", str(ctx.exception))
             self.assertIn("retrieve", str(ctx.exception))
 
@@ -197,16 +198,19 @@ class TestManifest(unittest.TestCase):
             _write_jsonl(inp, records)
             exp_dir = os.path.join(d, "exp")
             out1 = pfit_build.run_build(dataset="webqsp", input_path=inp,
-                                        exp_dir=exp_dir, fmt="v2", path_format="chain")
+                                        exp_dir=exp_dir, fmt="v2", path_format="chain",
+                                        entity_repr="mid")
             mtime = os.path.getmtime(out1)
             # 同配置重跑:跳过(输出不重写)
             out2 = pfit_build.run_build(dataset="webqsp", input_path=inp,
-                                        exp_dir=exp_dir, fmt="v2", path_format="chain")
+                                        exp_dir=exp_dir, fmt="v2", path_format="chain",
+                                        entity_repr="mid")
             self.assertEqual(os.path.getmtime(out2), mtime)
             # 改配置重跑:报不一致
             with self.assertRaises(RuntimeError):
                 pfit_build.run_build(dataset="webqsp", input_path=inp,
-                                     exp_dir=exp_dir, fmt="v3", path_format="chain")
+                                     exp_dir=exp_dir, fmt="v3", path_format="chain",
+                                     entity_repr="mid")
             # manifest 落盘且含 build 节
             with open(os.path.join(exp_dir, "manifest.json"), encoding="utf-8") as f:
                 manifest = json.load(f)

@@ -15,26 +15,7 @@ from oh_my_agent.cli import eval_checked_batch_agent
 from oh_my_agent.llm_server.client import GenerateResponse, LLMClient, SiliconFlowLLMClient
 from oh_my_agent.path_retrieve_server.client import PathRetrieveClient, PathRetrieveResponse
 from oh_my_agent.tools import AnswerWithPathsTool, PathRetrieveTool, RejectedAnswerCheckTool
-
-
-class FakePathClient:
-    def __init__(self, response):
-        self.response = response
-        self.calls = []
-
-    def retrieve(self, question, **kwargs):
-        self.calls.append((question, kwargs))
-        return self.response
-
-
-class FakeLLMClient:
-    def __init__(self, responses):
-        self.responses = list(responses)
-        self.calls = []
-
-    def generate(self, prompt, **kwargs):
-        self.calls.append((prompt, kwargs))
-        return self.responses.pop(0)
+from tests.agent_fixtures import FakeLLMClient, FakePathClient
 
 
 def make_response(paths, prediction=None):

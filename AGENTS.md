@@ -79,6 +79,7 @@ bash tests/run_pfit_lib_test.sh     # run_pfit.sh 命令拼装 dry-run 测试
 ```
 
 `-t .` 必须带:缺省顶层目录时 `tests/kgqa` 会遮蔽项目 `kgqa` 包,72 个用例报 import error。
+默认 discovery 不运行依赖 gitignored checkpoint、score cache 或真实数据的测试；显式执行这些测试时设置 `RUN_KGQA_ARTIFACT_TESTS=1`，并确保模型/tokenizer 已可离线加载。
 
 ## 常驻服务与 Ch5 评测
 
