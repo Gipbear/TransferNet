@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from oh_my_agent.common.metrics import (
+from kgqa.agent.common.metrics import (
     cited_indices_for_answers,
     compute_faithfulness,
     label_golden_indices,
