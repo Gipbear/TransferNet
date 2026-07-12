@@ -142,9 +142,9 @@ kgqa/
 - Modify: 内部业务 import 与 `scripts/path_retrieve_server.sh`
 - Test: `tests/kgqa/test_retrieve_import_compat.py`、既有检索/服务测试
 
-**Task-local exception（后续已解除）:** 初始重组时 ReaRev 适配器保持原样；后续已迁入
-`retrieve/datasets/rearev_webqsp.py` 并注册为 `webqsp-rearev`。旧
-`kgqa/datasets/{registry,rearev_webqsp}.py` 仅保留兼容转发。
+**Task-local exception:** ReaRev 适配与测试由用户要求保留在工作区、不得纳入本重组
+提交。`retrieve/datasets/registry.py` 仅注册 webqsp/metaqa/cwq；ReaRev 后续接入需
+单独计划、单独提交。
 
 **Interfaces:**
 
@@ -227,7 +227,7 @@ kgqa/
 
 ## Task 6: 清理未受保护的兼容 shim（breaking change）
 
-本任务由后续需求触发，覆盖上述“保留旧入口”约定：项目内调用、测试和运行说明全部切到 canonical 路径后，删除不再需要的 shim。ReaRev adapter 已迁入 canonical `retrieve/datasets/`；只读 parity 的 `oh_my_agent` 也改为直接依赖 `retrieve.graph` 与 `retrieve.cache`。
+本任务由后续需求触发，覆盖上述“保留旧入口”约定：项目内调用、测试和运行说明全部切到 canonical 路径后，删除不再需要的 shim；只读 parity 的 `oh_my_agent` 也改为直接依赖 `retrieve.graph` 与 `retrieve.cache`。
 
 **Steps:**
 
