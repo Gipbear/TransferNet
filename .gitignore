@@ -8,6 +8,8 @@ unsloth_compiled_cache
 models
 !kgqa/models/
 !kgqa/models/**
+kgqa/models/**/__pycache__/
+kgqa/models/**/*.pyc
 .worktrees/
 MetaQA_KB/predict_result*.json
 MetaQA_KB/predict_result*.jsonl

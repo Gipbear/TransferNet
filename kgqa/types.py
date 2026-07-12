@@ -39,6 +39,7 @@ class RetrieveResult:
     prediction: dict[str, float]
     elapsed_ms: float
     sample_index: int = -1
+    golden: list[str] = field(default_factory=list)   # gold_ids 经 id2ent 还原,与 topics/paths 同空间
 
 
 @dataclass(frozen=True)

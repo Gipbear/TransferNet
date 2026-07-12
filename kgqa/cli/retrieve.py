@@ -61,8 +61,8 @@ def run_retrieval(args):
             for r in results:
                 fh.write(json.dumps({
                     "sample_index": r.sample_index, "question": r.question,
-                    "topics": r.topics, "hop": r.hop, "mmr_reason_paths": r.paths,
-                    "prediction": r.prediction,
+                    "topics": r.topics, "hop": r.hop, "golden": r.golden,
+                    "mmr_reason_paths": r.paths, "prediction": r.prediction,
                 }, ensure_ascii=False) + "\n")
     return backend, results
 

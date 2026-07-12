@@ -24,7 +24,6 @@ class FakeResponse:
             "mmr_reason_paths": [],
             "prediction": {},
             "elapsed_ms": 1.0,
-            "method": "tail_blend",
             "alpha_final": 1.0,
             "threshold": 0.01,
             "beam_size": 50,
@@ -45,7 +44,7 @@ class FakeStatusResponse:
 
 
 class PathRetrieveClientTests(unittest.TestCase):
-    def test_retrieve_posts_default_tail_blend_parameters(self):
+    def test_retrieve_posts_default_parameters(self):
         client = PathRetrieveClient("http://localhost:8789")
 
         with patch(
@@ -61,7 +60,6 @@ class PathRetrieveClientTests(unittest.TestCase):
                 "question": "what does jamaican people speak",
                 "sample_index": None,
                 "topic_entities": ["m.03_r3"],
-                "method": "tail_blend",
                 "alpha_final": 1.0,
                 "threshold": 0.01,
                 "beam_size": 50,

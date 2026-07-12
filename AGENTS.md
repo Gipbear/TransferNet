@@ -1,205 +1,187 @@
 # AGENTS.md
 
-## Environment Constraint
+TransferNet(EMNLP 2021)多跳 KGQA 实现,扩展为三章实验:
 
-- 本地已有 Conda 环境 `py312_t271_cuda` 可用于运行本项目的 Python、测试和实验命令；除非用户明确指定其他环境，执行本地命令时默认先激活/进入该环境，再直接运行 `python`、测试或实验命令，不要反复询问环境选择。
-- 优先使用交互式环境激活方式，例如已处于该环境的 shell、`conda activate py312_t271_cuda` 后继续执行，或等价的登录 shell 激活流程；不要把 `conda run -n py312_t271_cuda ...` 作为默认执行方式，因为它可能导致长任务或服务命令的终端输出不及时。
-- 这条规则只约束 Codex 在本机执行命令时的环境选择；生成或修改项目脚本、配置和代码时，不要默认写入 Conda 环境切换命令，除非用户明确要求脚本固定使用该环境。
+- **Ch3**: TransferNet + MMR 多样性 beam search 检索推理路径
+- **Ch4**: 用 TransferNet 推理路径对 LLaMA 3.1 8B 做 QLoRA SFT(现役 `kgqa/pfit/`;`llm_infer/` 只读保留作 parity 参照与 Ch4 复现凭证)
+- **Ch5**: oh_my_agent — checked-batch 推理流水线(分批答题 + LLM reject 检查,首批 loose、后续批 strict)
 
-## Response Language
+## 环境与语言
 
-- 默认使用中文与用户沟通，除非用户明确要求英文或其他语言。
-- 该要求适用于完整交互过程，包括需求澄清、plan、进度更新、测试反馈、代码评审意见和最终总结。
-- 代码、命令、报错信息、日志片段、配置键名、API 名称和文件路径保持原文，必要时在中文语境中补充解释。
+- 本地 Conda 环境 `py312_t271_cuda` 用于运行 Python、测试和实验命令;除非用户明确指定其他环境,先激活该环境再直接运行命令,不要反复询问环境选择。
+- 不要把 `conda run -n py312_t271_cuda ...` 作为默认执行方式(长任务和服务的终端输出会延迟)。
+- 以上只约束本机执行;生成或修改项目脚本、配置、代码时,不要写入 Conda 环境切换命令,除非用户明确要求。
+- 默认使用中文与用户沟通(需求澄清、plan、进度更新、评审意见、最终总结均适用);代码、命令、日志、报错、配置键名、API 名称、文件路径保持原文,必要时补充中文解释。
 
-## Editing Workflow
+## 协作约束
 
-- 修改任何文本、代码或配置文件前，必须先读取目标文件的当前内容；对于局部修改，至少读取并核对将要修改的相关段落或上下文行，再执行 `apply_patch` 或其他编辑操作。
-- 如果编辑补丁未能应用、用户在修改过程中切换了上下文，或目标文件可能已被其他进程/用户改动，必须重新读取目标区域的当前内容后再继续修改，不要凭先前记忆或旧 diff 直接重试。
+- 不使用 Codex subagent 或其他子代理;所有分析、实现、测试、评审与验证均由当前主代理直接完成。
 
-## Analysis Archiving
+## 常用命令
 
-- 探索阶段产生的最终产物需要归档到 `data/analysis/` 下，例如分析结论、核对报告、阶段性 README 和误差分析摘要。
-- 归档结果应按任务语义或时间戳组织目录，避免把这类最终结果散落在临时脚本目录或 `data/output/` 根目录。
-- 若目录名包含时间戳，统一使用分钟级格式 `YYYYMMDD_HHMM__slug`，不要使用秒级时间戳。
-- 同一个会话产生的分析/归档内容默认不要拆成多个目录或多个并列 README；优先在同一个归档目录中连续整理实验过程、阶段结果和最终结论。
-- 如果已经出现多份内容高度重叠的分析 README 或归档目录，默认合并为单一入口，保留信息更完整的版本，并删除重复归档与空目录。
+### TransferNet 训练与预测
 
-## Local HTTP Services
-
-- 如果本地 LLM server 已经启动，调用大模型时优先使用 `oh_my_agent.llm_server.client.LLMClient` 访问 HTTP 接口，不要在测试或对比脚本中重新加载 base model / adapter。
-  - 默认地址：`http://localhost:8788`
-  - 推荐启动方式：
-    ```bash
-    ./scripts/llm_server.sh start
-    ```
-  - 状态检查：
-    ```bash
-    ./scripts/llm_server.sh status
-    ```
-  - 直接模块启动示例：
-    ```bash
-    python -m oh_my_agent.llm_server.server \
-      --adapter models/webqsp/ablation/groupJ_schema_name \
-      --port 8788
-    ```
-  - 客户端示例：
-    ```python
-    from oh_my_agent.llm_server.client import LLMClient
-
-    client = LLMClient("http://localhost:8788")
-    resp = client.generate("...", use_adapter=True)
-    ```
-
-- 如果本地 TransferNet path server 已经启动，检索 MMR 路径时优先使用 `oh_my_agent.path_server.client.PathRetrievalClient` 访问 HTTP 接口，不要为了抽样验证、接口测试或 JSONL 对比而重新实例化 `TransferNetPathRetriever`。
-  - 默认地址：`http://localhost:8787`
-  - 推荐启动方式：
-    ```bash
-    ./scripts/path_server.sh start
-    ```
-  - 状态检查：
-    ```bash
-    ./scripts/path_server.sh status
-    ```
-  - 直接模块启动示例：
-    ```bash
-    python -m oh_my_agent.path_server.server \
-      --dataset webqsp \
-      --input_dir data/input/WebQSP \
-      --ckpt data/ckpt/WebQSP_run_20260518_2241/model-49-0.7154.pt \
-      --port 8787
-    ```
-  - 客户端示例：
-    ```python
-    from oh_my_agent.path_server.client import PathRetrievalClient
-
-    client = PathRetrievalClient("http://localhost:8787")
-    resp = client.retrieve(
-        "who was vice president after kennedy died",
-        topic_entities=["m.0d3k14"],
-        hop=2,
-        beam_size=20,
-        lambda_val=0.2,
-    )
-    ```
-
-- 做路径检索一致性检查时，直接调用 path server 接口，并把 `data/output/.../beam*.jsonl` 中的 `topics`、`hop`、`beam_size`、`lambda_val` 原样传入。比较结果时允许 `log_score` 存在 `1e-6` 量级浮点差异，重点检查路径三元组序列和 prediction 是否一致。
-
-## oh_my_agent Evaluation
-
-- 当前 `oh_my_agent` 的评测不是单独的 HTTP eval service，而是 `python -m oh_my_agent.cli.eval_webqsp` 批量调用两个常驻服务：
-  - `path_server`：`http://localhost:8787`，负责 TransferNet MMR 路径检索。
-  - `llm_server`：`http://localhost:8788`，负责 base model + LoRA adapter 生成答案。
-- 评测前优先确认两个服务已启动：
-  ```bash
-  ./scripts/path_server.sh status
-  ./scripts/llm_server.sh status
-  ```
-- 如果需要从当前默认配置启动两个服务：
-  ```bash
-  ./scripts/path_server.sh start
-  ./scripts/llm_server.sh start
-  ```
-- 如果端口被旧进程占用且明确要替换旧服务，可使用：
-  ```bash
-  PORT_BUSY_ACTION=kill ./scripts/path_server.sh start
-  PORT_BUSY_ACTION=kill ./scripts/llm_server.sh start
-  ```
-- 快速小样本评测：
-  ```bash
-  python -m oh_my_agent.cli.eval_webqsp \
-    --input data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt \
-    --output data/output/WebQSP/simple_agent_eval_20.jsonl \
-    --limit 20 \
-    --beam_size 20 \
-    --lambda_val 0.2 \
-    --path_server_url http://localhost:8787 \
-    --llm_server_url http://localhost:8788
-  ```
-- 完整评测：
-  ```bash
-  python -m oh_my_agent.cli.eval_webqsp \
-    --input data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt \
-    --output data/output/WebQSP/simple_agent_eval_full.jsonl \
-    --beam_size 20 \
-    --lambda_val 0.2 \
-    --path_server_url http://localhost:8787 \
-    --llm_server_url http://localhost:8788
-  ```
-- 输出包括逐样本 JSONL 和同名前缀的 summary，例如 `simple_agent_eval_full.jsonl` 与 `simple_agent_eval_full_summary.json`。
-
-## Git Commit Conventions
-
-### 提交前三步（并行执行）
-
-提交前必须同时运行以下命令，再起草 commit message：
+各数据集模块以 Python module 方式运行(`python -m`),不要以脚本方式运行:
 
 ```bash
-git status          # 查看未追踪文件（不要加 -uall，会导致大仓库内存问题）
-git diff            # 查看已暂存 + 未暂存的变更
-git log --oneline -10  # 参考本仓库的提交风格
+python -m MetaQA_KB.preprocess --input_dir <METAQA_DIR> --output_dir <PROCESSED_DIR>  # 仅 MetaQA 需要
+python -m MetaQA_KB.train --glove_pt <GLOVE_PT> --input_dir <PROCESSED_DIR> --save_dir <CKPT_DIR>
+python -m WebQSP.train --input_dir <DATA_DIR> --save_dir <CKPT_DIR>
+python -m CompWebQ.train --input_dir <DATA_DIR> --save_dir <CKPT_DIR>
+python -m WebQSP.predict --input_dir <DATA_DIR> --ckpt <CKPT_PATH> --mode test
+```
+
+### kgqa 统一检索框架
+
+`kgqa/` 是 stage1 重构出的统一 KGQA 检索框架,通过 dataset adapter 注册表分发 webqsp / metaqa / cwq:
+
+```bash
+python -m kgqa.cli.dump_scores --dataset <DS> ...   # 生成 score 缓存
+python -m kgqa.cli.retrieve --dataset <DS> --backend offline|online --input_dir <DIR> ...  # offline=score 缓存,online=ckpt 实时
+python -m kgqa.cli.eval ...
+```
+
+### kgqa/pfit 训练流水(Ch4 现役,stage2)
+
+数据集无关的 build→train→eval 流水,输出统一 `data/output/kgqa/<ds>/`,三阶段断点续跑基于实验目录 manifest.json:
+
+```bash
+python -m kgqa.pfit.subset_qa --input <QA> --output <SUB> --n 20000  # 按 hop 分层子集(JSON 或 MetaQA 预处理 .pt)
+python -m kgqa.pfit.build --dataset <DS> --input <RETRIEVE_JSONL> --exp_dir <DIR> ...  # 建 SFT 集(输入须含 golden)
+python -m kgqa.pfit.train --exp_dir <DIR>            # QLoRA,adapter 写 <DIR>/adapter/
+python -m kgqa.pfit.eval --dataset <DS> --input <TEST_JSONL> --exp_dir <DIR> [--adapter <DIR>/adapter]
+bash scripts/run_pfit.sh --exp <exp_id> [--phase build|train|eval|all]  # 实验注册表编排(8 实验;LIMIT/FMT/ADAPTER 变体)
+```
+
+数据集差异集中在 `kgqa/pfit/specs.py`(entity_repr、问题清洗、hop 分层、拒答开关);路径格式只剩 arrow/tuple/chain/nl(schema 系已废弃)。实验清单与目录约定见 `docs/experiments/experiments_kgqa_stage2_pfit_20260711.md`。
+
+### LLM SFT(Ch4 legacy,只读)
+
+`llm_infer/` 与 `scripts/run_ablation.sh` 为 Ch4 原始实现,只读保留(pfit 建集 parity 的对拍参照);新实验一律走 `kgqa/pfit/`。消融分组:A 输出格式 / B 训练数据 / C 检索参数 / D 路径输入格式;基座 `unsloth/meta-llama-3.1-8b-instruct-bnb-4bit`。
+
+### 实验脚本
+
+```bash
+bash scripts/run_grid.sh webqsp|metaqa|cwq [ckpt]  # MMR beam/lambda 网格搜索
+bash scripts/run_pfit.sh --exp <exp_id> --phase all # Ch4 pfit 实验编排(smoke 加 LIMIT=100)
+bash scripts/run_checked_batch_agent_eval.sh        # Ch5 checked-batch 评测(自动确保服务在线)
+python scripts/collect_ablation_results.py          # 消融日志汇总为 CSV
+```
+
+脚本均支持断点续跑(输出已存在则跳过)和环境变量覆盖;默认参数以各脚本头部为准,不要依赖文档里的历史值。
+
+### 测试
+
+```bash
+python -m unittest discover -s tests -t . -p 'test*.py' -v
+bash tests/run_ablation_lib_test.sh  # ablation 库函数测试
+bash tests/run_pfit_lib_test.sh     # run_pfit.sh 命令拼装 dry-run 测试
+```
+
+`-t .` 必须带:缺省顶层目录时 `tests/kgqa` 会遮蔽项目 `kgqa` 包,72 个用例报 import error。
+
+## 常驻服务与 Ch5 评测
+
+两个常驻 HTTP 服务,一次加载多次复用:
+
+- `path_retrieve_server`(默认 `http://localhost:8789`):score 缓存检索,仅覆盖 WebQSP test 1581 条
+- `llm_server`(默认 `http://localhost:8788`):base model + LoRA adapter 生成
+
+```bash
+./scripts/path_retrieve_server.sh start|status
+./scripts/llm_server.sh start|status
+PORT_BUSY_ACTION=kill ./scripts/llm_server.sh start  # 端口被旧进程占用且确认要替换时
+```
+
+- 服务已启动时,一律通过 HTTP client 调用(`oh_my_agent.path_retrieve_server.client`、`oh_my_agent.llm_server.client.LLMClient`),不要在测试或对比脚本里重新加载 base model / adapter / 检索器。
+- 做路径检索一致性(parity)检查时,把已有 JSONL 里的 `topics`/`hop`/`beam_size`/`lambda_val` 原样传给服务;`log_score` 允许 `1e-6` 量级浮点差,重点比对三元组序列和 prediction 是否一致。
+
+评测入口是批量 CLI(依赖上述两个服务):
+
+```bash
+python -m oh_my_agent.cli.eval_checked_batch_agent \
+    --input data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt \
+    --output data/output/WebQSP/checked_batch_agent/quick_50 \
+    --limit 50 \
+    --check_mode hybrid-reject-list \
+    --path_retrieve_url http://localhost:8789 \
+    --llm_server_url http://localhost:8788
+```
+
+去掉 `--limit` 即全量 1581 条。输出写入 `--output` 目录:`checked_batch_eval.jsonl`(逐样本记录)、`checked_batch_eval_summary.json`(hit1/hit_any/macro_f1/exact_match/citation_accuracy/stop_reason_counts)、`initial_retrieval.jsonl` / `initial_answer.jsonl`(初始检索与首批答题)。
+
+## 架构
+
+### 数据集模块(4 套并行实现)
+
+`MetaQA_KB/`、`MetaQA-Text/`、`WebQSP/`、`CompWebQ/` 各自有 `model.py`/`train.py`/`predict.py`/`data.py`,都定义 `TransferNet(nn.Module)`:
+
+| 模块 | 问题编码 | KG 表示 | 关键差异 |
+|------|---------|---------|---------|
+| MetaQA_KB | BiGRU + GloVe | 全局稀疏矩阵(`Knowledge_graph.py`) | 3-hop,防环 |
+| MetaQA-Text | BiGRU + GloVe | 文本关系(`desc_encoder` BiGRU) | 按分数裁剪活跃实体 |
+| WebQSP | BERT/RoBERTa | 内联稀疏矩阵 | 2-hop,sigmoid 关系分布,`entity_range` 掩码 |
+| CompWebQ | BERT | 逐样本三元组(`index_add`) | 多路推理(way 乘积) |
+
+核心推理机制 `follow(e, r) = Mobj^T @ (Msubj @ e^T * Mrel @ r^T)`:可微稀疏矩阵乘做 KG 遍历;每 hop 依次为 step encoder → 问题注意力 → 关系分类 → `follow()`。
+
+### 其他模块
+
+- `kgqa/`:统一检索框架。`cli/` 三个入口、`datasets/`(adapter 注册表)、`scores/`(逐数据集 ScoreProducer)、`retrieve/backends/`(offline score 缓存 / online ckpt 实时)、`eval/`、`server/`、`pfit/`(Ch4 现役 SFT 流水:formats/specs/build/train/eval/manifest/subset_qa)
+- `utils/`:BiGRU 编码器、RAdam(`misc.py`)、MMR beam search 与路径/多样性指标(`path_utils.py`)、多阈值评测统计(`eval_utils.py`)
+- `oh_my_agent/`(Ch5):`cli/eval_checked_batch_agent.py` 评测入口、`cli/run_checked_batch_agent.py` 单问调试、`agent/` 主逻辑与离线 replay、`tools/` 检索/答题/引用校验、`common/` 指标、prompting、数据加载、`path_retrieve_server/` 与 `llm_server/` 两个服务、`demo_page/` 推理演示页面
+- `llm_infer/`(Ch4 legacy,只读):`kg_format.py`、`train_sft.py`、`build_kgcot_dataset.py`、`eval_faithfulness.py`;已迁移至 `kgqa/pfit/`,保留作 parity 对拍参照
+
+## 关键约定
+
+- Loss 用加权 MSE,正样本重加权(MetaQA `answers*9+1`,WebQSP `answers*99+1`)
+- 每 hop 后分数 clamp(>1 时可微缩放);默认优化器 RAdam(`utils/misc.py`);梯度裁剪 value=0.5、norm=2
+- `data/` 与 `models/` 已 gitignore;GloVe 需先 `python pickle_glove.py` 预处理为 pickle
+- Docker 使用国内镜像源(清华 PyPI、中科大 APT)
+
+## 分析归档
+
+- 探索阶段的最终产物(分析结论、核对报告、阶段性 README、误差分析摘要)归档到 `data/analysis/` 下,不要散落在临时脚本目录或 `data/output/` 根目录。
+- 目录名含时间戳时统一用分钟级格式 `YYYYMMDD_HHMM__slug`,不用秒级。
+- 同一会话产生的分析内容默认收敛到同一个归档目录、单一 README;发现多份高度重叠的归档时合并为单一入口,保留信息更完整的版本,删除重复与空目录。
+
+## Git 提交规范
+
+### 提交前三步(并行执行)
+
+```bash
+git status             # 不要加 -uall,大仓库会有内存问题
+git diff
+git log --oneline -10
 ```
 
 ### Commit Message 格式
 
-遵循 Conventional Commits，消息使用中文（scope 和 type 保持英文）：
+遵循 Conventional Commits,消息中文(type/scope 保持英文):
 
 ```
-type(scope): 中文简述（≤50 字）
+type(scope): 中文简述(≤50 字)
 
-- 变更项一（文件/模块：做了什么）
-- 变更项二
+- 变更项一(文件/模块:做了什么)
 - ...
 
 Co-Authored-By: <git config user.name> <<git config user.email>>
 Co-Authored-By: 当前协作模型/助手名称 <对应 noreply 邮箱>
 ```
 
-正文使用 `-` 列表，每项一行，简述该文件/模块发生了什么变更。变更项较少（1 项）时可省略正文。
+正文用 `-` 列表逐项简述;仅 1 项变更时可省略正文。**Co-Authored-By 的用户信息必须现场执行 `git config user.name` / `git config user.email` 读取,禁止使用记忆、对话历史或硬编码值**;协作模型行按当前会话实际使用的模型填写(如 `Claude Opus 4.8 <noreply@anthropic.com>`、`Codex <noreply@openai.com>`)。
 
-**`Co-Authored-By` 用户信息必须执行 `git config user.name` / `git config user.email` 读取，禁止使用 memory、对话历史或硬编码值。** 可写多行，每行一个协作者。完整示例（Codex 会话）：
+type 精确选词,不混用:`feat` 全新功能或文件 / `fix` 修 bug / `refactor` 重构 / `test` 测试 / `docs` 仅文档 / `chore` 构建、依赖、配置 / `perf` 性能。scope 取模块简称,如 `agent`、`eval`、`llm-server`、`llm-infer`、`kgqa`。
 
-```
-Co-Authored-By: jsh-smi-wsl <1099048889@qq.com>
-Co-Authored-By: Codex <noreply@openai.com>
-```
+### 暂存与提交
 
-**type 选词规则（精确，不要混用）：**
-
-| type | 含义 |
-|------|------|
-| `feat` | 完全新增的功能或文件 |
-| `fix` | 修复已有功能的 bug |
-| `refactor` | 重构，不新增功能也不修 bug |
-| `test` | 新增或修改测试 |
-| `docs` | 仅文档变更 |
-| `chore` | 构建脚本、依赖、配置等维护性变更 |
-| `perf` | 性能优化 |
-
-**scope** 取模块简称，例如 `path-server`、`llm-server`、`eval`、`llm-infer`、`agent`。
-
-### 暂存与提交操作规范
-
-1. **按文件名暂存**，不要用 `git add -A` 或 `git add .`，避免把 `.env`、大二进制文件等意外纳入。
-2. **用 HEREDOC 传入消息**，防止引号和换行格式出错：
-   ```bash
-   git commit -m "$(cat <<'EOF'
-   feat(eval): 新增 citation accuracy 指标计算
-
-   - eval_faithfulness.py: 新增 citation_accuracy / hallucination_rate 指标
-   - tests/test_eval.py: 补充对应单测
-
-   Co-Authored-By: jsh-smi-wsl <1099048889@qq.com>
-   Co-Authored-By: Codex <noreply@openai.com>
-   EOF
-   )"
-   ```
-3. **提交后运行 `git status`** 确认成功，无残留变更。
+1. 按文件名暂存,不用 `git add -A` / `git add .`,避免把 `.env`、大二进制文件意外纳入。
+2. 用 HEREDOC 传 commit message(`git commit -m "$(cat <<'EOF' ... EOF)"`),防止引号和换行出错。
+3. 提交后运行 `git status` 确认无残留变更。
 
 ### 安全红线
 
-- **只有用户明确要求时才创建提交**，不主动提交。
-- 不跳过 hook（`--no-verify`）；hook 报错时定位根因并修复，再重新暂存提交（新建 commit，不用 `--amend`）。
-- 不提交含密钥的文件（`.env`、凭据 JSON 等），发现时主动告知用户。
-- 不对 `main` / `master` 执行 `push --force`；有此需求时先确认。
-- `--amend` 仅在用户明确要求时使用；hook 失败后的修复一律新建 commit，防止覆盖历史。
+- 只有用户明确要求时才创建提交,不主动提交。
+- 不跳过 hook(`--no-verify`);hook 报错时定位根因修复,新建 commit 重新提交,不用 `--amend`。
+- 不提交含密钥的文件(`.env`、凭据 JSON 等),发现时主动告知用户。
+- 不对 `main` / `master` 执行 force push;`--amend` 仅在用户明确要求时使用。
