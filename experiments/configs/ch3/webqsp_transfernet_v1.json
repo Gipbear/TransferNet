@@ -3,6 +3,7 @@
   "kind": "ch3_retrieval_profile",
   "status": "draft",
   "confirmation_reason": "待完成 top-k 饱和性和检索参数扫描后，由人工填写确认理由。",
+  "selected_candidate": "",
   "config_id": "transfernet_v1",
   "dataset": "webqsp",
   "backbone": "transfernet",

@@ -17,8 +17,10 @@
 
 1. 在 `configs/ch3/` 中填写实际 checkpoint 和 CWQ QA 文件；先执行 top-k 饱和性实验及参数扫描。
 2. 审核候选结果，填写 `confirmation_reason`，并将对应第三章配置的 `status` 改为
-   `confirmed`。这一步是人工确认，脚本不会根据测试集指标自动修改该字段。
-3. 使用该配置运行第四章或第五章。未确认的配置会被拒绝。
+   `confirmed`，同时填写 `selected_candidate`。这一步是人工确认，脚本不会根据测试集
+   指标自动修改这些字段。
+3. 发布被确认候选的 train/test JSONL。第四、五章只读取此正式目录。
+4. 使用该配置运行第四章或第五章。未确认的配置会被拒绝。
 
 ```bash
 # 仅展示第三章将运行的命令和输出位置
@@ -26,6 +28,9 @@ python -m experiments.run_ch3 --dataset webqsp --dry_run
 
 # 生成 WebQSP 的 top-k 得分缓存和检索参数扫描结果
 python -m experiments.run_ch3 --dataset webqsp --phase all
+
+# 人工确认后，将所选候选结果发布为第四、五章的正式上游输入
+python -m experiments.run_ch3 --dataset webqsp --phase publish
 
 # 第四章：主实验的三个随机种子
 python -m experiments.run_ch4 \

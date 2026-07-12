@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
 
 from experiments.common import ROOT, require_fields, resolve_path, run_command
-from kgqa.experiments import ExperimentPaths, load_json_config
+from kgqa.experiments import ExperimentPaths, load_confirmed_config, load_json_config
 from kgqa.runtime import configure_runtime, emit_event, update_progress
 
 
@@ -20,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dataset", choices=["webqsp", "metaqa", "cwq"], required=True)
     parser.add_argument("--backbone", default="transfernet", choices=["transfernet", "rearev"])
     parser.add_argument("--config", default="", help="版本化检索配置 JSON；默认按数据集与基础检索模型选择")
-    parser.add_argument("--phase", choices=["scores", "scan", "all"], default="all")
+    parser.add_argument("--phase", choices=["scores", "scan", "publish", "all"], default="all")
     parser.add_argument("--project_dir", default=str(ROOT), help="项目根目录，仅供实验编排定位配置与产物")
     parser.add_argument("--dry_run", action="store_true", help="只展示命令和目标目录，不执行模型")
     return parser
@@ -113,6 +114,33 @@ def main(argv: list[str] | None = None) -> int:
                 run_command(command, run_dir, dry_run=args.dry_run)
                 update_progress(run_dir, completed=1, total=1, status="completed", phase="参数扫描")
                 emit_event(run_dir, "phase_end", phase="参数扫描")
+
+    if args.phase == "publish":
+        # 人工确认后仅发布已选候选产物；不复制未确认的测试集候选。
+        confirmed = load_confirmed_config(config_path)
+        candidate_id = confirmed.get("selected_candidate")
+        if not candidate_id:
+            raise ValueError("已确认检索配置缺少 selected_candidate，无法发布正式检索结果")
+        run_dir = profile_dir / "publish"
+        configure_runtime(
+            argparse.Namespace(run_dir=str(run_dir), log_level="INFO"),
+            command="发布已确认检索配置",
+            manifest={"config_path": str(config_path), "selected_candidate": candidate_id},
+        )
+        for split in confirmed.get("score_source", {}).get("splits", {}):
+            source = profile_dir / "candidates" / candidate_id / f"{split}.jsonl"
+            target = profile_dir / f"{split}.jsonl"
+            if not source.is_file() and not args.dry_run:
+                raise ValueError(f"已选候选缺少 {split} 检索结果: {source}")
+            if args.dry_run:
+                print(f"[演练] 发布 {source} → {target}")
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+        if not args.dry_run:
+            shutil.copy2(config_path, profile_dir / "confirmed_config.json")
+        update_progress(run_dir, completed=1, total=1, status="completed", phase="发布已确认检索配置")
+        emit_event(run_dir, "phase_end", phase="发布已确认检索配置", candidate=candidate_id)
     return 0
 
 

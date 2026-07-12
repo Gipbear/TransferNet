@@ -38,6 +38,23 @@ class TestExperimentRunners(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "尚未人工确认"):
                 run_ch4.main(["--dataset", "webqsp", "--config", str(matrix), "--profile", str(profile), "--project_dir", str(root), "--dry_run"])
 
+    def test_ch3_publish_copies_only_confirmed_candidate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = write_json(root / "ch3.json", {
+                "kind": "ch3_retrieval_profile", "status": "confirmed", "dataset": "webqsp",
+                "backbone": "transfernet", "config_id": "v1", "topk": 500, "retrieve": {},
+                "selected_candidate": "人工选择", "score_source": {"splits": {"train": {}, "test": {}}},
+            })
+            base = root / "data/output/kgqa/ch3_retrieval/webqsp/transfernet/confirmed_profiles/v1/candidates/人工选择"
+            base.mkdir(parents=True)
+            (base / "train.jsonl").write_text('{"sample_index": 0}\n', encoding="utf-8")
+            (base / "test.jsonl").write_text('{"sample_index": 1}\n', encoding="utf-8")
+            run_ch3.main(["--dataset", "webqsp", "--config", str(config), "--project_dir", str(root), "--phase", "publish"])
+            published = root / "data/output/kgqa/ch3_retrieval/webqsp/transfernet/confirmed_profiles/v1"
+            self.assertTrue((published / "train.jsonl").is_file())
+            self.assertEqual((published / "confirmed_config.json").read_text(encoding="utf-8"), config.read_text(encoding="utf-8"))
+
     def test_ch5_replay_uses_benchmark_as_input(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
