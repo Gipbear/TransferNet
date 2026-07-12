@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from oh_my_agent.llm_server.client import LLMClient, OpenAICompatibleLLMClient, SiliconFlowLLMClient
+from kgqa.llm_server.client import LLMClient, OpenAICompatibleLLMClient, SiliconFlowLLMClient
 
 
 class FakeResponse:
@@ -52,7 +52,7 @@ class LLMClientTests(unittest.TestCase):
     def test_generate_can_disable_adapter(self):
         client = LLMClient("http://localhost:8788")
 
-        with patch("oh_my_agent.llm_server.client.requests.post", return_value=FakeResponse()) as post:
+        with patch("kgqa.llm_server.client.requests.post", return_value=FakeResponse()) as post:
             client.generate(
                 "hello",
                 use_adapter=False,
@@ -80,7 +80,7 @@ class LLMClientTests(unittest.TestCase):
             api_key="token",
         )
 
-        with patch("oh_my_agent.llm_server.client.requests.post", return_value=FakeOpenAIResponse()) as post:
+        with patch("kgqa.llm_server.client.requests.post", return_value=FakeOpenAIResponse()) as post:
             response = client.generate(
                 "hello",
                 use_adapter=False,
@@ -116,7 +116,7 @@ class LLMClientTests(unittest.TestCase):
             extra_body={"enable_thinking": False},
         )
 
-        with patch("oh_my_agent.llm_server.client.requests.post", return_value=FakeOpenAIResponse()) as post:
+        with patch("kgqa.llm_server.client.requests.post", return_value=FakeOpenAIResponse()) as post:
             client.generate("hello", use_adapter=False)
 
         _args, kwargs = post.call_args
@@ -130,9 +130,9 @@ class LLMClientTests(unittest.TestCase):
         )
 
         with patch(
-            "oh_my_agent.llm_server.client.requests.post",
+            "kgqa.llm_server.client.requests.post",
             side_effect=[FakeRateLimitResponse(), FakeOpenAIResponse()],
-        ) as post, patch("oh_my_agent.llm_server.client.time.sleep") as sleep:
+        ) as post, patch("kgqa.llm_server.client.time.sleep") as sleep:
             response = client.generate("hello", use_adapter=False)
 
         self.assertEqual(response.text, "ok")
@@ -143,7 +143,7 @@ class LLMClientTests(unittest.TestCase):
         with patch.dict("os.environ", {"SILICONFLOW_API_KEY": "sf-token"}, clear=True):
             client = SiliconFlowLLMClient(timeout=9)
 
-        with patch("oh_my_agent.llm_server.client.requests.post", return_value=FakeOpenAIResponse()) as post:
+        with patch("kgqa.llm_server.client.requests.post", return_value=FakeOpenAIResponse()) as post:
             response = client.generate(
                 "hello",
                 use_adapter=True,
@@ -179,7 +179,7 @@ class LLMClientTests(unittest.TestCase):
     def test_generate_can_enable_adapter(self):
         client = LLMClient("http://localhost:8788")
 
-        with patch("oh_my_agent.llm_server.client.requests.post", return_value=FakeResponse()) as post:
+        with patch("kgqa.llm_server.client.requests.post", return_value=FakeResponse()) as post:
             client.generate("hello", use_adapter=True)
 
         post.assert_called_once_with(

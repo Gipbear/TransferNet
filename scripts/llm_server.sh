@@ -71,7 +71,7 @@ EOF
 }
 
 find_server_pids() {
-  pgrep -f "oh_my_agent\\.llm_server\\.server.*--port ${PORT}" || true
+  pgrep -f "kgqa\\.llm_server\\.server.*--port ${PORT}" || true
 }
 
 find_port_pids() {
@@ -237,7 +237,7 @@ start_server() {
 
   cd "${PROJECT_DIR}"
   if [[ "${LLM_BACKEND}" == "siliconflow" ]]; then
-    nohup python -m oh_my_agent.llm_server.server \
+    nohup python -m kgqa.llm_server.server \
       --backend siliconflow \
       --siliconflow-base-url "${SILICONFLOW_BASE_URL}" \
       --siliconflow-model "${SILICONFLOW_MODEL}" \
@@ -245,7 +245,7 @@ start_server() {
       --port "${PORT}" \
       > "${LOG_PATH}" 2>&1 &
   else
-    nohup python -m oh_my_agent.llm_server.server \
+    nohup python -m kgqa.llm_server.server \
       --model "${MODEL_SNAPSHOT}" \
       --adapter "${ADAPTER_PATH}" \
       --host "${LLM_SERVER_HOST}" \
