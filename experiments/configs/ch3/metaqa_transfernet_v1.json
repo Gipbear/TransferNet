@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "kind": "ch3_retrieval_profile",
+  "status": "draft",
+  "confirmation_reason": "待完成 top-k 饱和性和检索参数扫描后，由人工填写确认理由。",
+  "config_id": "transfernet_v1",
+  "dataset": "metaqa",
+  "backbone": "transfernet",
+  "topk": 500,
+  "topk_candidates": [100, 250, 500, 1000],
+  "score_source": {"ckpt": "", "input_dir": "data/input/MetaQA_KB", "splits": {"train": {"qa_file": "data/input/MetaQA_KB/train.pt"}, "test": {"qa_file": "data/input/MetaQA_KB/test.pt"}}},
+  "retrieve": {"beam_size": 50, "lambda_val": 0.2, "threshold": 0.01, "alpha_final": 1.0},
+  "parameter_scan": [{"id": "无多样性对照", "retrieve": {"lambda_val": 0.0}}, {"id": "候选配置", "retrieve": {"lambda_val": 0.2}}]
+}

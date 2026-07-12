@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "kind": "ch4_pfit_matrix",
+  "dataset": "webqsp",
+  "config_id": "core_v1",
+  "experiments": [
+    {"id": "主实验", "mode": "train", "seeds": [17, 23, 29], "build_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"], "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"]},
+    {"id": "零样本基线", "mode": "eval_only", "seeds": [17], "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"]},
+    {"id": "无路径基线", "mode": "eval_only", "seeds": [17, 23, 29], "adapter_from": "主实验", "eval_args": ["--format", "v1", "--no_paths", "--entity_repr", "name"]},
+    {"id": "自然语言路径", "mode": "train", "seeds": [17], "build_args": ["--format", "v2", "--path_format", "nl", "--entity_repr", "name"], "eval_args": ["--format", "v2", "--path_format", "nl", "--entity_repr", "name"]},
+    {"id": "输出格式v1", "mode": "train", "seeds": [17], "build_args": ["--format", "v1", "--path_format", "chain", "--entity_repr", "name"], "eval_args": ["--format", "v1", "--path_format", "chain", "--entity_repr", "name"]},
+    {"id": "半量训练数据", "mode": "train", "seeds": [17], "build_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name", "--sample", "1498"], "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"]}
+  ]
+}

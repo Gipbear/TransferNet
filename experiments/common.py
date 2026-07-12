@@ -1,0 +1,60 @@
+"""实验编排脚本共享的小型工具。"""
+from __future__ import annotations
+
+import json
+import logging
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any, Iterable
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def resolve_path(project_dir: Path, value: str) -> Path:
+    """将配置中的相对路径按项目根目录解析。"""
+    path = Path(value)
+    return path if path.is_absolute() else project_dir / path
+
+
+def command_text(command: Iterable[str]) -> str:
+    """使用 JSON 风格展示命令，避免 shell 转义歧义。"""
+    return " ".join(json.dumps(str(item), ensure_ascii=False) for item in command)
+
+
+def run_command(command: list[str], run_dir: Path, *, dry_run: bool) -> None:
+    """执行命令并将 stdout/stderr 同时存入统一控制台日志。"""
+    text = command_text(command)
+    logging.getLogger(__name__).info("执行命令: %s", text)
+    console_path = run_dir / "logs" / "console.log"
+    if dry_run:
+        print(f"[演练] {text}")
+        console_path.parent.mkdir(parents=True, exist_ok=True)
+        with console_path.open("a", encoding="utf-8") as handle:
+            handle.write(f"[演练] {text}\n")
+        return
+    completed = subprocess.run(command, text=True, capture_output=True, check=False)
+    output = completed.stdout + completed.stderr
+    console_path.parent.mkdir(parents=True, exist_ok=True)
+    with console_path.open("a", encoding="utf-8") as handle:
+        handle.write(f"$ {text}\n{output}")
+        if output and not output.endswith("\n"):
+            handle.write("\n")
+    if completed.stdout:
+        print(completed.stdout, end="")
+    if completed.stderr:
+        print(completed.stderr, end="", file=sys.stderr)
+    if completed.returncode:
+        raise SystemExit(f"命令失败（退出码 {completed.returncode}）: {text}")
+
+
+def require_fields(config: dict[str, Any], *fields: str) -> None:
+    # 空列表/空映射有时是合法的显式配置（例如只运行第五章回放消融），
+    # 因而只拒绝字段缺失、null 或空字符串。
+    missing = [
+        field for field in fields
+        if field not in config or config[field] is None or config[field] == ""
+    ]
+    if missing:
+        raise ValueError(f"实验配置缺少必填字段: {', '.join(missing)}")
