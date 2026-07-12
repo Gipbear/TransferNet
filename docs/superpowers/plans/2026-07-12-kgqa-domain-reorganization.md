@@ -124,9 +124,9 @@ kgqa/
 
 **Steps:**
 
-- [ ] 写工厂参数透传和三个 producer import 的测试，不加载 checkpoint。
-- [ ] 移动实现到 `backbone`，旧 `models` 模块仅重导出。
-- [ ] 让新 `retrieve/cli`（尚未移动时为旧 `cli`）直接依赖 `backbone`，不再依赖 `models` 兼容层。
+- [x] 写工厂参数透传和三个 producer import 的测试，不加载 checkpoint。
+- [x] 移动实现到 `backbone`，旧 `models` 模块仅重导出。
+- [x] 让新 `retrieve/cli`（尚未移动时为旧 `cli`）直接依赖 `backbone`，不再依赖 `models` 兼容层。
 
 **Verify:**
 

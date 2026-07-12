@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from kgqa.datasets.base import DatasetAdapter
-from kgqa.models.base import ScoreProducer
+from kgqa.backbone.base import ScoreProducer
 from kgqa.retrieve import engine
 from kgqa.retrieve.backends.base import RetrieveParams
 

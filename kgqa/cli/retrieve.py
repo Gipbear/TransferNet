@@ -6,7 +6,7 @@ import json
 import os
 
 from kgqa.datasets.registry import get_adapter
-from kgqa.models import make_score_producer
+from kgqa.backbone import make_score_producer
 
 
 def build_parser() -> argparse.ArgumentParser:

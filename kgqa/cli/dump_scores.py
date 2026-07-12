@@ -6,7 +6,7 @@ import os
 
 import torch
 
-from kgqa.models import make_score_producer
+from kgqa.backbone import make_score_producer
 
 
 def build_parser() -> argparse.ArgumentParser:
