@@ -43,14 +43,12 @@ class TestEngine(unittest.TestCase):
         expected = (-8.0 + 2.0 * math.log(0.25 + engine.EPS)) / 2
         self.assertAlmostEqual(score, expected)
 
-    def test_alpha_final_keyword_remains_compatible_with_eta(self):
+    def test_alpha_final_keyword_is_rejected(self):
         candidate = engine.PathCandidate(
             nodes=[0, 1], rels=[1], hop=1, base_score=-3.0, final_tail_score=0.5,
         )
-        self.assertEqual(
-            engine.compute_candidate_score(candidate, eta=0.7),
-            engine.compute_candidate_score(candidate, alpha_final=0.7),
-        )
+        with self.assertRaises(TypeError):
+            engine.compute_candidate_score(candidate, alpha_final=0.7)
 
     def test_candidate_hops_include_every_available_step(self):
         self.assertEqual(engine.candidate_hop_numbers(3), [1, 2, 3])

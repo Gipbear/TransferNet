@@ -47,6 +47,19 @@ class TestExperimentRunners(unittest.TestCase):
         })
         self.assertEqual(config["retrieve"]["eta"], 1.0)
 
+    def test_ch3_rejects_deprecated_alpha_final(self):
+        config = {
+            "retrieve": {
+                "beam_size": 50,
+                "lambda_val": 0.2,
+                "threshold": 0.01,
+                "eta": 1.0,
+                "alpha_final": 1.0,
+            }
+        }
+        with self.assertRaisesRegex(ValueError, "不接受字段: alpha_final"):
+            run_ch3._retrieve_args(config, {})
+
     def test_ch4_requires_confirmed_profile_before_dry_run(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

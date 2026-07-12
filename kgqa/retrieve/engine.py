@@ -14,11 +14,6 @@ from kgqa.retrieve.graph.base import KGEdgeSource
 EPS = 1e-9
 
 
-def _resolve_eta(eta: float | None, alpha_final: float | None) -> float:
-    """解析论文参数 ``eta``，并接受历史字段 ``alpha_final``。"""
-    return float(alpha_final if alpha_final is not None else (1.0 if eta is None else eta))
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # 以下为逐字迁移内核（数值红线）
 # ─────────────────────────────────────────────────────────────────────────────
@@ -42,15 +37,9 @@ class PathCandidate:
 
 def compute_candidate_score(
     candidate: PathCandidate,
-    eta: float | None = None,
-    *,
-    alpha_final: float | None = None,
+    eta: float = 1.0,
 ) -> float:
-    """融合路径分数与终点实体分数，并按路径长度归一化。
-
-    ``eta`` 是论文中的终点实体分数权重；``alpha_final`` 仅用于兼容历史调用。
-    """
-    eta = _resolve_eta(eta, alpha_final)
+    """融合路径分数与终点实体分数，并按路径长度归一化。"""
     score = candidate.base_score + eta * math.log(
         max(candidate.final_tail_score, 0.0) + EPS
     )
@@ -59,13 +48,11 @@ def compute_candidate_score(
 
 def score_path_candidates(
     candidates: list[PathCandidate],
-    eta: float | None = None,
-    *,
-    alpha_final: float | None = None,
+    eta: float = 1.0,
 ) -> list[PathCandidate]:
     """返回写入融合分数后的候选路径。"""
     return [
-        replace(candidate, score=compute_candidate_score(candidate, eta, alpha_final=alpha_final))
+        replace(candidate, score=compute_candidate_score(candidate, eta))
         for candidate in candidates
     ]
 
@@ -85,16 +72,14 @@ def candidate_to_tuple(candidate: PathCandidate) -> tuple[list[int], list[int], 
 def select_path_candidates(
     candidates: list[PathCandidate],
     k: int,
-    eta: float | None = None,
+    eta: float = 1.0,
     lambda_val: float = 0.2,
-    *,
-    alpha_final: float | None = None,
 ) -> list[PathCandidate]:
     """按固定 MMR 与确定性并列规则，为候选路径打分并选择。"""
     if not candidates or k <= 0:
         return []
 
-    scored = _ranked_candidates(score_path_candidates(candidates, eta, alpha_final=alpha_final))
+    scored = _ranked_candidates(score_path_candidates(candidates, eta))
 
     rel_sets = [path_to_rel_set(c.rels) for c in scored]
     selected = []
@@ -276,13 +261,12 @@ def _serialize_paths(paths, id2ent: dict, id2rel: dict) -> list[dict]:
 
 
 def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, *,
-                 eta: float | None = None, alpha_final: float | None = None,
+                 eta: float = 1.0,
                  threshold: float = 0.01, beam_size: int = 50,
                  lambda_val: float = 0.2, drop_loopback: bool = True) -> RetrieveResult:
     """单样本检索：稀疏重建 → 逐跳 beam 展开 → MMR 选择 → 序列化。
 
     与 offline_path_search.run_experiment 的单样本分支逻辑等价（Task 11 回归锁定）。"""
-    eta = _resolve_eta(eta, alpha_final)
     t0 = time.perf_counter()
     valid_edges_dict = getattr(edge_source, "valid_edges_dict", None)
 

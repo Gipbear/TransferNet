@@ -39,12 +39,14 @@ def _score_source(config: dict[str, Any], split: str) -> dict[str, str]:
 
 def _retrieve_args(config: dict[str, Any], override: dict[str, Any]) -> list[str]:
     params = {**config["retrieve"], **override}
-    eta = params.get("eta", params.get("alpha_final", 1.0))
+    unsupported = set(params) - {"beam_size", "lambda_val", "threshold", "eta"}
+    if unsupported:
+        raise ValueError(f"检索配置不接受字段: {', '.join(sorted(unsupported))}")
     return [
         "--beam_size", str(params["beam_size"]),
         "--lambda_val", str(params["lambda_val"]),
         "--threshold", str(params["threshold"]),
-        "--eta", str(eta),
+        "--eta", str(params["eta"]),
     ]
 
 
@@ -54,6 +56,8 @@ def main(argv: list[str] | None = None) -> int:
     config_path = Path(args.config) if args.config else _default_config(project_dir, args.dataset, args.backbone)
     config = load_json_config(config_path)
     require_fields(config, "dataset", "backbone", "config_id", "topk", "retrieve")
+    if args.phase != "publish":
+        require_fields(config["retrieve"], "beam_size", "lambda_val", "threshold", "eta")
     if config["dataset"] != args.dataset or config["backbone"] != args.backbone:
         raise ValueError("命令行数据集/基础检索模型与配置不一致")
     if args.backbone == "rearev" and args.phase in {"scores", "all"}:

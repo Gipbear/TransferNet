@@ -24,7 +24,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--question", required=True, help="Natural-language question")
     parser.add_argument("--topic_mid", required=True, help="Topic entity id (WebQSP MID or entity name)")
     parser.add_argument("--eta", type=float, default=1.0, help="终点实体分数融合权重 η")
-    parser.add_argument("--alpha_final", type=float, dest="eta", help=argparse.SUPPRESS)
     parser.add_argument("--path_threshold", type=float, default=0.01)
     parser.add_argument("--beam_size", type=int, default=50)
     parser.add_argument("--lambda_val", type=float, default=0.2)

@@ -27,7 +27,6 @@ class RetrieveRequest(BaseModel):
     lambda_val: float = 0.2
     threshold: float = 0.01
     eta: float = 1.0
-    alpha_final: float | None = None
 
 
 def create_app(backend) -> FastAPI:
@@ -39,10 +38,9 @@ def create_app(backend) -> FastAPI:
 
     @app.post("/retrieve")
     def retrieve(req: RetrieveRequest):
-        eta = req.alpha_final if req.alpha_final is not None else req.eta
         result = backend.retrieve(
             req.sample_index, beam_size=req.beam_size,
-            lambda_val=req.lambda_val, threshold=req.threshold, eta=eta,
+            lambda_val=req.lambda_val, threshold=req.threshold, eta=req.eta,
         )
         return asdict(result)
 

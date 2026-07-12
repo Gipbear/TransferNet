@@ -26,7 +26,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--threshold", type=float, default=0.01)
     p.add_argument("--eta", type=float, default=1.0,
                    help="终点实体分数融合权重 η（论文符号）")
-    p.add_argument("--alpha_final", type=float, dest="eta", help=argparse.SUPPRESS)
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--output", default=None, help="逐样本 JSONL 输出路径")
     add_runtime_arguments(p)

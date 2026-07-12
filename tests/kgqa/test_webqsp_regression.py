@@ -23,7 +23,7 @@ class TestWebQSPRegression(unittest.TestCase):
         from kgqa.retrieve.datasets.registry import get_adapter
         from kgqa.retrieve.backends.offline import OfflineBackend
 
-        params = dict(alpha_final=1.0, threshold=0.01,
+        params = dict(eta=1.0, threshold=0.01,
                       beam_size=50, lambda_val=0.2)
 
         cache = load_score_cache(CACHE)
@@ -48,7 +48,7 @@ class TestWebQSPRegression(unittest.TestCase):
                 cands.extend(search_path_candidates(sample["topic_ids"], rel_dicts, ent_dicts, ch,
                                                     ved, 50, final_ent_scores=final_scores,
                                                     order_start=len(cands)))
-            selected = select_path_candidates(cands, 50, alpha_final=1.0, lambda_val=0.2)
+            selected = select_path_candidates(cands, 50, eta=1.0, lambda_val=0.2)
             # 映射 rel id → 名称，与新后端序列化口径一致
             return [[id2rel.get(r, str(r)) for r in candidate_to_tuple(c)[1]] for c in selected]
 

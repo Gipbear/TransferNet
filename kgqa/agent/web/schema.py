@@ -1,21 +1,16 @@
 """展示页 HTTP 请求模型。"""
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RetrieveIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     sample_index: int = Field(ge=0)
     beam_size: int = Field(50, ge=1, le=200)
     lambda_val: float = Field(0.2, ge=0.0, le=10.0)
     eta: float = Field(1.0, ge=0.0, le=10.0)
-    alpha_final: float | None = Field(None, ge=0.0, le=10.0, description="历史兼容字段")
-
-    @model_validator(mode="after")
-    def use_legacy_alpha_final(self):
-        if self.alpha_final is not None:
-            self.eta = self.alpha_final
-        return self
 
 
 class ReplayIn(BaseModel):

@@ -98,11 +98,6 @@ class CachedRetrievalResult:
     cache_path: str
     group_tails: dict[str, list[str]]
 
-    @property
-    def alpha_final(self) -> float:
-        """历史属性兼容；新代码应读取 eta。"""
-        return self.eta
-
     def to_dict(self) -> dict[str, Any]:
         return {
             "question": self.question,
@@ -113,7 +108,6 @@ class CachedRetrievalResult:
             "prediction": self.prediction,
             "elapsed_ms": self.elapsed_ms,
             "eta": self.eta,
-            "alpha_final": self.eta,
             "threshold": self.threshold,
             "beam_size": self.beam_size,
             "lambda_val": self.lambda_val,
@@ -153,14 +147,11 @@ class PathRetrieveService:
         sample_index: Optional[int] = None,
         topic_entities: Optional[list[str]] = None,
         eta: float = 1.0,
-        alpha_final: float | None = None,
         threshold: float = 0.01,
         beam_size: int = 50,
         lambda_val: float = 0.2,
         drop_loopback: bool = True,
     ) -> CachedRetrievalResult:
-        if alpha_final is not None:
-            eta = alpha_final
         if beam_size < 1:
             raise ValueError("beam_size must be >= 1")
 

@@ -22,11 +22,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _agent_command(dataset: str, run: dict, output: Path, config: dict) -> list[str]:
+    if "alpha_final" in run:
+        raise ValueError("第五章配置不接受已废弃字段 alpha_final，请改用 eta")
     command = [
         sys.executable, "-m", "kgqa.agent.cli.eval_checked_batch", "--dataset", dataset,
         "--input", str(config["qa_file"]), "--output", str(output),
         "--limit", str(run.get("limit", 0)), "--beam_size", str(run["beam_size"]),
-        "--lambda_val", str(run["lambda_val"]), "--eta", str(run.get("eta", run.get("alpha_final", 1.0))),
+        "--lambda_val", str(run["lambda_val"]), "--eta", str(run.get("eta", 1.0)),
         "--path_threshold", str(run.get("path_threshold", 0.01)),
         "--batch_size", str(run["batch_size"]), "--check_mode", run["check_mode"],
         "--path_retrieve_url", config.get("path_retrieve_url", "http://localhost:8789"),

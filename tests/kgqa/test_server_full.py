@@ -122,16 +122,18 @@ class TestServiceApp(unittest.TestCase):
         body = self.endpoints["/retrieve"](
             RetrieveRequest(question="toy question", topic_entities=["m.topic"])
         )
-        # 现役 eta 与历史兼容字段均在位
+        # 响应只暴露现役 eta 字段
         for key in ("question", "sample_index", "topics", "hop", "mmr_reason_paths",
-                    "prediction", "elapsed_ms", "eta", "alpha_final", "threshold",
+                    "prediction", "elapsed_ms", "eta", "threshold",
                     "beam_size", "lambda_val", "cache_path", "group_tails"):
             self.assertIn(key, body)
+        self.assertNotIn("alpha_final", body)
 
-    def test_request_accepts_legacy_alpha_final(self):
+    def test_request_rejects_legacy_alpha_final(self):
+        from pydantic import ValidationError
         from kgqa.retrieve.api.schema import RetrieveRequest
-        request = RetrieveRequest(question="toy question", alpha_final=0.7)
-        self.assertEqual(request.eta, 0.7)
+        with self.assertRaises(ValidationError):
+            RetrieveRequest(question="toy question", alpha_final=0.7)
 
     def test_retrieve_endpoint_404_on_unknown_question(self):
         from fastapi import HTTPException
@@ -159,11 +161,12 @@ class TestServiceLegacyParity(unittest.TestCase):
         cls.old = CachedPathRetriever(cache_path=CACHE, input_dir=INPUT_DIR)
 
     def test_responses_match(self):
-        params = dict(beam_size=20, lambda_val=0.2, threshold=0.01, alpha_final=1.0)
+        new_params = dict(beam_size=20, lambda_val=0.2, threshold=0.01, eta=1.0)
+        legacy_params = dict(beam_size=20, lambda_val=0.2, threshold=0.01, alpha_final=1.0)
         for i in range(self.N_SAMPLES):
             with self.subTest(sample=i):
-                rn = self.new.retrieve(sample_index=i, **params).to_dict()
-                ro = self.old.retrieve(sample_index=i, **params).to_dict()
+                rn = self.new.retrieve(sample_index=i, **new_params).to_dict()
+                ro = self.old.retrieve(sample_index=i, **legacy_params).to_dict()
                 self.assertEqual(rn["question"], ro["question"])
                 self.assertEqual(rn["topics"], ro["topics"])
                 self.assertEqual(rn["hop"], ro["hop"])
