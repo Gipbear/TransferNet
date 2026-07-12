@@ -105,7 +105,7 @@ run_eval() {
   echo "[RUN ] ${name}"
   echo "============================================================"
   local cmd=(
-    python -m oh_my_agent.cli.eval_checked_batch_agent
+    python -m kgqa.agent.cli.eval_checked_batch
     --input "${INPUT}" --output "${out}"
     --beam_size "${BEAM_SIZE}" --batch_size "${BATCH_SIZE}"
     --lambda_val "${LAMBDA_VAL}" --alpha_final "${ALPHA_FINAL}"

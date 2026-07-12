@@ -5,7 +5,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${PROJECT_DIR}"
 
 INPUT="${INPUT:-data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt}"
-OUTPUT_DIR="${OUTPUT_DIR:-data/output/WebQSP/checked_batch_agent/full_$(date +%Y%m%d_%H%M)}"
+OUTPUT_DIR="${OUTPUT_DIR:-data/output/kgqa/webqsp/agent/full_$(date +%Y%m%d_%H%M)}"
 LIMIT="${LIMIT:-0}"
 DEDUPE_TAIL_PATHS="${DEDUPE_TAIL_PATHS:-0}"
 BEAM_SIZE="${BEAM_SIZE:-50}"
@@ -51,7 +51,7 @@ ensure_service "path_retrieve_server" "./scripts/path_retrieve_server.sh" "${PAT
 ensure_service "llm_server" "./scripts/llm_server.sh" "${LLM_SERVER_PORT}" "${LLM_SERVER_URL}"
 
 CMD=(
-  python -m oh_my_agent.cli.eval_checked_batch_agent
+  python -m kgqa.agent.cli.eval_checked_batch
   --input "${INPUT}"
   --output "${OUTPUT_DIR}"
   --beam_size "${BEAM_SIZE}"

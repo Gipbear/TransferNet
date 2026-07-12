@@ -10,11 +10,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from oh_my_agent.agent import CheckedBatchWebQAgent
-from oh_my_agent.cli import eval_checked_batch_agent
-from oh_my_agent.llm_server.client import GenerateResponse, LLMClient, SiliconFlowLLMClient
-from oh_my_agent.path_retrieve_server.client import PathRetrieveClient, PathRetrieveResponse
-from oh_my_agent.tools import AnswerWithPathsTool, PathRetrieveTool, RejectedAnswerCheckTool
+from kgqa.agent import CheckedBatchAgent
+from kgqa.agent.cli import eval_checked_batch as eval_checked_batch_agent
+from kgqa.llm_server.client import GenerateResponse, LLMClient, SiliconFlowLLMClient
+from kgqa.server.client import PathRetrieveClient, PathRetrieveResponse
+from kgqa.agent.tools import AnswerWithPathsTool, PathRetrieveTool, RejectedAnswerCheckTool
 from tests.agent_fixtures import FakeLLMClient, FakePathClient
 
 
@@ -68,7 +68,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
                 GenerateResponse(text="NONE", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(client=path_client, entity_map=entity_map),
             answer_tool=AnswerWithPathsTool(client=llm_client),
             check_tool=RejectedAnswerCheckTool(client=llm_client),
@@ -125,7 +125,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
         later_check_client = FakeLLMClient(
             [GenerateResponse(text="1", used_adapter=False, tokens_generated=1, elapsed_ms=1.0)]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(
                 client=FakePathClient(make_response(raw_paths)),
                 entity_map=entity_map,
@@ -190,7 +190,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
                 GenerateResponse(text="NONE", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(
                 client=FakePathClient(make_response(raw_paths)),
                 entity_map=entity_map,
@@ -240,7 +240,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
                 GenerateResponse(text="NONE", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(client=path_client, entity_map=entity_map),
             answer_tool=AnswerWithPathsTool(client=llm_client),
             check_tool=RejectedAnswerCheckTool(client=llm_client),
@@ -272,7 +272,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
                 GenerateResponse(text="2,3", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(
                 client=FakePathClient(make_response(raw_paths)),
                 entity_map={
@@ -317,7 +317,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
                 GenerateResponse(text="NONE", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(
                 client=FakePathClient(make_response(raw_paths)),
                 entity_map={
@@ -367,7 +367,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
                 GenerateResponse(text="1,2,3", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(
                 client=FakePathClient(make_response(raw_paths)),
                 entity_map={
@@ -409,7 +409,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
                 GenerateResponse(text="2,3", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(
                 client=FakePathClient(make_response(raw_paths)),
                 entity_map={
@@ -454,7 +454,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
                 GenerateResponse(text="NONE", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(
                 client=FakePathClient(make_response(raw_paths)),
                 entity_map=entity_map,
@@ -506,7 +506,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
                 GenerateResponse(text="2", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(
                 client=FakePathClient(make_response(raw_paths, prediction={"m.b": 0.9})),
                 entity_map=entity_map,
@@ -540,7 +540,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
                 GenerateResponse(text="2", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(
                 client=FakePathClient(make_response(raw_paths, prediction={"m.b": 0.9})),
                 entity_map=entity_map,
@@ -584,7 +584,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
                 GenerateResponse(text="2,3", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(
                 client=FakePathClient(make_response(raw_paths, prediction={"m.c": 0.9})),
                 entity_map=entity_map,
@@ -627,7 +627,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
                 GenerateResponse(text="NONE", used_adapter=False, tokens_generated=1, elapsed_ms=1.0),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(
                 client=FakePathClient(make_response(raw_paths)),
                 entity_map=entity_map,
@@ -663,7 +663,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
                 ),
             ]
         )
-        agent = CheckedBatchWebQAgent(
+        agent = CheckedBatchAgent(
             path_tool=PathRetrieveTool(
                 client=FakePathClient(make_response(raw_paths)),
                 entity_map={"m.topic": "Topic", "m.a": "Answer A", "m.b": "Answer B"},

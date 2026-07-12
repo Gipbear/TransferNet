@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop-policy exploration for oh_my_agent checked-batch evaluation.
+# Stop-policy exploration for the kgqa checked-batch evaluation.
 #
 # Preferred usage when an adequate trace already exists (offline only):
 #   SOURCE_DIR=data/output/WebQSP/checked_batch_agent/full_20260613_1722 \
@@ -54,7 +54,7 @@ fi
 if [[ "${RUN_FULL_TRACE}" == "1" && ! -f "${SOURCE_DIR}/checked_batch_eval_summary.json" ]]; then
   echo "[RUN ] collecting full trace: ${SOURCE_DIR}"
   cmd=(
-    python -m oh_my_agent.cli.eval_checked_batch_agent
+    python -m kgqa.agent.cli.eval_checked_batch
     --input "${INPUT}" --output "${SOURCE_DIR}"
     --beam_size "${BEAM_SIZE}" --batch_size "${BATCH_SIZE}"
     --lambda_val "${LAMBDA_VAL}" --alpha_final "${ALPHA_FINAL}"

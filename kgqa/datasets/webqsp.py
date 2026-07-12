@@ -1,8 +1,8 @@
 """WebQSP 适配器。"""
 from __future__ import annotations
 
-from oh_my_agent.common.qa_data import parse_webqsp_qa_line
-from oh_my_agent.common.entity_mapping import load_entity_map
+from kgqa.agent.common.qa_data import parse_webqsp_qa_line
+from kgqa.agent.common.entity_mapping import load_entity_map
 from kgqa.datasets.base import DatasetAdapter
 from kgqa.kg.global_kg import GlobalKG
 from kgqa.scores.base import ScoreLoader
