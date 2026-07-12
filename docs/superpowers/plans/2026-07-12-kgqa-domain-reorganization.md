@@ -233,8 +233,8 @@ kgqa/
 **Steps:**
 
 - [x] 将项目内测试、活动脚本和运行说明切换到 `backbone`、`retrieve`、`serving`、`agent.web`。
-- [ ] 删除 `kgqa/models/`、`kgqa/eval/`、`kgqa/cli/`、`kgqa/server/`、`kgqa/llm_server/` 与 `kgqa/agent/demo_page/`，并移除兼容性测试。
-- [ ] 删除 `kgqa/**/__pycache__/` 运行产物；不得删除用户的 ReaRev 文件。
+- [x] 删除 `kgqa/models/`、`kgqa/eval/`、`kgqa/cli/`、`kgqa/server/`、`kgqa/llm_server/` 与 `kgqa/agent/demo_page/`，并移除兼容性测试。
+- [x] 删除 `kgqa/**/__pycache__/` 运行产物；不得删除用户的 ReaRev 文件。
 
 **Verify:**
 
