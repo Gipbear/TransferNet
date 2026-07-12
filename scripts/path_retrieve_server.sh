@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ACTION="${1:-start}"
 
+DATASET="${DATASET:-webqsp}"
 INPUT_DIR="${INPUT_DIR:-${PROJECT_DIR}/data/input/WebQSP}"
 CACHE="${CACHE:-${PROJECT_DIR}/data/output/WebQSP/path_retrieve_server/score_cache/webqsp_test_1581.pt}"
 PATH_RETRIEVE_SERVER_HOST="${PATH_RETRIEVE_SERVER_HOST:-0.0.0.0}"
@@ -40,7 +41,7 @@ EOF
 }
 
 find_server_pids() {
-  pgrep -f "oh_my_agent\\.path_retrieve_server\\.server.*--port ${PORT}" || true
+  pgrep -f "kgqa\\.server\\.path_retrieve_server.*--port ${PORT}" || true
 }
 
 find_port_pids() {
@@ -119,7 +120,8 @@ start_server() {
 
   cd "${PROJECT_DIR}"
   local cmd=(
-    python -m oh_my_agent.path_retrieve_server.server
+    python -m kgqa.server.path_retrieve_server
+    --dataset "${DATASET}"
     --cache "${CACHE}"
     --input_dir "${INPUT_DIR}"
     --host "${PATH_RETRIEVE_SERVER_HOST}"

@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from oh_my_agent.path_retrieve_server.client import PathRetrieveClient
+from kgqa.server.client import PathRetrieveClient
 
 
 class FakeResponse:
@@ -48,7 +48,7 @@ class PathRetrieveClientTests(unittest.TestCase):
         client = PathRetrieveClient("http://localhost:8789")
 
         with patch(
-            "oh_my_agent.path_retrieve_server.client.requests.post",
+            "kgqa.server.client.requests.post",
             return_value=FakeResponse(),
         ) as post:
             resp = client.retrieve("what does jamaican people speak", topic_entities=["m.03_r3"])
@@ -72,7 +72,7 @@ class PathRetrieveClientTests(unittest.TestCase):
         client = PathRetrieveClient("http://localhost:8789", timeout=7)
 
         with patch(
-            "oh_my_agent.path_retrieve_server.client.requests.get",
+            "kgqa.server.client.requests.get",
             return_value=FakeStatusResponse({"status": "ok"}),
         ) as get:
             self.assertEqual(client.health(), {"status": "ok"})
