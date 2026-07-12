@@ -1,11 +1,13 @@
 import io
 import json
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 
 from experiments import run_ch3, run_ch4, run_ch5
+from experiments.common import run_command
 
 
 def write_json(path: Path, value: dict) -> Path:
@@ -14,6 +16,20 @@ def write_json(path: Path, value: dict) -> Path:
 
 
 class TestExperimentRunners(unittest.TestCase):
+    def test_run_command_realtime_output_is_copied_to_console_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            stream = io.StringIO()
+            with redirect_stdout(stream):
+                run_command(
+                    [sys.executable, "-c", "import sys; print('标准输出'); print('标准错误', file=sys.stderr)"],
+                    run_dir,
+                    dry_run=False,
+                )
+            self.assertIn("标准输出", stream.getvalue())
+            self.assertIn("标准错误", stream.getvalue())
+            self.assertIn("标准输出", (run_dir / "logs/console.log").read_text(encoding="utf-8"))
+
     def test_ch3_dry_run_writes_under_unified_root(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -27,10 +43,15 @@ class TestExperimentRunners(unittest.TestCase):
             })
             stream = io.StringIO()
             with redirect_stdout(stream):
-                run_ch3.main(["--dataset", "webqsp", "--config", str(config), "--project_dir", str(root), "--dry_run"])
+                run_ch3.main([
+                    "--dataset", "webqsp", "--config", str(config), "--project_dir", str(root),
+                    "--dry_run", "--no_progress", "--progress_interval", "7",
+                ])
             self.assertIn("data/output/kgqa/ch3_retrieval/webqsp/transfernet", stream.getvalue())
             self.assertIn("topk100_test/evaluation", stream.getvalue())
             self.assertIn('"--eta" "1.0"', stream.getvalue())
+            self.assertIn('"--no_progress"', stream.getvalue())
+            self.assertIn('"--progress_interval" "7"', stream.getvalue())
 
     def test_ch3_webqsp_config_defines_complete_beam_lambda_eta_scan(self):
         root = Path(__file__).resolve().parents[2]
@@ -100,7 +121,10 @@ class TestExperimentRunners(unittest.TestCase):
             base.mkdir(parents=True)
             (base / "train.jsonl").write_text('{"sample_index": 0}\n', encoding="utf-8")
             (base / "test.jsonl").write_text('{"sample_index": 1}\n', encoding="utf-8")
-            run_ch3.main(["--dataset", "webqsp", "--config", str(config), "--project_dir", str(root), "--phase", "publish"])
+            run_ch3.main([
+                "--dataset", "webqsp", "--config", str(config), "--project_dir", str(root),
+                "--phase", "publish", "--no_progress",
+            ])
             published = root / "data/output/kgqa/ch3_retrieval/webqsp/transfernet/confirmed_profiles/v1"
             self.assertTrue((published / "train.jsonl").is_file())
             self.assertEqual((published / "confirmed_config.json").read_text(encoding="utf-8"), config.read_text(encoding="utf-8"))

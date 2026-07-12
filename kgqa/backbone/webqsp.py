@@ -4,6 +4,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import torch
+from tqdm import tqdm
 
 from utils.misc import batch_device
 from WebQSP.data import DataLoader, load_data
@@ -23,7 +24,8 @@ class WebQSPScoreProducer(ScoreProducer):
         self._ckpt_path = ckpt_path
 
     def produce(self, input_dir: str, qa_file: str, *, split: str = "test",
-                batch_size: int = 16, topk: int = 500) -> ScoreBundle:
+                batch_size: int = 16, topk: int = 500,
+                show_progress: bool = True, progress_callback=None) -> ScoreBundle:
         assert self._ckpt_path, "先调用 load_checkpoint()"
         # qa_file 按调用方给定的路径（相对 CWD 或绝对）直接使用，不再拼 input_dir。
         ent2id, rel2id, triples, _train, _val = load_data(input_dir, self.bert_name, batch_size)
@@ -41,7 +43,9 @@ class WebQSPScoreProducer(ScoreProducer):
         assert raw_questions is not None, "DataLoader 缺 qa_text"
 
         samples: list[SampleScore] = []
-        with torch.no_grad():
+        with torch.no_grad(), tqdm(total=len(raw_questions), desc=f"WebQSP {split} 得分",
+                                   unit="题", dynamic_ncols=True,
+                                   disable=not show_progress) as progress:
             for batch in loader:
                 outputs = model(*batch_device(batch, self.device))
                 e_score = outputs["e_score"].cpu()
@@ -73,6 +77,9 @@ class WebQSPScoreProducer(ScoreProducer):
                         e_score_indices=eidxs[emask], e_score_values=evals[emask],
                         sample_index=len(samples),
                     ))
+                progress.update(e_score.shape[0])
+                if progress_callback:
+                    progress_callback(len(samples), len(raw_questions))
         meta = CacheMeta(dataset="WebQSP", split=split, id2ent=loader.id2ent,
                          id2rel=loader.id2rel, num_samples=len(samples),
                          topk_entities=topk, input_dir=input_dir, qa_file=qa_file)

@@ -24,7 +24,7 @@ def command_text(command: Iterable[str]) -> str:
 
 
 def run_command(command: list[str], run_dir: Path, *, dry_run: bool) -> None:
-    """执行命令并将 stdout/stderr 同时存入统一控制台日志。"""
+    """执行命令，实时转发输出，并同时存入统一控制台日志。"""
     text = command_text(command)
     logging.getLogger(__name__).info("执行命令: %s", text)
     console_path = run_dir / "logs" / "console.log"
@@ -34,19 +34,29 @@ def run_command(command: list[str], run_dir: Path, *, dry_run: bool) -> None:
         with console_path.open("a", encoding="utf-8") as handle:
             handle.write(f"[演练] {text}\n")
         return
-    completed = subprocess.run(command, text=True, capture_output=True, check=False)
-    output = completed.stdout + completed.stderr
     console_path.parent.mkdir(parents=True, exist_ok=True)
     with console_path.open("a", encoding="utf-8") as handle:
-        handle.write(f"$ {text}\n{output}")
-        if output and not output.endswith("\n"):
+        handle.write(f"$ {text}\n")
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        assert process.stdout is not None
+        last_chunk = "\n"
+        with process.stdout:
+            while chunk := process.stdout.read(1):
+                handle.write(chunk)
+                sys.stdout.write(chunk)
+                sys.stdout.flush()
+                last_chunk = chunk
+        returncode = process.wait()
+        if last_chunk != "\n":
             handle.write("\n")
-    if completed.stdout:
-        print(completed.stdout, end="")
-    if completed.stderr:
-        print(completed.stderr, end="", file=sys.stderr)
-    if completed.returncode:
-        raise SystemExit(f"命令失败（退出码 {completed.returncode}）: {text}")
+    if returncode:
+        raise SystemExit(f"命令失败（退出码 {returncode}）: {text}")
 
 
 def require_fields(config: dict[str, Any], *fields: str) -> None:

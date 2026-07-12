@@ -5,6 +5,8 @@ import argparse
 import json
 import os
 
+from tqdm import tqdm
+
 from kgqa.retrieve.datasets.registry import get_adapter
 from kgqa.backbone import make_score_producer
 from kgqa.runtime import add_runtime_arguments, configure_runtime, emit_event, update_progress
@@ -80,7 +82,17 @@ def run_retrieval(args):
     backend = build_backend(args)
     params = dict(beam_size=args.beam_size, lambda_val=args.lambda_val,
                   threshold=args.threshold, eta=args.eta)
-    results = backend.retrieve_all(limit=args.limit, **params)
+    samples = backend.bundle.samples[:args.limit] if args.limit else backend.bundle.samples
+    total = len(samples)
+    results = []
+    interval = max(args.progress_interval, 1)
+    with tqdm(total=total, desc="路径检索", unit="题", dynamic_ncols=True,
+              disable=args.no_progress) as progress:
+        for sample_index in range(total):
+            results.append(backend.retrieve(sample_index, **params))
+            progress.update(1)
+            if progress.n % interval == 0 or progress.n == total:
+                update_progress(run_dir, completed=progress.n, total=total, phase="路径检索")
     if args.output:
         os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
         with open(args.output, "w", encoding="utf-8") as fh:

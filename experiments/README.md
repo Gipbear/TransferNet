@@ -67,6 +67,10 @@ python -m experiments.run_ch3 --dataset webqsp --phase publish
 每个任务目录都有 `run_manifest.json`、`progress.json`、`logs/run.log`、
 `logs/events.jsonl` 和 `logs/console.log`。第三章产物如下：
 
+运行时会显示三类进度：第三章任务总数、score 前向样本数和逐题路径检索数；进度文件默认每
+50 题原子更新一次。终端不需要进度条时，可传 `--no_progress`；可用
+`--progress_interval 100` 调整进度文件更新间隔。
+
 ```text
 data/output/kgqa/
 ├── shared/webqsp/backbones/transfernet/scores/

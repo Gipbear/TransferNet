@@ -70,8 +70,19 @@ def main(argv=None):
     except KeyError as exc:
         raise SystemExit(str(exc)) from exc
     producer.load_checkpoint(args.ckpt)
+    interval = max(args.progress_interval, 1)
+    last_completed = 0
+
+    def report_progress(completed: int, total: int) -> None:
+        nonlocal last_completed
+        if completed - last_completed >= interval or completed == total:
+            update_progress(run_dir, completed=completed, total=total, phase="生成得分缓存")
+            last_completed = completed
+
     bundle = producer.produce(args.input_dir, args.qa_file, split=args.split,
-                              batch_size=args.batch_size, topk=args.topk)
+                              batch_size=args.batch_size, topk=args.topk,
+                              show_progress=not args.no_progress,
+                              progress_callback=report_progress)
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     torch.save(_bundle_to_cache(bundle), args.output)
     update_progress(run_dir, completed=len(bundle.samples), total=len(bundle.samples),
