@@ -34,7 +34,7 @@ class TestEngineGolden(unittest.TestCase):
         id2ent = {0: "m.topic", 1: "m.gold", 2: "m.other"}
         r = engine.retrieve_one(
             _Sample(), self.kg, id2ent, self.id2rel,
-            method="tail_blend", beam_size=10, threshold=0.01, lambda_val=0.2,
+            beam_size=10, threshold=0.01, lambda_val=0.2,
         )
         self.assertEqual(r.golden, ["m.gold"])
 
@@ -43,7 +43,7 @@ class TestEngineGolden(unittest.TestCase):
         id2ent = {0: "m.topic", 2: "m.other"}
         r = engine.retrieve_one(
             _Sample(), self.kg, id2ent, self.id2rel,
-            method="tail_blend", beam_size=10, threshold=0.01, lambda_val=0.2,
+            beam_size=10, threshold=0.01, lambda_val=0.2,
         )
         self.assertEqual(r.golden, ["1"])
 
@@ -71,7 +71,7 @@ class TestCliWritesGolden(unittest.TestCase):
                 "--output", out,
             ])
             with mock.patch.object(retrieve_cli, "build_backend",
-                                   return_value=(None, _FakeBackend())):
+                                   return_value=_FakeBackend()):
                 retrieve_cli.run_retrieval(args)
             with open(out, encoding="utf-8") as fh:
                 rec = json.loads(fh.readline())
