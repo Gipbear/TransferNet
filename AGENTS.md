@@ -4,7 +4,7 @@ TransferNet(EMNLP 2021)多跳 KGQA 实现,扩展为三章实验:
 
 - **Ch3**: TransferNet + MMR 多样性 beam search 检索推理路径
 - **Ch4**: 用 TransferNet 推理路径对 LLaMA 3.1 8B 做 QLoRA SFT(现役 `kgqa/pfit/`;`llm_infer/` 只读保留作 parity 参照与 Ch4 复现凭证)
-- **Ch5**: oh_my_agent — checked-batch 推理流水线(分批答题 + LLM reject 检查,首批 loose、后续批 strict)
+- **Ch5**: `kgqa/agent/` — checked-batch(PV-GAC)推理流水线(分批答题 + LLM reject 检查,首批 loose、后续批 strict);`oh_my_agent/` 只读保留作 WebQSP parity 与论文复现凭证
 
 ## 环境与语言
 
@@ -85,7 +85,7 @@ bash tests/run_pfit_lib_test.sh     # run_pfit.sh 命令拼装 dry-run 测试
 
 两个常驻 HTTP 服务,一次加载多次复用:
 
-- `path_retrieve_server`(默认 `http://localhost:8789`):score 缓存检索,仅覆盖 WebQSP test 1581 条
+- `path_retrieve_server`(默认 `http://localhost:8789`):score 缓存检索,由 `kgqa.server.path_retrieve_server` 提供;通过 `DATASET`/`INPUT_DIR`/`CACHE` 覆盖可服务 WebQSP 或 MetaQA
 - `llm_server`(默认 `http://localhost:8788`):base model + LoRA adapter 生成
 
 ```bash
@@ -94,22 +94,23 @@ bash tests/run_pfit_lib_test.sh     # run_pfit.sh 命令拼装 dry-run 测试
 PORT_BUSY_ACTION=kill ./scripts/llm_server.sh start  # 端口被旧进程占用且确认要替换时
 ```
 
-- 服务已启动时,一律通过 HTTP client 调用(`oh_my_agent.path_retrieve_server.client`、`oh_my_agent.llm_server.client.LLMClient`),不要在测试或对比脚本里重新加载 base model / adapter / 检索器。
+- 服务已启动时,一律通过 HTTP client 调用(`kgqa.server.client`、`kgqa.llm_server.client.LLMClient`),不要在测试或对比脚本里重新加载 base model / adapter / 检索器。
 - 做路径检索一致性(parity)检查时,把已有 JSONL 里的 `topics`/`hop`/`beam_size`/`lambda_val` 原样传给服务;`log_score` 允许 `1e-6` 量级浮点差,重点比对三元组序列和 prediction 是否一致。
 
 评测入口是批量 CLI(依赖上述两个服务):
 
 ```bash
-python -m oh_my_agent.cli.eval_checked_batch_agent \
+python -m kgqa.agent.cli.eval_checked_batch \
+    --dataset webqsp \
     --input data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt \
-    --output data/output/WebQSP/checked_batch_agent/quick_50 \
+    --output data/output/kgqa/webqsp/agent/quick_50 \
     --limit 50 \
     --check_mode hybrid-reject-list \
     --path_retrieve_url http://localhost:8789 \
     --llm_server_url http://localhost:8788
 ```
 
-去掉 `--limit` 即全量 1581 条。输出写入 `--output` 目录:`checked_batch_eval.jsonl`(逐样本记录)、`checked_batch_eval_summary.json`(hit1/hit_any/macro_f1/exact_match/citation_accuracy/stop_reason_counts)、`initial_retrieval.jsonl` / `initial_answer.jsonl`(初始检索与首批答题)。
+去掉 `--limit` 即全量 1581 条。输出写入 `data/output/kgqa/<ds>/agent/<run_id>/`（`--output` 可显式指定）:`checked_batch_eval.jsonl`(逐样本记录)、`checked_batch_eval_summary.json`(hit1/hit_any/macro_f1/exact_match/citation_accuracy/stop_reason_counts)、`initial_retrieval.jsonl` / `initial_answer.jsonl`(初始检索与首批答题)。同目录重跑会复用已完成样本；旧 `data/output/WebQSP/checked_batch_agent/` 只读保留。
 
 ## 架构
 
@@ -128,9 +129,9 @@ python -m oh_my_agent.cli.eval_checked_batch_agent \
 
 ### 其他模块
 
-- `kgqa/`:统一检索框架。`cli/` 三个入口、`datasets/`(adapter 注册表)、`scores/`(逐数据集 ScoreProducer)、`retrieve/backends/`(offline score 缓存 / online ckpt 实时)、`eval/`、`server/`、`pfit/`(Ch4 现役 SFT 流水:formats/specs/build/train/eval/manifest/subset_qa)
+- `kgqa/`:统一检索框架。`cli/` 三个入口、`datasets/`(adapter 注册表)、`scores/`(逐数据集 ScoreProducer)、`retrieve/backends/`(offline score 缓存 / online ckpt 实时)、`eval/`、`server/`(路径检索服务)、`llm_server/`、`agent/`(Ch5 checked-batch、replay、tools、demo_page)、`pfit/`(Ch4 现役 SFT 流水:formats/specs/build/train/eval/manifest/subset_qa)
 - `utils/`:BiGRU 编码器、RAdam(`misc.py`)、MMR beam search 与路径/多样性指标(`path_utils.py`)、多阈值评测统计(`eval_utils.py`)
-- `oh_my_agent/`(Ch5):`cli/eval_checked_batch_agent.py` 评测入口、`cli/run_checked_batch_agent.py` 单问调试、`agent/` 主逻辑与离线 replay、`tools/` 检索/答题/引用校验、`common/` 指标、prompting、数据加载、`path_retrieve_server/` 与 `llm_server/` 两个服务、`demo_page/` 推理演示页面
+- `oh_my_agent/`(Ch5 legacy,只读):原始 checked-batch、服务与 demo_page 实现;仅用于与 `kgqa/agent/`、`kgqa/server/`、`kgqa/llm_server/` 做 WebQSP parity 及历史论文复现
 - `llm_infer/`(Ch4 legacy,只读):`kg_format.py`、`train_sft.py`、`build_kgcot_dataset.py`、`eval_faithfulness.py`;已迁移至 `kgqa/pfit/`,保留作 parity 对拍参照
 
 ## 关键约定
