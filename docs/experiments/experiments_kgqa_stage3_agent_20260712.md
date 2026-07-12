@@ -1,5 +1,9 @@
 # kgqa Stage3 — checked-batch agent 迁移与 smoke 验证（2026-07-12）
 
+> 这是历史验证记录，保留原始产物路径以便论文数字核对。2026-07-13 起的新第五章实验
+> 使用 `experiments/` 编排，并遵循
+> [KGQA 三章可复现实验与产物约定](experiments_kgqa_reproducible_layout.md)。
+
 ## 范围与结论
 
 Ch5 checked-batch（PV-GAC）已由只读 legacy `oh_my_agent/` 迁入

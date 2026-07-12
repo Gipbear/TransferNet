@@ -1,5 +1,9 @@
 # kgqa Stage2 — pfit 迁移与 smoke 验证记录（2026-07-11）
 
+> 这是历史验证记录，保留原始产物路径以便论文数字核对。2026-07-13 起的新第四章实验
+> 使用 `experiments/` 编排，并遵循
+> [KGQA 三章可复现实验与产物约定](experiments_kgqa_reproducible_layout.md)。
+
 ## 概要
 
 Ch4 `llm_infer/` 重构为数据集无关的 `kgqa/pfit/`（Path-Faithful Instruction Tuning）流水：
@@ -10,7 +14,7 @@ schema/schema_gloss 全局废弃(路径格式只剩 arrow/tuple/chain/nl);`llm_i
 - spec: `docs/superpowers/specs/2026-07-11-kgqa-stage2-pfit-design.md`
 - plan: `docs/superpowers/plans/2026-07-11-kgqa-stage2-pfit.md`（11 任务,checkbox 已回填）
 
-## 目录约定
+## 历史记录目录约定
 
 ```
 data/output/kgqa/<ds>/            # ds = webqsp | metaqa,与旧实验结果隔离
