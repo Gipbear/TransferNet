@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -11,6 +12,7 @@ from tqdm import tqdm
 
 from experiments.common import ROOT, require_fields, resolve_path, run_command
 from kgqa.experiments import ExperimentPaths, load_confirmed_config, load_json_config
+from kgqa.retrieve.cli.dump_scores import materialize_truncated_score_cache
 from kgqa.runtime import configure_runtime, emit_event, update_progress
 
 
@@ -68,6 +70,14 @@ def _scan_splits(config: dict[str, Any]) -> list[str]:
     if split not in available:
         raise ValueError(f"参数扫描数据划分不存在: {split}")
     return [split]
+
+
+def _write_console_note(run_dir: Path, message: str) -> None:
+    """为编排器内完成的轻量步骤保留控制台记录。"""
+    path = run_dir / "logs" / "console.log"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(message + "\n")
 
 
 def _parameter_scan_items(config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -139,41 +149,70 @@ def main(argv: list[str] | None = None) -> int:
                          disable=args.no_progress or args.dry_run)
 
     if args.phase in {"scores", "all"}:
-        for topk in topk_values:
-            for split in splits:
-                source = _score_source(config, split)
+        max_topk = max(topk_values)
+        for split in splits:
+            source = _score_source(config, split)
+            cache_paths = {
+                topk: paths.score_dir(args.dataset, args.backbone, f"topk{topk}_{split}") / f"{split}.pt"
+                for topk in topk_values
+            }
+            max_score_id = f"topk{max_topk}_{split}"
+            max_score_run_dir = saturation_dir / max_score_id / "score"
+            configure_runtime(
+                argparse.Namespace(run_dir=str(max_score_run_dir), log_level="INFO"),
+                command="第三章 top-k 饱和性得分缓存",
+                manifest={"config_path": str(config_path), "topk": max_topk, "split": split,
+                          "output": str(cache_paths[max_topk])},
+            )
+            command = [
+                sys.executable, "-m", "kgqa.retrieve.cli.dump_scores",
+                "--dataset", args.dataset, "--ckpt", str(resolve_path(project_dir, source["ckpt"])),
+                "--input_dir", str(resolve_path(project_dir, source["input_dir"])),
+                "--qa_file", str(resolve_path(project_dir, source["qa_file"])),
+                "--split", split, "--topk", str(max_topk), "--output", str(cache_paths[max_topk]),
+                "--run_dir", str(max_score_run_dir), *_runtime_args(args),
+            ]
+            run_command(command, max_score_run_dir, dry_run=args.dry_run)
+            update_progress(max_score_run_dir, completed=1, total=1, status="completed", phase="得分缓存")
+            emit_event(max_score_run_dir, "phase_end", phase="得分缓存")
+            task_progress.update(1)
+
+            for topk in topk_values:
+                if topk == max_topk:
+                    continue
                 score_id = f"topk{topk}_{split}"
                 score_run_dir = saturation_dir / score_id / "score"
-                cache_path = paths.score_dir(args.dataset, args.backbone, score_id) / f"{split}.pt"
                 configure_runtime(
                     argparse.Namespace(run_dir=str(score_run_dir), log_level="INFO"),
                     command="第三章 top-k 饱和性得分缓存",
-                    manifest={"config_path": str(config_path), "topk": topk, "split": split, "output": str(cache_path)},
+                    manifest={"config_path": str(config_path), "topk": topk, "split": split,
+                              "output": str(cache_paths[topk]), "source_cache": str(cache_paths[max_topk])},
                 )
-                command = [
-                    sys.executable, "-m", "kgqa.retrieve.cli.dump_scores",
-                    "--dataset", args.dataset, "--ckpt", str(resolve_path(project_dir, source["ckpt"])),
-                    "--input_dir", str(resolve_path(project_dir, source["input_dir"])),
-                    "--qa_file", str(resolve_path(project_dir, source["qa_file"])),
-                    "--split", split, "--topk", str(topk), "--output", str(cache_path),
-                    "--run_dir", str(score_run_dir), *_runtime_args(args),
-                ]
-                run_command(command, score_run_dir, dry_run=args.dry_run)
+                if args.dry_run:
+                    message = f"[演练] 由 {cache_paths[max_topk]} 裁剪 topk={topk} → {cache_paths[topk]}"
+                    print(message)
+                else:
+                    materialize_truncated_score_cache(cache_paths[max_topk], cache_paths[topk], topk)
+                    message = f"[INFO] 由 {cache_paths[max_topk]} 裁剪 topk={topk} → {cache_paths[topk]}"
+                _write_console_note(score_run_dir, message)
                 update_progress(score_run_dir, completed=1, total=1, status="completed", phase="得分缓存")
-                emit_event(score_run_dir, "phase_end", phase="得分缓存")
+                emit_event(score_run_dir, "phase_end", phase="得分缓存", source_topk=max_topk)
                 task_progress.update(1)
 
+            for topk in topk_values:
+                score_id = f"topk{topk}_{split}"
                 evaluation_run_dir = saturation_dir / score_id / "evaluation"
                 output = saturation_dir / score_id / f"{split}.jsonl"
                 summary = saturation_dir / score_id / f"{split}_summary.json"
                 configure_runtime(
                     argparse.Namespace(run_dir=str(evaluation_run_dir), log_level="INFO"),
                     command="第三章 top-k 饱和性检索评测",
-                    manifest={"config_path": str(config_path), "topk": topk, "split": split, "cache": str(cache_path)},
+                    manifest={"config_path": str(config_path), "topk": topk, "split": split,
+                              "cache": str(cache_paths[topk])},
                 )
                 evaluation_command = [
                     sys.executable, "-m", "kgqa.retrieve.cli.eval", "--dataset", args.dataset,
-                    "--backend", "offline", "--cache", str(cache_path),
+                    "--backend", "offline", "--cache", str(cache_paths[topk]),
                     "--input_dir", str(resolve_path(project_dir, source["input_dir"])),
                     "--output", str(output), "--summary", str(summary), "--run_dir", str(evaluation_run_dir),
                     *_retrieve_args(config, {}), *_runtime_args(args),
@@ -184,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
                 task_progress.update(1)
 
     if args.phase in {"scan", "all"}:
+        jobs = []
         for item in scan_items:
             scan_id = item["id"]
             for split in scan_splits:
@@ -198,17 +238,40 @@ def main(argv: list[str] | None = None) -> int:
                     command="第三章检索参数扫描",
                     manifest={"config_path": str(config_path), "candidate": scan_id, "candidate_label": item["label"], "split": split, "cache": str(cache_path)},
                 )
-                command = [
-                    sys.executable, "-m", "kgqa.retrieve.cli.eval", "--dataset", args.dataset,
-                    "--backend", "offline", "--cache", str(cache_path),
-                    "--input_dir", str(resolve_path(project_dir, source["input_dir"])),
-                    "--output", str(output), "--summary", str(summary), "--run_dir", str(run_dir),
-                    *_retrieve_args(config, item.get("retrieve", {})), *_runtime_args(args),
-                ]
-                run_command(command, run_dir, dry_run=args.dry_run)
-                update_progress(run_dir, completed=1, total=1, status="completed", phase="参数扫描")
-                emit_event(run_dir, "phase_end", phase="参数扫描")
-                task_progress.update(1)
+                _write_console_note(
+                    run_dir,
+                    f"[INFO] 该候选由参数扫描批处理进程执行；完整批处理输出见 "
+                    f"{saturation_dir / 'parameter_scan' / 'batch' / 'logs' / 'console.log'}",
+                )
+                jobs.append({
+                    "id": f"{scan_id}_{split}", "run_dir": str(run_dir),
+                    "output": str(output), "summary": str(summary),
+                    **{**config["retrieve"], **item.get("retrieve", {})},
+                })
+
+        if jobs:
+            batch_dir = saturation_dir / "parameter_scan" / "batch"
+            jobs_file = saturation_dir / "parameter_scan" / "jobs.json"
+            if not args.dry_run:
+                jobs_file.parent.mkdir(parents=True, exist_ok=True)
+                jobs_file.write_text(json.dumps(jobs, ensure_ascii=False, indent=2), encoding="utf-8")
+            source = _score_source(config, scan_splits[0])
+            score_id = f"topk{config['topk']}_{scan_splits[0]}"
+            cache_path = paths.score_dir(args.dataset, args.backbone, score_id) / f"{scan_splits[0]}.pt"
+            configure_runtime(
+                argparse.Namespace(run_dir=str(batch_dir), log_level="INFO"),
+                command="第三章检索参数扫描批处理",
+                manifest={"config_path": str(config_path), "jobs_file": str(jobs_file), "jobs": len(jobs),
+                          "cache": str(cache_path)},
+            )
+            command = [
+                sys.executable, "-m", "kgqa.retrieve.cli.eval", "--dataset", args.dataset,
+                "--backend", "offline", "--cache", str(cache_path),
+                "--input_dir", str(resolve_path(project_dir, source["input_dir"])),
+                "--jobs_file", str(jobs_file), "--run_dir", str(batch_dir), *_runtime_args(args),
+            ]
+            run_command(command, batch_dir, dry_run=args.dry_run)
+            task_progress.update(len(jobs))
 
     if args.phase == "publish":
         # 人工确认后仅发布已选候选产物；不复制未确认的测试集候选。

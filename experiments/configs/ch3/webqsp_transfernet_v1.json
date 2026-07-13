@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "kind": "ch3_retrieval_profile",
-  "status": "draft",
-  "confirmation_reason": "待完成 top-k 饱和性和检索参数扫描后，由人工填写确认理由。",
-  "selected_candidate": "",
+  "status": "confirmed",
+  "confirmation_reason": "人工确认：在测试集参数扫描中，beam=20、λ=0.5、η=1.5 在路径命中、路径 F1 与多样性之间取得均衡，作为后续章节的固定检索配置。",
+  "selected_candidate": "beam20_lambda05_eta15",
   "config_id": "transfernet_v1",
   "dataset": "webqsp",
   "backbone": "transfernet",
@@ -18,7 +18,7 @@
       "test": {"qa_file": "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"}
     }
   },
-  "retrieve": {"beam_size": 20, "lambda_val": 0.2, "threshold": 0.01, "eta": 1.0},
+  "retrieve": {"beam_size": 20, "lambda_val": 0.5, "threshold": 0.01, "eta": 1.5},
   "parameter_scan": {
     "beam_size": [3, 5, 10, 20, 50, 100],
     "lambda_val": [0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0],

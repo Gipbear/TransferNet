@@ -3,6 +3,10 @@ from __future__ import annotations
 
 import argparse
 import os
+import time
+from copy import copy
+from pathlib import Path
+from typing import Any
 
 import torch
 
@@ -50,6 +54,46 @@ def _bundle_to_cache(bundle) -> dict:
     }
 
 
+def truncate_score_cache(cache: dict[str, Any], topk: int) -> dict[str, Any]:
+    """从较大 top-k 缓存精确裁剪出较小的得分缓存。
+
+    各 ScoreProducer 在保存前已按分数降序执行 ``topk``，因此无并列边界时保留
+    前 N 项与直接以 N 运行前向推理一致。clone 用于避免小缓存仍引用大缓存的底层存储。
+    """
+    if topk <= 0:
+        raise ValueError("topk 必须为正整数")
+    meta = cache.get("meta")
+    samples = cache.get("samples")
+    if not isinstance(meta, dict) or not isinstance(samples, list):
+        raise ValueError("score 缓存格式不完整，无法裁剪")
+    source_topk = meta.get("topk_entities")
+    if not isinstance(source_topk, int) or source_topk < topk:
+        raise ValueError(f"源缓存 top-k={source_topk} 小于目标 top-k={topk}")
+
+    truncated_samples: list[dict[str, Any]] = []
+    for sample in samples:
+        item = copy(sample)
+        item["ent_indices"] = [values[:topk].clone() for values in sample["ent_indices"]]
+        item["ent_scores"] = [values[:topk].clone() for values in sample["ent_scores"]]
+        item["e_score_indices"] = sample["e_score_indices"][:topk].clone()
+        item["e_score_values"] = sample["e_score_values"][:topk].clone()
+        truncated_samples.append(item)
+    return {
+        **cache,
+        "meta": {**meta, "topk_entities": topk},
+        "samples": truncated_samples,
+    }
+
+
+def materialize_truncated_score_cache(source: str | Path, output: str | Path, topk: int) -> None:
+    """加载一次已有大缓存并写出指定 top-k 的独立缓存文件。"""
+    source_path = Path(source)
+    output_path = Path(output)
+    cache = torch.load(source_path, map_location="cpu", weights_only=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(truncate_score_cache(cache, topk), output_path)
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
     if args.backbone != "transfernet":
@@ -79,6 +123,7 @@ def main(argv=None):
             update_progress(run_dir, completed=completed, total=total, phase="生成得分缓存")
             last_completed = completed
 
+    started = time.perf_counter()
     bundle = producer.produce(args.input_dir, args.qa_file, split=args.split,
                               batch_size=args.batch_size, topk=args.topk,
                               show_progress=not args.no_progress,
@@ -88,7 +133,10 @@ def main(argv=None):
     update_progress(run_dir, completed=len(bundle.samples), total=len(bundle.samples),
                     status="completed", phase="生成得分缓存")
     emit_event(run_dir, "phase_end", phase="生成得分缓存", samples=len(bundle.samples))
-    print(f"[INFO] dump 完成 {len(bundle.samples)} 条 → {args.output}", flush=True)
+    elapsed = time.perf_counter() - started
+    speed = len(bundle.samples) / elapsed if elapsed else 0.0
+    print(f"[INFO] dump 完成 {len(bundle.samples)} 条，耗时 {elapsed:.1f} 秒，"
+          f"{speed:.2f} 题/s → {args.output}", flush=True)
 
 
 if __name__ == "__main__":

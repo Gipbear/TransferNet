@@ -5,6 +5,7 @@ import json
 import logging
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -24,7 +25,7 @@ def command_text(command: Iterable[str]) -> str:
 
 
 def run_command(command: list[str], run_dir: Path, *, dry_run: bool) -> None:
-    """执行命令，实时转发输出，并同时存入统一控制台日志。"""
+    """执行命令，实时转发输出；日志忽略 tqdm 的回车刷新帧。"""
     text = command_text(command)
     logging.getLogger(__name__).info("执行命令: %s", text)
     console_path = run_dir / "logs" / "console.log"
@@ -35,27 +36,33 @@ def run_command(command: list[str], run_dir: Path, *, dry_run: bool) -> None:
             handle.write(f"[演练] {text}\n")
         return
     console_path.parent.mkdir(parents=True, exist_ok=True)
+    started = time.perf_counter()
     with console_path.open("ab") as handle:
-        handle.write(f"$ {text}\n".encode("utf-8"))
+        handle.write(f"[开始] {text}\n".encode("utf-8"))
         process = subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )
         assert process.stdout is not None
-        last_byte = b"\n"
+        log_buffer = b""
         with process.stdout:
             while chunk := process.stdout.read1(8192):
-                handle.write(chunk)
                 if hasattr(sys.stdout, "buffer"):
                     sys.stdout.buffer.write(chunk)
                 else:
                     sys.stdout.write(chunk.decode("utf-8", errors="replace"))
                 sys.stdout.flush()
-                last_byte = chunk[-1:]
+                log_buffer += chunk
+                while b"\n" in log_buffer:
+                    line, log_buffer = log_buffer.split(b"\n", 1)
+                    if b"\r" not in line:
+                        handle.write(line + b"\n")
         returncode = process.wait()
-        if last_byte != b"\n":
-            handle.write(b"\n")
+        if log_buffer and b"\r" not in log_buffer:
+            handle.write(log_buffer + b"\n")
+        elapsed = time.perf_counter() - started
+        handle.write(f"[结束] 退出码={returncode}，耗时={elapsed:.1f} 秒\n".encode("utf-8"))
     if returncode:
         raise SystemExit(f"命令失败（退出码 {returncode}）: {text}")
 
