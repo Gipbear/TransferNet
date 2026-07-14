@@ -1,4 +1,4 @@
-"""统一评测 CLI：检索 + 答案级/路径级指标。"""
+"""统一评测 CLI：检索 + 骨干模型/路径终点指标。"""
 from __future__ import annotations
 
 import argparse
@@ -15,6 +15,7 @@ from kgqa.retrieve.cli.retrieve import (
 )
 from kgqa.retrieve.eval.answer_eval import answer_record, answer_summary
 from kgqa.retrieve.eval.path_eval import path_summary
+from kgqa.retrieve.engine import validate_score_scheme
 from kgqa.runtime import configure_runtime, emit_event, update_progress
 
 
@@ -62,16 +63,18 @@ def _evaluate_results(backend, results, summary_path: str | None) -> dict:
     id2rel = backend.bundle.meta.id2rel
 
     gold_by_index: dict[int, set[str]] = {}
-    ans_records = []
+    backbone_records = []
     for r, sample in zip(results, backend.bundle.samples):
         gold = _gold_strings(sample, adapter, id2ent, spec.gold_key)
         gold_by_index[r.sample_index] = gold
-        pred = list(r.prediction.keys())  # build_prediction 已是 MID 口径
-        ans_records.append(answer_record(pred=pred, gold=sorted(gold),
-                                         hop=sample.hop, format_ok=True))
+        # prediction 直接来自骨干模型的实体分数，不受路径重建和重排序影响。
+        backbone_prediction = list(r.prediction.keys())
+        backbone_records.append(answer_record(
+            pred=backbone_prediction, gold=sorted(gold), hop=sample.hop, format_ok=True,
+        ))
 
     summary = {
-        "answer": answer_summary(ans_records, spec),
+        "backbone": answer_summary(backbone_records, spec),
         "path": path_summary(results, gold_by_index, spec, id2rel=id2rel),
         "n": len(results),
     }
@@ -88,7 +91,11 @@ def _run_job(backend, job: dict, *, no_progress: bool, progress_interval: int) -
     missing = sorted(required - set(job))
     if missing:
         raise ValueError(f"批量评测任务缺少字段: {', '.join(missing)}")
-    params = {key: job[key] for key in ("beam_size", "lambda_val", "threshold", "eta")}
+    params = {
+        **{key: job[key] for key in ("beam_size", "lambda_val", "threshold", "eta")},
+        "step_score_mode": job.get("step_score_mode", "joint"),
+    }
+    validate_score_scheme(params["step_score_mode"], params["eta"])
     total = len(backend.bundle.samples)
     results = []
     interval = max(progress_interval, 1)
@@ -135,7 +142,7 @@ def run_jobs(args) -> None:
             _results, summary, elapsed = _run_job(
                 backend, job, no_progress=args.no_progress, progress_interval=args.progress_interval)
             progress.update(1)
-            print(json.dumps(summary["answer"]["overall"], ensure_ascii=False), flush=True)
+            print(json.dumps(summary["backbone"]["overall"], ensure_ascii=False), flush=True)
             speed = len(_results) / elapsed if elapsed else 0.0
             print(f"[INFO] 参数扫描 {job['id']}：完成 {len(_results)} 条，"
                   f"耗时 {elapsed:.1f} 秒，{speed:.2f} 题/s", flush=True)
@@ -154,7 +161,7 @@ def main(argv=None):
     run_dir = getattr(args, "run_dir", "") or (os.path.dirname(os.path.abspath(args.summary)) if args.summary else "")
     update_progress(run_dir, completed=len(results), total=len(results), status="completed", phase="检索评测")
     emit_event(run_dir, "phase_end", phase="检索评测", samples=len(results))
-    print(json.dumps(summary["answer"]["overall"], ensure_ascii=False), flush=True)
+    print(json.dumps(summary["backbone"]["overall"], ensure_ascii=False), flush=True)
     elapsed = time.perf_counter() - started
     speed = len(results) / elapsed if elapsed else 0.0
     print(f"[INFO] 检索评测完成 {len(results)} 条，耗时 {elapsed:.1f} 秒，{speed:.2f} 题/s", flush=True)

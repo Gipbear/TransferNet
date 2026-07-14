@@ -12,6 +12,22 @@ from kgqa.core.contracts import RetrieveResult
 from kgqa.retrieve.graph.base import KGEdgeSource
 
 EPS = 1e-9
+STEP_SCORE_MODES = {"joint", "relation_only", "entity_only"}
+
+
+def validate_score_scheme(step_score_mode: str, eta: float) -> None:
+    """校验逐跳排序分数与终点实体融合的可解释组合。
+
+    单分数消融固定 ``eta=0``，确保终点实体分数不会重新进入排序。
+    候选边始终同时要求关系和实体得分通过阈值，候选空间不随本函数改变。
+    """
+    if step_score_mode not in STEP_SCORE_MODES:
+        choices = "、".join(sorted(STEP_SCORE_MODES))
+        raise ValueError(f"未知逐跳分数模式: {step_score_mode}；可选值: {choices}")
+    if eta < 0:
+        raise ValueError("终点实体分数融合权重 eta 必须为非负数")
+    if step_score_mode != "joint" and eta != 0:
+        raise ValueError("relation_only 与 entity_only 必须设置 eta=0，以隔离终点实体分数")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -128,15 +144,25 @@ def compute_step_score(
     ent_dict: dict[int, float],
     rel_id: int,
     tail_id: int,
+    step_score_mode: str = "joint",
 ) -> float:
-    """计算单跳的关系与实体对数归一化分数。"""
+    """计算固定交集候选空间内的单跳排序分数。"""
     rel_score = rel_dict.get(rel_id, 0.0)
     ent_score = ent_dict.get(tail_id, 0.0)
     if rel_score <= 0 or ent_score <= 0:
         return -float("inf")
     sum_rel = sum(rel_dict.values()) or 1.0
     sum_ent = sum(ent_dict.values()) or 1.0
-    return math.log(rel_score / sum_rel + EPS) + math.log(ent_score / sum_ent + EPS)
+    relation_term = math.log(rel_score / sum_rel + EPS)
+    entity_term = math.log(ent_score / sum_ent + EPS)
+    if step_score_mode == "joint":
+        return relation_term + entity_term
+    if step_score_mode == "relation_only":
+        return relation_term
+    if step_score_mode == "entity_only":
+        return entity_term
+    choices = "、".join(sorted(STEP_SCORE_MODES))
+    raise ValueError(f"未知逐跳分数模式: {step_score_mode}；可选值: {choices}")
 
 
 def search_path_candidates(
@@ -148,6 +174,7 @@ def search_path_candidates(
     beam_size: int,
     final_ent_scores: Optional[dict[int, float]] = None,
     order_start: int = 0,
+    step_score_mode: str = "joint",
 ) -> list[PathCandidate]:
     """Beam-expand candidate paths and attach cached features for reranking."""
     beam: list[tuple[list[int], list[int], float]] = [([t_id], [], 0.0) for t_id in topic_ids]
@@ -163,7 +190,9 @@ def search_path_candidates(
             for rel_id, tail_id in edges:
                 if rel_id not in rel_dict or tail_id not in ent_dict:
                     continue
-                step = compute_step_score(rel_dict, ent_dict, rel_id, tail_id)
+                step = compute_step_score(
+                    rel_dict, ent_dict, rel_id, tail_id, step_score_mode=step_score_mode,
+                )
                 if step == -float("inf"):
                     continue
                 next_candidates.append((nodes + [tail_id], rels + [rel_id], cur_score + step))
@@ -263,10 +292,12 @@ def _serialize_paths(paths, id2ent: dict, id2rel: dict) -> list[dict]:
 def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, *,
                  eta: float = 1.0,
                  threshold: float = 0.01, beam_size: int = 50,
-                 lambda_val: float = 0.2, drop_loopback: bool = True) -> RetrieveResult:
+                 lambda_val: float = 0.2, drop_loopback: bool = True,
+                 step_score_mode: str = "joint") -> RetrieveResult:
     """单样本检索：稀疏重建 → 逐跳 beam 展开 → MMR 选择 → 序列化。
 
     与 offline_path_search.run_experiment 的单样本分支逻辑等价（Task 11 回归锁定）。"""
+    validate_score_scheme(step_score_mode, eta)
     t0 = time.perf_counter()
     valid_edges_dict = getattr(edge_source, "valid_edges_dict", None)
 
@@ -285,6 +316,7 @@ def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, 
             sample.topic_ids, rel_dicts, ent_dicts, candidate_hop,
             valid_edges_dict, beam_size,
             final_ent_scores=final_scores, order_start=len(path_candidates),
+            step_score_mode=step_score_mode,
         ))
 
     selected = select_path_candidates(

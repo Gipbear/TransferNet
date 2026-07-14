@@ -13,6 +13,7 @@ from tqdm import tqdm
 from experiments.common import ROOT, require_fields, resolve_path, run_command
 from kgqa.experiments import ExperimentPaths, load_confirmed_config, load_json_config
 from kgqa.retrieve.cli.dump_scores import materialize_truncated_score_cache
+from kgqa.retrieve.engine import validate_score_scheme
 from kgqa.runtime import configure_runtime, emit_event, update_progress
 
 
@@ -25,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dataset", choices=["webqsp", "metaqa", "cwq"], required=True)
     parser.add_argument("--backbone", default="transfernet", choices=["transfernet", "rearev"])
     parser.add_argument("--config", default="", help="版本化检索配置 JSON；默认按数据集与基础检索模型选择")
-    parser.add_argument("--phase", choices=["scores", "scan", "publish", "all"], default="all")
+    parser.add_argument("--phase", choices=["scores", "scan", "score_ablation", "publish", "all"], default="all")
     parser.add_argument("--project_dir", default=str(ROOT), help="项目根目录，仅供实验编排定位配置与产物")
     parser.add_argument("--dry_run", action="store_true", help="只展示命令和目标目录，不执行模型")
     parser.add_argument("--no_progress", action="store_true", help="关闭全部 tqdm 进度条")
@@ -44,16 +45,28 @@ def _score_source(config: dict[str, Any], split: str) -> dict[str, str]:
     return required
 
 
-def _retrieve_args(config: dict[str, Any], override: dict[str, Any]) -> list[str]:
+def _retrieve_params(config: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     params = {**config["retrieve"], **override}
-    unsupported = set(params) - {"beam_size", "lambda_val", "threshold", "eta"}
+    params.setdefault("step_score_mode", "joint")
+    unsupported = set(params) - {"beam_size", "lambda_val", "threshold", "eta", "step_score_mode"}
     if unsupported:
         raise ValueError(f"检索配置不接受字段: {', '.join(sorted(unsupported))}")
+    required = {"beam_size", "lambda_val", "threshold", "eta", "step_score_mode"}
+    missing = sorted(required - set(params))
+    if missing:
+        raise ValueError(f"检索配置缺少字段: {', '.join(missing)}")
+    validate_score_scheme(params["step_score_mode"], params["eta"])
+    return params
+
+
+def _retrieve_args(config: dict[str, Any], override: dict[str, Any]) -> list[str]:
+    params = _retrieve_params(config, override)
     return [
         "--beam_size", str(params["beam_size"]),
         "--lambda_val", str(params["lambda_val"]),
         "--threshold", str(params["threshold"]),
         "--eta", str(params["eta"]),
+        "--step_score_mode", params["step_score_mode"],
     ]
 
 
@@ -118,6 +131,35 @@ def _parameter_scan_items(config: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _score_ablation_items(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """读取显式列举的排序分数消融，避免扩展参数扫描的笛卡尔积。"""
+    items = config.get("score_component_ablation", [])
+    if not isinstance(items, list):
+        raise ValueError("score_component_ablation 必须是实验项列表")
+    normalized = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError("score_component_ablation 的每项必须是对象")
+        unsupported = set(item) - {"id", "label", "retrieve"}
+        if unsupported:
+            raise ValueError(f"score_component_ablation 不接受字段: {', '.join(sorted(unsupported))}")
+        if not isinstance(item.get("id"), str) or not item["id"]:
+            raise ValueError("score_component_ablation 每项必须提供非空 id")
+        if not isinstance(item.get("label"), str) or not item["label"]:
+            raise ValueError("score_component_ablation 每项必须提供非空中文 label")
+        override = item.get("retrieve")
+        if not isinstance(override, dict):
+            raise ValueError("score_component_ablation 每项的 retrieve 必须是对象")
+        normalized.append({
+            "id": item["id"],
+            "label": item["label"],
+            "retrieve": _retrieve_params(config, override),
+        })
+    if len({item["id"] for item in normalized}) != len(normalized):
+        raise ValueError("score_component_ablation 存在重复 id")
+    return normalized
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     project_dir = Path(args.project_dir).resolve()
@@ -134,15 +176,21 @@ def main(argv: list[str] | None = None) -> int:
     paths = ExperimentPaths(project_dir)
     saturation_dir = paths.ch3_saturation_dir(args.dataset, args.backbone, config["config_id"])
     profile_dir = paths.ch3_profile_dir(args.dataset, args.backbone, config["config_id"])
+    score_ablation_dir = paths.ch3_score_ablation_dir(args.dataset, args.backbone, config["config_id"])
     splits = list(config.get("score_source", {}).get("splits", {}))
     scan_splits = _scan_splits(config)
     topk_values = config.get("topk_candidates", [100, 250, 500, 1000])
     scan_items = _parameter_scan_items(config) if args.phase in {"scan", "all"} else []
+    score_ablation_items = _score_ablation_items(config) if args.phase in {"score_ablation", "all"} else []
+    if args.phase == "score_ablation" and not score_ablation_items:
+        raise ValueError("当前配置未定义 score_component_ablation，无法执行排序分数消融")
     task_total = 0
     if args.phase in {"scores", "all"}:
         task_total += len(topk_values) * len(splits) * 2
     if args.phase in {"scan", "all"}:
         task_total += len(scan_items) * len(scan_splits)
+    if args.phase in {"score_ablation", "all"}:
+        task_total += len(score_ablation_items) * len(scan_splits)
     if args.phase == "publish":
         task_total = len(splits)
     task_progress = tqdm(total=task_total, desc="第三章实验任务", unit="项", dynamic_ncols=True,
@@ -204,11 +252,17 @@ def main(argv: list[str] | None = None) -> int:
                 evaluation_run_dir = saturation_dir / score_id / "evaluation"
                 output = saturation_dir / score_id / f"{split}.jsonl"
                 summary = saturation_dir / score_id / f"{split}_summary.json"
+                retrieve_params = _retrieve_params(config, {})
                 configure_runtime(
                     argparse.Namespace(run_dir=str(evaluation_run_dir), log_level="INFO"),
                     command="第三章 top-k 饱和性检索评测",
                     manifest={"config_path": str(config_path), "topk": topk, "split": split,
-                              "cache": str(cache_paths[topk])},
+                              "cache": str(cache_paths[topk]),
+                              "score_scheme": {
+                                  "candidate_gate": "intersection",
+                                  "step_score_mode": retrieve_params["step_score_mode"],
+                                  "terminal_entity_eta": retrieve_params["eta"],
+                              }},
                 )
                 evaluation_command = [
                     sys.executable, "-m", "kgqa.retrieve.cli.eval", "--dataset", args.dataset,
@@ -233,10 +287,19 @@ def main(argv: list[str] | None = None) -> int:
                 output = profile_dir / "candidates" / scan_id / f"{split}.jsonl"
                 summary = profile_dir / "candidates" / scan_id / f"{split}_summary.json"
                 source = _score_source(config, split)
+                retrieve_params = _retrieve_params(config, item.get("retrieve", {}))
                 configure_runtime(
                     argparse.Namespace(run_dir=str(run_dir), log_level="INFO"),
                     command="第三章检索参数扫描",
-                    manifest={"config_path": str(config_path), "candidate": scan_id, "candidate_label": item["label"], "split": split, "cache": str(cache_path)},
+                    manifest={
+                        "config_path": str(config_path), "candidate": scan_id,
+                        "candidate_label": item["label"], "split": split, "cache": str(cache_path),
+                        "score_scheme": {
+                            "candidate_gate": "intersection",
+                            "step_score_mode": retrieve_params["step_score_mode"],
+                            "terminal_entity_eta": retrieve_params["eta"],
+                        },
+                    },
                 )
                 _write_console_note(
                     run_dir,
@@ -246,7 +309,7 @@ def main(argv: list[str] | None = None) -> int:
                 jobs.append({
                     "id": f"{scan_id}_{split}", "run_dir": str(run_dir),
                     "output": str(output), "summary": str(summary),
-                    **{**config["retrieve"], **item.get("retrieve", {})},
+                    **retrieve_params,
                 })
 
         if jobs:
@@ -263,6 +326,72 @@ def main(argv: list[str] | None = None) -> int:
                 command="第三章检索参数扫描批处理",
                 manifest={"config_path": str(config_path), "jobs_file": str(jobs_file), "jobs": len(jobs),
                           "cache": str(cache_path)},
+            )
+            command = [
+                sys.executable, "-m", "kgqa.retrieve.cli.eval", "--dataset", args.dataset,
+                "--backend", "offline", "--cache", str(cache_path),
+                "--input_dir", str(resolve_path(project_dir, source["input_dir"])),
+                "--jobs_file", str(jobs_file), "--run_dir", str(batch_dir), *_runtime_args(args),
+            ]
+            run_command(command, batch_dir, dry_run=args.dry_run)
+            task_progress.update(len(jobs))
+
+    if args.phase in {"score_ablation", "all"}:
+        jobs = []
+        for item in score_ablation_items:
+            for split in scan_splits:
+                score_id = f"topk{config['topk']}_{split}"
+                cache_path = paths.score_dir(args.dataset, args.backbone, score_id) / f"{split}.pt"
+                run_dir = score_ablation_dir / item["id"] / split
+                output = score_ablation_dir / item["id"] / f"{split}.jsonl"
+                summary = score_ablation_dir / item["id"] / f"{split}_summary.json"
+                configure_runtime(
+                    argparse.Namespace(run_dir=str(run_dir), log_level="INFO"),
+                    command="第三章排序分数消融",
+                    manifest={
+                        "config_path": str(config_path),
+                        "experiment": item["id"],
+                        "experiment_label": item["label"],
+                        "split": split,
+                        "cache": str(cache_path),
+                        "score_scheme": {
+                            "candidate_gate": "intersection",
+                            "step_score_mode": item["retrieve"]["step_score_mode"],
+                            "terminal_entity_eta": item["retrieve"]["eta"],
+                        },
+                    },
+                )
+                _write_console_note(
+                    run_dir,
+                    f"[INFO] 该消融由批处理进程执行；完整批处理输出见 "
+                    f"{score_ablation_dir / 'batch' / 'logs' / 'console.log'}",
+                )
+                if args.dry_run:
+                    print(f"[演练] 排序分数消融 {item['label']}：{cache_path} → {output}")
+                jobs.append({
+                    "id": f"{item['id']}_{split}",
+                    "run_dir": str(run_dir),
+                    "output": str(output),
+                    "summary": str(summary),
+                    **item["retrieve"],
+                })
+
+        if jobs:
+            batch_dir = score_ablation_dir / "batch"
+            jobs_file = score_ablation_dir / "jobs.json"
+            if not args.dry_run:
+                jobs_file.parent.mkdir(parents=True, exist_ok=True)
+                jobs_file.write_text(json.dumps(jobs, ensure_ascii=False, indent=2), encoding="utf-8")
+            source = _score_source(config, scan_splits[0])
+            cache_path = paths.score_dir(
+                args.dataset, args.backbone, f"topk{config['topk']}_{scan_splits[0]}"
+            ) / f"{scan_splits[0]}.pt"
+            configure_runtime(
+                argparse.Namespace(run_dir=str(batch_dir), log_level="INFO"),
+                command="第三章排序分数消融批处理",
+                manifest={"config_path": str(config_path), "jobs_file": str(jobs_file),
+                          "jobs": len(jobs), "cache": str(cache_path),
+                          "candidate_gate": "intersection"},
             )
             command = [
                 sys.executable, "-m", "kgqa.retrieve.cli.eval", "--dataset", args.dataset,

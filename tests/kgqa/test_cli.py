@@ -2,7 +2,9 @@ import os
 import json
 import tempfile
 import unittest
+from types import SimpleNamespace
 
+from kgqa.core.contracts import MetricSpec, QASample, RetrieveResult
 from tests.kgqa.integration import ARTIFACT_TEST_SKIP_REASON, artifact_test_available
 
 CACHE = "data/output/WebQSP/path_retrieve_server/score_cache/webqsp_test_1581.pt"
@@ -35,6 +37,29 @@ class TestCLI(unittest.TestCase):
             self.assertIn("--run_dir", help_text)
             self.assertIn("--no_progress", help_text)
 
+    def test_summary_separates_backbone_prediction_from_path_endpoint(self):
+        from kgqa.retrieve.cli import eval as eval_cli
+
+        sample = QASample(question="q", topic_ids=[0], gold_ids=[1], sample_index=0, hop=1)
+        result = RetrieveResult(
+            question="q", topics=["m.topic"], hop=1,
+            paths=[{"path": [["m.topic", "r", "m.gold"]], "log_score": -0.1}],
+            prediction={"m.other": 0.9}, elapsed_ms=0.0, sample_index=0,
+        )
+        backend = SimpleNamespace(
+            adapter=SimpleNamespace(metric_spec=lambda: MetricSpec()),
+            bundle=SimpleNamespace(
+                meta=SimpleNamespace(id2ent={1: "m.gold"}, id2rel={}),
+                samples=[sample],
+            ),
+        )
+
+        summary = eval_cli._evaluate_results(backend, [result], None)
+
+        self.assertEqual(summary["backbone"]["overall"]["hit1"], 0.0)
+        self.assertEqual(summary["path"]["overall"]["answer_hit"], 1.0)
+        self.assertNotIn("answer", summary)
+
     @unittest.skipUnless(artifact_test_available(CACHE), ARTIFACT_TEST_SKIP_REASON)
     def test_eval_writes_summary(self):
         from kgqa.retrieve.cli import eval as eval_cli
@@ -47,9 +72,10 @@ class TestCLI(unittest.TestCase):
             ])
             with open(out, encoding="utf-8") as fh:
                 summary = json.load(fh)
-            self.assertIn("answer", summary)
+            self.assertIn("backbone", summary)
+            self.assertNotIn("answer", summary)
             self.assertIn("path", summary)
-            self.assertIn("overall", summary["answer"])
+            self.assertIn("overall", summary["backbone"])
 
 
 if __name__ == "__main__":

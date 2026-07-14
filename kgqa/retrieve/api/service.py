@@ -28,6 +28,7 @@ from kgqa.retrieve.engine import (
     reconstruct_rel_dict,
     search_path_candidates,
     select_path_candidates,
+    validate_score_scheme,
 )
 
 # TransferNet 实体预测阈值:e_score ≥ 此值视为"预测答案"。group_tails 过滤、
@@ -92,6 +93,7 @@ class CachedRetrievalResult:
     prediction: dict[str, float]
     elapsed_ms: float
     eta: float
+    step_score_mode: str
     threshold: float
     beam_size: int
     lambda_val: float
@@ -108,6 +110,7 @@ class CachedRetrievalResult:
             "prediction": self.prediction,
             "elapsed_ms": self.elapsed_ms,
             "eta": self.eta,
+            "step_score_mode": self.step_score_mode,
             "threshold": self.threshold,
             "beam_size": self.beam_size,
             "lambda_val": self.lambda_val,
@@ -147,6 +150,7 @@ class PathRetrieveService:
         sample_index: Optional[int] = None,
         topic_entities: Optional[list[str]] = None,
         eta: float = 1.0,
+        step_score_mode: str = "joint",
         threshold: float = 0.01,
         beam_size: int = 50,
         lambda_val: float = 0.2,
@@ -154,6 +158,7 @@ class PathRetrieveService:
     ) -> CachedRetrievalResult:
         if beam_size < 1:
             raise ValueError("beam_size must be >= 1")
+        validate_score_scheme(step_score_mode, eta)
 
         t0 = time.perf_counter()
         idx = self._resolve_sample_index(question, sample_index)
@@ -180,6 +185,7 @@ class PathRetrieveService:
                 beam_size,
                 final_ent_scores=final_scores,
                 order_start=len(path_candidates),
+                step_score_mode=step_score_mode,
             ))
 
         selected = select_path_candidates(
@@ -208,6 +214,7 @@ class PathRetrieveService:
             prediction=self._prediction(sample),
             elapsed_ms=round(elapsed_ms, 1),
             eta=eta,
+            step_score_mode=step_score_mode,
             threshold=threshold,
             beam_size=beam_size,
             lambda_val=lambda_val,

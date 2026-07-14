@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 from kgqa.retrieve.datasets.registry import get_adapter
 from kgqa.backbone import make_score_producer
+from kgqa.retrieve.engine import validate_score_scheme
 from kgqa.runtime import add_runtime_arguments, configure_runtime, emit_event, update_progress
 
 
@@ -28,6 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--threshold", type=float, default=0.01)
     p.add_argument("--eta", type=float, default=1.0,
                    help="终点实体分数融合权重 η（论文符号）")
+    p.add_argument("--step_score_mode", choices=["joint", "relation_only", "entity_only"],
+                   default="joint", help="逐跳排序分数：联合、仅关系或仅实体；单分数模式必须配合 --eta 0")
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--output", default=None, help="逐样本 JSONL 输出路径")
     add_runtime_arguments(p)
@@ -72,16 +75,21 @@ def build_backend(args):
 
 
 def run_retrieval(args):
+    validate_score_scheme(args.step_score_mode, args.eta)
     fallback = os.path.dirname(os.path.abspath(args.output)) if args.output else None
     run_dir = configure_runtime(
         args, command="路径检索",
         fallback_run_dir=fallback,
         manifest={"dataset": args.dataset, "backbone": args.backbone, "backend": args.backend,
-                  "cache": args.cache, "output": args.output},
+                  "cache": args.cache, "output": args.output,
+                  "score_scheme": {"candidate_gate": "intersection",
+                                   "step_score_mode": args.step_score_mode,
+                                   "terminal_entity_eta": args.eta}},
     )
     backend = build_backend(args)
     params = dict(beam_size=args.beam_size, lambda_val=args.lambda_val,
-                  threshold=args.threshold, eta=args.eta)
+                  threshold=args.threshold, eta=args.eta,
+                  step_score_mode=args.step_score_mode)
     samples = backend.bundle.samples[:args.limit] if args.limit else backend.bundle.samples
     total = len(samples)
     results = []

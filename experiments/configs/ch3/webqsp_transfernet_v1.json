@@ -18,10 +18,32 @@
       "test": {"qa_file": "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"}
     }
   },
-  "retrieve": {"beam_size": 20, "lambda_val": 0.5, "threshold": 0.01, "eta": 1.5},
+  "retrieve": {"beam_size": 20, "lambda_val": 0.5, "threshold": 0.01, "eta": 1.5, "step_score_mode": "joint"},
   "parameter_scan": {
     "beam_size": [3, 5, 10, 20, 50, 100],
     "lambda_val": [0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0],
-    "eta": [0.5, 1.0, 1.5]
-  }
+    "eta": [0, 0.5, 1.0, 1.5, 2]
+  },
+  "score_component_ablation": [
+    {
+      "id": "joint_eta15",
+      "label": "联合逐跳分数与终点实体融合（正式基线）",
+      "retrieve": {"step_score_mode": "joint", "eta": 1.5}
+    },
+    {
+      "id": "joint_eta0",
+      "label": "联合逐跳分数，移除终点实体融合",
+      "retrieve": {"step_score_mode": "joint", "eta": 0.0}
+    },
+    {
+      "id": "relation_only",
+      "label": "仅关系逐跳排序分数",
+      "retrieve": {"step_score_mode": "relation_only", "eta": 0.0}
+    },
+    {
+      "id": "entity_only",
+      "label": "仅实体逐跳排序分数",
+      "retrieve": {"step_score_mode": "entity_only", "eta": 0.0}
+    }
+  ]
 }

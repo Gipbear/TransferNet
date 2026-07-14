@@ -34,7 +34,7 @@ class TestExperimentRunners(unittest.TestCase):
                 cache="cache.pt", run_dir="", log_level="INFO",
             )
             batch_dir = Path(directory) / "batch"
-            summary = {"answer": {"overall": {}}}
+            summary = {"backbone": {"overall": {}}}
             with patch.object(eval_cli, "configure_runtime", return_value=batch_dir), \
                  patch.object(eval_cli, "build_backend", return_value=object()), \
                  patch.object(eval_cli, "_run_job", return_value=([object()], summary, 1.0)), \
@@ -121,8 +121,61 @@ class TestExperimentRunners(unittest.TestCase):
         }
         self.assertEqual(len(triples), len(scan["beam_size"]) * len(scan["lambda_val"]) * len(scan["eta"]))
         self.assertIn((50, 0.2, 1.0), triples)
-        self.assertEqual(scan["eta"], [0.5, 1.0, 1.5])
+        self.assertEqual(scan["eta"], [0, 0.5, 1.0, 1.5, 2])
         self.assertEqual(config["retrieve"]["eta"], 1.5)
+        self.assertEqual(config["retrieve"]["step_score_mode"], "joint")
+        self.assertEqual(
+            [item["id"] for item in config["score_component_ablation"]],
+            ["joint_eta15", "joint_eta0", "relation_only", "entity_only"],
+        )
+
+    def test_ch3_score_ablation_is_explicit_not_cartesian_scan(self):
+        config = {
+            "retrieve": {"beam_size": 20, "lambda_val": 0.5, "threshold": 0.01, "eta": 1.5},
+            "score_component_ablation": [
+                {"id": "joint", "label": "联合", "retrieve": {"step_score_mode": "joint", "eta": 1.5}},
+                {"id": "relation", "label": "仅关系", "retrieve": {"step_score_mode": "relation_only", "eta": 0.0}},
+            ],
+        }
+        items = run_ch3._score_ablation_items(config)
+        self.assertEqual([item["id"] for item in items], ["joint", "relation"])
+        self.assertEqual(items[1]["retrieve"]["beam_size"], 20)
+        self.assertEqual(items[1]["retrieve"]["step_score_mode"], "relation_only")
+
+    def test_ch3_score_ablation_dry_run_uses_separate_output_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = write_json(root / "ch3.json", {
+                "dataset": "webqsp", "backbone": "transfernet", "config_id": "v1", "topk": 500,
+                "selection_split": "test",
+                "retrieve": {"beam_size": 20, "lambda_val": 0.5, "threshold": 0.01, "eta": 1.5},
+                "score_source": {"ckpt": "models/a.pt", "input_dir": "data/input/WebQSP", "splits": {
+                    "test": {"qa_file": "data/test.txt"},
+                }},
+                "score_component_ablation": [
+                    {"id": "joint", "label": "联合", "retrieve": {"step_score_mode": "joint", "eta": 1.5}},
+                    {"id": "relation", "label": "仅关系", "retrieve": {"step_score_mode": "relation_only", "eta": 0.0}},
+                ],
+            })
+            stream = io.StringIO()
+            with redirect_stdout(stream):
+                run_ch3.main([
+                    "--dataset", "webqsp", "--config", str(config), "--project_dir", str(root),
+                    "--phase", "score_ablation", "--dry_run", "--no_progress",
+                ])
+            output = stream.getvalue()
+            self.assertIn("score_component_ablations/v1/joint/test", output)
+            self.assertIn("score_component_ablations/v1/relation/test", output)
+            self.assertEqual(output.count('"-m" "kgqa.retrieve.cli.eval"'), 1)
+            manifest = json.loads((
+                root / "data/output/kgqa/ch3_retrieval/webqsp/transfernet/"
+                "score_component_ablations/v1/relation/test/run_manifest.json"
+            ).read_text(encoding="utf-8"))
+            self.assertEqual(manifest["score_scheme"], {
+                "candidate_gate": "intersection",
+                "step_score_mode": "relation_only",
+                "terminal_entity_eta": 0.0,
+            })
 
     def test_ch3_parameter_scan_generates_stable_candidate_ids(self):
         items = run_ch3._parameter_scan_items({

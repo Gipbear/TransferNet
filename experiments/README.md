@@ -27,6 +27,19 @@
 - `retrieve.eta` 是 top-k 饱和性评测使用的基准值；参数扫描中每个候选的 `eta` 会覆盖该值。
 - `eta` 是论文中的终点实体分数融合权重。`alpha_final` 已废弃，现役命令、配置、接口和
   输出均不接受该字段。
+- `step_score_mode` 明确逐跳路径排序使用的分数：`joint` 为关系与实体对数分数之和，
+  `relation_only` 仅保留关系分数，`entity_only` 仅保留实体分数。三种模式均固定要求关系和
+  尾实体同时通过阈值，因此该实验只比较排序分数，不改变候选空间。
+- `relation_only` 与 `entity_only` 必须设置 `eta=0`，避免终点实体分数重新参与排序。运行
+  清单以 `score_scheme` 记录固定交集候选规则、逐跳分数模式和终点融合权重。
+- `score_component_ablation` 使用显式实验项，不并入 `parameter_scan` 的笛卡尔积。WebQSP
+  当前包含联合基线、移除终点融合、仅关系和仅实体四组；它们固定使用已确认的
+  `beam=20，λ=0.5，threshold=0.01`。
+- 检索汇总的 `backbone` 是 TransferNet 等基础检索模型的原始实体预测指标；其
+  `prediction` 不受路径重建、重排序或分数消融影响，不能用于比较第三章方法。
+  `path` 才是路径尾实体作为预测集合得到的路径答案指标（含 `answer_hit`、`top1_hit`、
+  Precision、Recall 和 F1）。后续固定大模型基于路径上下文得到的问答结果应单独记为
+  第三章 QA 指标，不能与前两者混写。
 - 不根据测试集指标自动选择配置。完成扫描后，由人工在配置中填写确认理由和
   `selected_candidate`，再发布给第四、五章使用。
 
@@ -44,8 +57,9 @@
 | 3. 检索参数扫描 | `python -m experiments.run_ch3 --dataset webqsp --phase scan` | 约 3 小时 7 分钟 | 当前网格为 6×7×3=126 组；每组输出 1,581 条测试结果与汇总至 `confirmed_profiles/transfernet_v1/candidates/<参数组>/test.{jsonl,summary.json}`。批处理日志在 `topk_saturation/transfernet_v1/parameter_scan/batch/logs/console.log`。 |
 | 4. 人工确认 | 比较路径命中、路径 F1、多样性并编辑配置 | 约 5–15 分钟 | 将配置设为 `status=confirmed`，填写 `confirmation_reason`、`selected_candidate` 和对应 `retrieve` 参数。当前已选 `beam20_lambda05_eta15`。 |
 | 5. 发布正式上游产物 | `python -m experiments.run_ch3 --dataset webqsp --phase publish` | 首次约 3 分钟；已有候选 train/test 时仅需数秒 | 正式产物为 `confirmed_profiles/transfernet_v1/{train,test}.jsonl` 与 `confirmed_config.json`；发布目录 `publish/progress.json` 应为 `completed`。第四、五章只引用这些正式文件。 |
+| 6. 排序分数消融 | `python -m experiments.run_ch3 --dataset webqsp --phase score_ablation` | 约 8–15 分钟 | 固定候选空间，比较 `joint_eta15`、`joint_eta0`、`relation_only`、`entity_only` 四组，输出至 `score_component_ablations/transfernet_v1/<实验项>/test_summary.json`。 |
 
-若希望连续运行第 2、3 步，可使用下列快捷命令；本次总耗时约 3 小时 35 分钟。它**不会**替代第 4 步人工确认，也不会自动执行发布：
+若希望连续运行第 2、3、6 步，可使用下列快捷命令；它**不会**替代第 4 步人工确认，也不会自动执行发布：
 
 ```bash
 python -m experiments.run_ch3 --dataset webqsp --phase all
@@ -75,7 +89,7 @@ sed -n '1,160p' experiments/configs/ch3/webqsp_transfernet_v1.json
 # 1. 演练：只展示 score 缓存、top-k 评测和“参数组数×数据划分数”的参数扫描任务。
 python -m experiments.run_ch3 --dataset webqsp --dry_run
 
-# 2. 实际运行：先生成并评测 top-k 饱和性缓存，再运行 beam/λ/eta 完整对比。
+# 2. 实际运行：先生成并评测 top-k 饱和性缓存，再运行 beam/λ/eta 完整对比和排序分数消融。
 python -m experiments.run_ch3 --dataset webqsp --phase all
 
 # 3. 审核每组 train/test 汇总指标与日志（示例为 beam=50、λ=0.2、eta=1.0）。
@@ -85,6 +99,9 @@ candidates/beam50_lambda02_eta1/test_summary.json
 # 4. 人工确认：在 JSON 中填写 confirmation_reason，设 status 为 confirmed，并令
 #    selected_candidate 为某个参数组 ID（如 beam50_lambda02_eta1）。随后发布正式检索结果。
 python -m experiments.run_ch3 --dataset webqsp --phase publish
+
+# 5. 固定已确认的 beam/λ 后，执行四组逐跳分数消融；不会重新生成 score 缓存。
+python -m experiments.run_ch3 --dataset webqsp --phase score_ablation
 ```
 
 `parameter_scan` 的配置形式如下；新增 beam、λ 或 eta 取值只需在对应列表中添加一个数值。
@@ -98,7 +115,7 @@ python -m experiments.run_ch3 --dataset webqsp --phase publish
 }
 ```
 
-可单独执行 `--phase scores`、`--phase scan` 或 `--phase publish`，便于中断后按阶段恢复。
+可单独执行 `--phase scores`、`--phase scan`、`--phase score_ablation` 或 `--phase publish`，便于中断后按阶段恢复。
 每个任务目录都有 `run_manifest.json`、`progress.json`、`logs/run.log`、
 `logs/events.jsonl` 和 `logs/console.log`。第三章产物如下：
 
@@ -114,6 +131,11 @@ data/output/kgqa/
     ├── topk_saturation/transfernet_v1/
     │   ├── topk{100,250,500,1000}_{train,test}/{score,evaluation}/
     │   └── parameter_scan/<参数组>/<split>/
+    ├── score_component_ablations/transfernet_v1/
+    │   ├── <实验项>/test/{run_manifest.json,progress.json,logs/}
+    │   ├── <实验项>/test.jsonl
+    │   ├── <实验项>/test_summary.json
+    │   └── batch/                         # 四组任务共享的离线缓存批处理日志
     └── confirmed_profiles/transfernet_v1/
         ├── candidates/<参数组>/{train,test}.jsonl
         ├── candidates/<参数组>/{train,test}_summary.json
