@@ -13,7 +13,7 @@ class RetrieveRequest(BaseModel):
     question: Optional[str] = Field(None, min_length=1)
     sample_index: Optional[int] = Field(None, ge=0)
     topic_entities: Optional[list[str]] = None
-    alpha_final: float = Field(1.0, ge=0.0, le=10.0)
+    eta: float = Field(1.0, ge=0.0, le=10.0, description="终点实体分数融合权重 η")
     threshold: float = Field(0.01, ge=0.0, le=1.0)
     beam_size: int = Field(50, ge=1, le=200)
     lambda_val: float = Field(0.2, ge=0.0, le=10.0)
@@ -26,6 +26,8 @@ class RetrieveRequest(BaseModel):
 
 
 class RetrieveResponse(BaseModel):
+    model_config = {"extra": "forbid"}
+
     question: str
     sample_index: int
     topics: list[str]
@@ -33,7 +35,7 @@ class RetrieveResponse(BaseModel):
     mmr_reason_paths: list[dict[str, Any]]
     prediction: dict[str, float]
     elapsed_ms: float
-    alpha_final: float
+    eta: float = Field(1.0, ge=0.0, le=10.0)
     threshold: float
     beam_size: int
     lambda_val: float

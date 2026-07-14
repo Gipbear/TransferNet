@@ -4,6 +4,7 @@ import json
 import pickle
 from collections import defaultdict
 from transformers import AutoTokenizer
+from utils.huggingface import from_pretrained_local_first
 from utils.misc import invert_dict
 
 def collate(batch):
@@ -46,7 +47,7 @@ class Dataset(torch.utils.data.Dataset):
 class DataLoader(torch.utils.data.DataLoader):
     def __init__(self, fn, bert_name, ent2id, rel2id, batch_size, add_rev=False, training=False):
         print('Reading questions from {} {}'.format(fn, '(add reverse)' if add_rev else ''))
-        self.tokenizer = AutoTokenizer.from_pretrained(bert_name)
+        self.tokenizer = from_pretrained_local_first(AutoTokenizer, bert_name)
         self.ent2id = ent2id
         self.rel2id = rel2id
         self.id2ent = invert_dict(ent2id)

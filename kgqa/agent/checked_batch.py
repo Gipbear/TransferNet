@@ -242,7 +242,7 @@ class CheckedBatchAgent:
         question: str,
         topic_mid: str,
         *,
-        alpha_final: float = 1.0,
+        eta: float = 1.0,
         threshold: float = 0.01,
         beam_size: int = 50,
         lambda_val: float = 0.2,
@@ -286,7 +286,7 @@ class CheckedBatchAgent:
         retrieval = self.path_tool(
             question,
             topic_mid,
-            alpha_final=alpha_final,
+            eta=eta,
             threshold=threshold,
             beam_size=beam_size,
             lambda_val=lambda_val,

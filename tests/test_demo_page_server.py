@@ -2,6 +2,7 @@
 import unittest
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from kgqa.agent.common.qa_data import WebQSPQASample
 from kgqa.agent.web.data import QuestionIndex
@@ -16,7 +17,7 @@ def _questions():
     ])
 
 
-def _stub_retrieve(question=None, *, sample_index=None, alpha_final=1.0,
+def _stub_retrieve(question=None, *, sample_index=None, eta=1.0,
                    beam_size=50, lambda_val=0.2, **kw):
     class R:
         named_mmr_reason_paths = [
@@ -52,12 +53,16 @@ class TestDemoPageAPI(unittest.TestCase):
     def test_retrieve_final_config_flag(self):
         retrieve = self._endpoint("/api/retrieve")
         body = retrieve(RetrieveIn(
-            sample_index=0, beam_size=50, lambda_val=0.2, alpha_final=1.0))
+            sample_index=0, beam_size=50, lambda_val=0.2, eta=1.0))
         self.assertTrue(body["is_final_config"])
         self.assertEqual(body["graph"]["paths"][0]["id"], 1)
         body2 = retrieve(RetrieveIn(
-            sample_index=0, beam_size=20, lambda_val=0.2, alpha_final=1.0))
+            sample_index=0, beam_size=20, lambda_val=0.2, eta=1.0))
         self.assertFalse(body2["is_final_config"])
+
+    def test_retrieve_rejects_alpha_final(self):
+        with self.assertRaises(ValidationError):
+            RetrieveIn(sample_index=0, alpha_final=1.0)
 
     def test_replay_passthrough(self):
         body = self._endpoint("/api/replay")(ReplayIn(sample_index=0))
@@ -66,7 +71,7 @@ class TestDemoPageAPI(unittest.TestCase):
     def test_retrieve_unknown_sample_404(self):
         with self.assertRaises(HTTPException) as ctx:
             self._endpoint("/api/retrieve")(RetrieveIn(
-                sample_index=999, beam_size=50, lambda_val=0.2, alpha_final=1.0))
+                sample_index=999, beam_size=50, lambda_val=0.2, eta=1.0))
         self.assertEqual(ctx.exception.status_code, 404)
 
     def test_replay_unknown_sample_404(self):
@@ -82,7 +87,7 @@ class TestDemoPageAPI(unittest.TestCase):
                               replayer=_StubReplayer())
         with self.assertRaises(HTTPException) as ctx:
             self._endpoint("/api/retrieve")(RetrieveIn(
-                sample_index=0, beam_size=50, lambda_val=0.2, alpha_final=1.0))
+                sample_index=0, beam_size=50, lambda_val=0.2, eta=1.0))
         self.assertEqual(ctx.exception.status_code, 502)
 
 

@@ -11,6 +11,7 @@ import tempfile
 from types import SimpleNamespace
 
 import torch
+from tqdm import tqdm
 
 from utils.misc import batch_device, invert_dict
 from utils.path_utils import filter_tensor
@@ -57,7 +58,8 @@ class CWQScoreProducer(ScoreProducer):
         self._ckpt_path = ckpt_path
 
     def produce(self, input_dir: str, qa_file: str, *, split: str = "test",
-                batch_size: int = 16, topk: int = 500) -> ScoreBundle:
+                batch_size: int = 16, topk: int = 500,
+                show_progress: bool = True, progress_callback=None) -> ScoreBundle:
         assert self._ckpt_path, "先调用 load_checkpoint()"
         ent2id = _read_vocab(os.path.join(input_dir, "entities.txt"))
         rel2id = _read_vocab(os.path.join(input_dir, "relations.txt"))
@@ -86,7 +88,9 @@ class CWQScoreProducer(ScoreProducer):
         model.eval()
 
         samples: list[SampleScore] = []
-        with torch.no_grad():
+        with torch.no_grad(), tqdm(total=len(raw_questions), desc=f"CWQ {split} 得分",
+                                   unit="题", dynamic_ncols=True,
+                                   disable=not show_progress) as progress:
             for batch in loader:
                 outputs = model(*batch_device(batch, self.device))
                 e_score = outputs["e_score"].cpu()
@@ -119,6 +123,9 @@ class CWQScoreProducer(ScoreProducer):
                         sample_index=len(samples),
                         triples=batch[3][i].tolist(),
                     ))
+                progress.update(e_score.shape[0])
+                if progress_callback:
+                    progress_callback(len(samples), len(raw_questions))
         meta = CacheMeta(dataset="CWQ", split=split, id2ent=invert_dict(ent2id),
                          id2rel=invert_dict(rel2id), num_samples=len(samples),
                          topk_entities=topk, input_dir=input_dir, qa_file=qa_file)

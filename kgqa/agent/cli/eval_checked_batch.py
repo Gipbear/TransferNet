@@ -37,6 +37,7 @@ from kgqa.agent.tools import (
     RejectedAnswerCheckTool,
 )
 from kgqa.serving.llm.client import LLMClient, SILICONFLOW_MODEL, SiliconFlowLLMClient
+from kgqa.runtime import add_runtime_arguments, configure_runtime, emit_event, update_progress
 
 
 DEFAULT_INPUT_PATHS = {
@@ -53,7 +54,7 @@ def _default_output_dir(dataset: str) -> str:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Evaluate the checked-batch KGQA agent")
+    parser = argparse.ArgumentParser(description="第五章 checked-batch KGQA 智能体评测")
     parser.add_argument(
         "--dataset",
         choices=["webqsp", "metaqa"],
@@ -78,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Run a comma/space-separated list of 0-based sample indices",
     )
-    parser.add_argument("--alpha_final", type=float, default=1.0)
+    parser.add_argument("--eta", type=float, default=1.0, help="终点实体分数融合权重 η")
     parser.add_argument("--path_threshold", type=float, default=0.01)
     parser.add_argument("--beam_size", type=int, default=50)
     parser.add_argument("--lambda_val", type=float, default=0.2)
@@ -223,6 +224,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--no_adapter", action="store_true", help="Use the base model for answering")
     parser.add_argument("--skip_server_check", action="store_true", help="Skip service health checks")
+    add_runtime_arguments(parser)
     return parser
 
 
@@ -333,6 +335,14 @@ def main(argv: list[str] | None = None) -> int:
         sample_items = [(index, samples[index]) for index in selected_sample_indices]
     output_paths = _resolve_output_paths(args.output or _default_output_dir(args.dataset))
     os.makedirs(output_paths["dir"], exist_ok=True)
+    run_dir = configure_runtime(
+        args,
+        command="第五章渐进验证评测",
+        fallback_run_dir=output_paths["dir"],
+        manifest={"dataset": args.dataset, "input": input_path, "output": output_paths["dir"],
+                  "check_mode": args.check_mode, "beam_size": args.beam_size,
+                  "lambda_val": args.lambda_val, "batch_size": args.batch_size},
+    )
     existing_records = _load_resumable_records(output_paths["records"], sample_items)
 
     path_tool = PathRetrieveTool(
@@ -386,6 +396,7 @@ def main(argv: list[str] | None = None) -> int:
     output_mode = "a" if existing_records else "w"
     if existing_records:
         print(f"[resume] reusing {len(existing_records)} completed samples", flush=True)
+    update_progress(run_dir, completed=len(existing_records), total=total, phase="渐进验证评测")
     with open(output_paths["records"], output_mode, encoding="utf-8") as output_handle, open(
         output_paths["initial_retrieval"], output_mode, encoding="utf-8"
     ) as retrieval_handle, open(
@@ -404,7 +415,7 @@ def main(argv: list[str] | None = None) -> int:
             result = agent.run(
                 sample.question,
                 sample.topic_mid,
-                alpha_final=args.alpha_final,
+                eta=args.eta,
                 threshold=args.path_threshold,
                 beam_size=args.beam_size,
                 lambda_val=args.lambda_val,
@@ -485,6 +496,8 @@ def main(argv: list[str] | None = None) -> int:
                     f"ETA={eta_str}",
                     flush=True,
                 )
+            if len(records) % max(1, args.progress_interval) == 0:
+                update_progress(run_dir, completed=len(records), total=total, phase="渐进验证评测")
 
     summary = summarize_checked_batch_records(records)
     summary.update(
@@ -495,7 +508,7 @@ def main(argv: list[str] | None = None) -> int:
             "output_path": output_paths["records"],
             "initial_retrieval_path": output_paths["initial_retrieval"],
             "initial_answer_path": output_paths["initial_answer"],
-            "alpha_final": args.alpha_final,
+            "eta": args.eta,
             "path_threshold": args.path_threshold,
             "beam_size": args.beam_size,
             "lambda_val": args.lambda_val,
@@ -530,6 +543,8 @@ def main(argv: list[str] | None = None) -> int:
     with open(summary_path, "w", encoding="utf-8") as summary_handle:
         json.dump(summary, summary_handle, ensure_ascii=False, indent=2)
 
+    update_progress(run_dir, completed=len(records), total=total, status="completed", phase="渐进验证评测")
+    emit_event(run_dir, "phase_end", phase="渐进验证评测", samples=len(records))
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0
 

@@ -27,7 +27,7 @@ def make_response(paths, prediction=None):
         mmr_reason_paths=paths,
         prediction=prediction or {},
         elapsed_ms=10.0,
-        alpha_final=1.0,
+        eta=1.0,
         threshold=0.01,
         beam_size=50,
         lambda_val=0.5,
@@ -78,7 +78,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
 
         retrieve_kwargs = path_client.calls[0][1]
         self.assertNotIn("method", retrieve_kwargs)
-        self.assertEqual(retrieve_kwargs["alpha_final"], 1.0)
+        self.assertEqual(retrieve_kwargs["eta"], 1.0)
         self.assertEqual(retrieve_kwargs["beam_size"], 50)
         self.assertEqual(retrieve_kwargs["lambda_val"], 0.2)
         self.assertEqual(result.stop_reason, "path_exhausted")

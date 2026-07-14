@@ -37,10 +37,10 @@ class PathCandidate:
 
 def compute_candidate_score(
     candidate: PathCandidate,
-    alpha_final: float,
+    eta: float = 1.0,
 ) -> float:
-    """融合路径分数与最终实体分数，并按路径长度归一化。"""
-    score = candidate.base_score + alpha_final * math.log(
+    """融合路径分数与终点实体分数，并按路径长度归一化。"""
+    score = candidate.base_score + eta * math.log(
         max(candidate.final_tail_score, 0.0) + EPS
     )
     return score / max(candidate.hop, 1)
@@ -48,11 +48,11 @@ def compute_candidate_score(
 
 def score_path_candidates(
     candidates: list[PathCandidate],
-    alpha_final: float,
+    eta: float = 1.0,
 ) -> list[PathCandidate]:
     """返回写入融合分数后的候选路径。"""
     return [
-        replace(candidate, score=compute_candidate_score(candidate, alpha_final))
+        replace(candidate, score=compute_candidate_score(candidate, eta))
         for candidate in candidates
     ]
 
@@ -72,14 +72,14 @@ def candidate_to_tuple(candidate: PathCandidate) -> tuple[list[int], list[int], 
 def select_path_candidates(
     candidates: list[PathCandidate],
     k: int,
-    alpha_final: float,
-    lambda_val: float,
+    eta: float = 1.0,
+    lambda_val: float = 0.2,
 ) -> list[PathCandidate]:
-    """Score and select candidates with fixed MMR and deterministic tie-breaking."""
+    """按固定 MMR 与确定性并列规则，为候选路径打分并选择。"""
     if not candidates or k <= 0:
         return []
 
-    scored = _ranked_candidates(score_path_candidates(candidates, alpha_final))
+    scored = _ranked_candidates(score_path_candidates(candidates, eta))
 
     rel_sets = [path_to_rel_set(c.rels) for c in scored]
     selected = []
@@ -261,7 +261,7 @@ def _serialize_paths(paths, id2ent: dict, id2rel: dict) -> list[dict]:
 
 
 def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, *,
-                 alpha_final: float = 1.0,
+                 eta: float = 1.0,
                  threshold: float = 0.01, beam_size: int = 50,
                  lambda_val: float = 0.2, drop_loopback: bool = True) -> RetrieveResult:
     """单样本检索：稀疏重建 → 逐跳 beam 展开 → MMR 选择 → 序列化。
@@ -288,7 +288,7 @@ def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, 
         ))
 
     selected = select_path_candidates(
-        path_candidates, beam_size, alpha_final=alpha_final, lambda_val=lambda_val,
+        path_candidates, beam_size, eta=eta, lambda_val=lambda_val,
     )
     candidates = [candidate_to_tuple(c) for c in selected]
     if drop_loopback:

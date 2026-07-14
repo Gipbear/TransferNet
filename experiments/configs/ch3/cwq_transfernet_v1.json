@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "kind": "ch3_retrieval_profile",
+  "status": "draft",
+  "confirmation_reason": "待完成 top-k 饱和性和检索参数扫描后，由人工填写确认理由。",
+  "selected_candidate": "",
+  "config_id": "transfernet_v1",
+  "dataset": "cwq",
+  "backbone": "transfernet",
+  "topk": 500,
+  "selection_split": "test",
+  "topk_candidates": [100, 250, 500, 1000],
+  "score_source": {"ckpt": "", "input_dir": "data/resources/CWQ", "splits": {"train": {"qa_file": ""}, "test": {"qa_file": ""}}},
+  "retrieve": {"beam_size": 50, "lambda_val": 0.2, "threshold": 0.01, "eta": 1.0},
+  "parameter_scan": {"beam_size": [20, 50, 100], "lambda_val": [0.0, 0.1, 0.2, 0.3, 0.5], "eta": [0.5, 1.0, 1.5]},
+  "downstream_support": "第四章和第五章当前不支持 CWQ。"
+}

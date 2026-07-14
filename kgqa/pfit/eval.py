@@ -34,6 +34,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
 logging.getLogger("transformers").setLevel(logging.ERROR)
 
 from kgqa.pfit import manifest as manifest_mod
+from kgqa.runtime import add_runtime_arguments, configure_runtime, emit_event, update_progress
 from kgqa.pfit.formats import (
     FORMAT_PROMPTS,
     apply_entity_map,
@@ -482,7 +483,8 @@ def run_single(samples: list, model, tokenizer, cfg: dict, spec,
     desc = f"Run {run_idx} / Inference (batch={bs})"
 
     for batch_start in tqdm(range(0, len(indexed), bs), desc=desc,
-                            total=(len(indexed) + bs - 1) // bs):
+                            total=(len(indexed) + bs - 1) // bs,
+                            disable=not cfg["show_progress"]):
         batch = indexed[batch_start: batch_start + bs]
         orig_indices = [b[0] for b in batch]
         input_ids_list = [b[1][0] for b in batch]
@@ -574,6 +576,13 @@ def run_single(samples: list, model, tokenizer, cfg: dict, spec,
             }
             results[orig_idx] = rec
 
+        completed = min(batch_start + len(batch), len(indexed))
+        if completed % cfg["progress_interval"] == 0 or completed == len(indexed):
+            update_progress(
+                cfg["run_dir"], completed=completed, total=len(indexed),
+                phase="路径监督评测",
+            )
+
     stem, ext = os.path.splitext(predictions_path)
     run_path = predictions_path if num_runs == 1 else f"{stem}_run{run_idx}{ext}"
     with open(run_path, "w", encoding="utf-8") as f:
@@ -591,7 +600,8 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
              no_paths: bool = False, limit: int = 0,
              model: str = "unsloth/meta-llama-3.1-8b-instruct-bnb-4bit",
              max_seq_length: int = 2048, max_new_tokens: int = 256,
-             batch_size: int = 4) -> dict:
+             batch_size: int = 4, show_progress: bool = True,
+             progress_interval: int = 50, run_dir: str | None = None) -> dict:
     """评测主入口:写 exp_dir/eval/{predictions.jsonl,summary.json};同配置跳过。"""
     spec = get_pfit_spec(dataset)
     entity_repr = entity_repr or spec.default_entity_repr
@@ -686,6 +696,9 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
         "shuffle_paths": shuffle_paths, "reject_prompt": reject_prompt,
         "no_paths": no_paths, "batch_size": batch_size,
         "max_new_tokens": max_new_tokens,
+        "show_progress": show_progress,
+        "progress_interval": max(1, progress_interval),
+        "run_dir": run_dir,
         "entity_map_dict": entity_map_dict, "rev_entity_map": rev_entity_map,
         "use_entity_names": entity_repr == "name",
     }
@@ -741,13 +754,14 @@ def build_parser():
     p.add_argument("--max_seq_length", type=int, default=2048)
     p.add_argument("--max_new_tokens", type=int, default=256)
     p.add_argument("--batch_size", type=int, default=4)
+    add_runtime_arguments(p)
     return p
 
 
 def main(argv=None):
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s [%(levelname)s] %(message)s")
     a = build_parser().parse_args(argv)
+    run_dir = configure_runtime(a, command="第四章路径监督评测", fallback_run_dir=a.exp_dir,
+                                manifest={"dataset": a.dataset, "input": a.input, "adapter": a.adapter})
     summary = run_eval(
         dataset=a.dataset, input_path=a.input, exp_dir=a.exp_dir,
         adapter=a.adapter, fmt=a.fmt, path_format=a.path_format,
@@ -756,7 +770,11 @@ def main(argv=None):
         dedupe_tail_paths=a.dedupe_tail_paths, shuffle_paths=a.shuffle_paths,
         num_runs=a.num_runs, reject_prompt=a.reject_prompt, no_paths=a.no_paths,
         limit=a.limit, model=a.model, max_seq_length=a.max_seq_length,
-        max_new_tokens=a.max_new_tokens, batch_size=a.batch_size)
+        max_new_tokens=a.max_new_tokens, batch_size=a.batch_size,
+        show_progress=not a.no_progress, progress_interval=a.progress_interval,
+        run_dir=str(run_dir) if run_dir else None)
+    update_progress(run_dir, completed=1, total=1, status="completed", phase="路径监督评测")
+    emit_event(run_dir, "phase_end", phase="路径监督评测")
     print(json.dumps(summary.get("overall", summary), ensure_ascii=False, indent=2))
 
 

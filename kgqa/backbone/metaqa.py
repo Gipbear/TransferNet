@@ -5,6 +5,7 @@ from collections import defaultdict
 from types import SimpleNamespace
 
 import torch
+from tqdm import tqdm
 
 from utils.misc import idx_to_one_hot
 from utils.path_utils import filter_tensor
@@ -29,7 +30,8 @@ class MetaQAScoreProducer(ScoreProducer):
         self._ckpt_path = ckpt_path
 
     def produce(self, input_dir: str, qa_file: str, *, split: str = "test",
-                batch_size: int = 64, topk: int = 500) -> ScoreBundle:
+                batch_size: int = 64, topk: int = 500,
+                show_progress: bool = True, progress_callback=None) -> ScoreBundle:
         assert self._ckpt_path, "先调用 load_checkpoint()"
         import os
         vocab_json = os.path.join(input_dir, "vocab.json")
@@ -51,7 +53,10 @@ class MetaQAScoreProducer(ScoreProducer):
 
         kept = defaultdict(int)
         samples: list[SampleScore] = []
-        with torch.no_grad():
+        total = len(loader.dataset)
+        with torch.no_grad(), tqdm(total=total, desc=f"MetaQA {split} 得分",
+                                   unit="题", dynamic_ncols=True,
+                                   disable=not show_progress) as progress:
             for batch in loader:
                 questions, topic_entities, answers, hops = batch
                 topic_onehot = idx_to_one_hot(topic_entities, num_ent).to(self.device)
@@ -94,6 +99,9 @@ class MetaQAScoreProducer(ScoreProducer):
                         e_score_indices=eidxs[emask], e_score_values=evals[emask],
                         sample_index=len(samples), hop=hop,
                     ))
+                progress.update(e_score.shape[0])
+                if progress_callback:
+                    progress_callback(min(progress.n, total), total)
                 if self.per_hop_limit and all(
                         kept[h] >= self.per_hop_limit for h in range(1, self.num_steps + 1)):
                     break  # hop 分块有序，三跳配额都满即可提前停

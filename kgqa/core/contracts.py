@@ -96,4 +96,5 @@ class ScoreProducer(ABC):
 
     @abstractmethod
     def produce(self, input_dir: str, qa_file: str, *, split: str = "test",
-                batch_size: int = 16, topk: int = 500) -> ScoreBundle: ...
+                batch_size: int = 16, topk: int = 500,
+                show_progress: bool = True, progress_callback=None) -> ScoreBundle: ...
