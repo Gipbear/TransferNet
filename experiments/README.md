@@ -35,6 +35,9 @@
 - `score_component_ablation` 使用显式实验项，不并入 `parameter_scan` 的笛卡尔积。WebQSP
   当前包含联合基线、移除终点融合、仅关系和仅实体四组；它们固定使用已确认的
   `beam=20，λ=0.5，threshold=0.01`。
+- `shortest_path_baseline` 是**基于 TransferNet 候选答案的最短路径后处理基线**：只取最终实体
+  分数 Top-20 候选，在现有知识图谱中枚举不超过可用推理步数的有向最短路径。它只借鉴
+  GNN-RAG 的路径构造环节，不是完整 GNN-RAG 或 ReaRev 复现；当前只在 WebQSP 启用。
 - 检索汇总的 `backbone` 是 TransferNet 等基础检索模型的原始实体预测指标；其
   `prediction` 不受路径重建、重排序或分数消融影响，不能用于比较第三章方法。
   `path` 才是路径尾实体作为预测集合得到的路径答案指标（含 `answer_hit`、`top1_hit`、
@@ -54,12 +57,13 @@
 | 0. 核对配置 | 阅读配置、确认 checkpoint 与扫描范围 | < 1 分钟 | `experiments/configs/ch3/webqsp_transfernet_v1.json`；首次扫描前应为 `draft`，当前已完成确认的配置为 `confirmed`。 |
 | 1. 演练 | `python -m experiments.run_ch3 --dataset webqsp --dry_run` | < 1 分钟 | 仅打印将执行的 score、top-k 评测和参数扫描命令；不加载模型。 |
 | 2. score 与 top-k 饱和性 | `python -m experiments.run_ch3 --dataset webqsp --phase scores` | 约 26 分钟 | 生成 train/test 的 8 份 score 缓存，及 8 份 top-k 汇总：`topk_saturation/transfernet_v1/topk{100,250,500,1000}_{train,test}/*_summary.json`。本次 max-topk 前向：train 4 分 40 秒、test 2 分 37 秒；其余小 top-k 由 topk=1000 缓存裁剪。 |
-| 3. 检索参数扫描 | `python -m experiments.run_ch3 --dataset webqsp --phase scan` | 约 3 小时 7 分钟 | 当前网格为 6×7×3=126 组；每组输出 1,581 条测试结果与汇总至 `confirmed_profiles/transfernet_v1/candidates/<参数组>/test.{jsonl,summary.json}`。批处理日志在 `topk_saturation/transfernet_v1/parameter_scan/batch/logs/console.log`。 |
+| 3. 检索参数扫描 | `python -m experiments.run_ch3 --dataset webqsp --phase scan` | 约 3 小时 7 分钟 | 当前网格为 6×7×5=210 组；每组输出 1,581 条测试结果与汇总至 `confirmed_profiles/transfernet_v1/candidates/<参数组>/test.{jsonl,summary.json}`。批处理日志在 `topk_saturation/transfernet_v1/parameter_scan/batch/logs/console.log`。 |
 | 4. 人工确认 | 比较路径命中、路径 F1、多样性并编辑配置 | 约 5–15 分钟 | 将配置设为 `status=confirmed`，填写 `confirmation_reason`、`selected_candidate` 和对应 `retrieve` 参数。当前已选 `beam20_lambda05_eta15`。 |
 | 5. 发布正式上游产物 | `python -m experiments.run_ch3 --dataset webqsp --phase publish` | 首次约 3 分钟；已有候选 train/test 时仅需数秒 | 正式产物为 `confirmed_profiles/transfernet_v1/{train,test}.jsonl` 与 `confirmed_config.json`；发布目录 `publish/progress.json` 应为 `completed`。第四、五章只引用这些正式文件。 |
 | 6. 排序分数消融 | `python -m experiments.run_ch3 --dataset webqsp --phase score_ablation` | 约 8–15 分钟 | 固定候选空间，比较 `joint_eta15`、`joint_eta0`、`relation_only`、`entity_only` 四组，输出至 `score_component_ablations/transfernet_v1/<实验项>/test_summary.json`。 |
+| 7. 候选答案最短路径基线 | `python -m experiments.run_ch3 --dataset webqsp --phase shortest_path` | 本次 1 分 59 秒（核心后处理 1 分 41 秒） | 固定最终实体 Top-20 候选、可用跳数和 20 条路径预算，输出至 `shortest_path_baselines/transfernet_v1/top20_hop_available/test_summary.json`。与 Score-Beam(λ=0) 和 TARRS 比较时只比较 `path`。 |
 
-若希望连续运行第 2、3、6 步，可使用下列快捷命令；它**不会**替代第 4 步人工确认，也不会自动执行发布：
+若希望连续运行第 2、3、6、7 步，可使用下列快捷命令；它**不会**替代第 4 步人工确认，也不会自动执行发布：
 
 ```bash
 python -m experiments.run_ch3 --dataset webqsp --phase all
@@ -89,7 +93,7 @@ sed -n '1,160p' experiments/configs/ch3/webqsp_transfernet_v1.json
 # 1. 演练：只展示 score 缓存、top-k 评测和“参数组数×数据划分数”的参数扫描任务。
 python -m experiments.run_ch3 --dataset webqsp --dry_run
 
-# 2. 实际运行：先生成并评测 top-k 饱和性缓存，再运行 beam/λ/eta 完整对比和排序分数消融。
+# 2. 实际运行：先生成并评测 top-k 饱和性缓存，再运行 beam/λ/eta 完整对比、排序分数消融和最短路径基线。
 python -m experiments.run_ch3 --dataset webqsp --phase all
 
 # 3. 审核每组 train/test 汇总指标与日志（示例为 beam=50、λ=0.2、eta=1.0）。
@@ -102,6 +106,9 @@ python -m experiments.run_ch3 --dataset webqsp --phase publish
 
 # 5. 固定已确认的 beam/λ 后，执行四组逐跳分数消融；不会重新生成 score 缓存。
 python -m experiments.run_ch3 --dataset webqsp --phase score_ablation
+
+# 6. 仅使用已存在的 topk500_test score 缓存与知识图谱邻接表；不加载 TransferNet checkpoint。
+python -m experiments.run_ch3 --dataset webqsp --phase shortest_path
 ```
 
 `parameter_scan` 的配置形式如下；新增 beam、λ 或 eta 取值只需在对应列表中添加一个数值。
@@ -115,7 +122,7 @@ python -m experiments.run_ch3 --dataset webqsp --phase score_ablation
 }
 ```
 
-可单独执行 `--phase scores`、`--phase scan`、`--phase score_ablation` 或 `--phase publish`，便于中断后按阶段恢复。
+可单独执行 `--phase scores`、`--phase scan`、`--phase score_ablation`、`--phase shortest_path` 或 `--phase publish`，便于中断后按阶段恢复。
 每个任务目录都有 `run_manifest.json`、`progress.json`、`logs/run.log`、
 `logs/events.jsonl` 和 `logs/console.log`。第三章产物如下：
 
@@ -136,9 +143,49 @@ data/output/kgqa/
     │   ├── <实验项>/test.jsonl
     │   ├── <实验项>/test_summary.json
     │   └── batch/                         # 四组任务共享的离线缓存批处理日志
+    ├── shortest_path_baselines/transfernet_v1/
+    │   └── top20_hop_available/
+    │       ├── test/{run_manifest.json,progress.json,logs/}
+    │       ├── test.jsonl
+    │       └── test_summary.json
     └── confirmed_profiles/transfernet_v1/
         ├── candidates/<参数组>/{train,test}.jsonl
         ├── candidates/<参数组>/{train,test}_summary.json
         ├── {train,test}.jsonl                 # 仅人工确认并发布后产生
         └── confirmed_config.json               # 同上
 ```
+
+### 第三章：多检索路径下游大模型 QA
+
+该对照评测“相同大模型面对不同检索上下文”的影响，不是第四章的训练源消融。五组固定为：无路径、
+最短路径、普通 Score-Beam（`beam=20，λ=0，η=0`）、终点感知 Score-Beam
+（`beam=20，λ=0，η=1.5`）和 TARRS（`beam=20，λ=0.5，η=1.5`）。普通 Score-Beam 的
+`η` 必须为 0。
+
+先进行不加载模型的演练。它会校验五份 JSONL 的题目和 golden 完全对齐，并展示单次模型加载后
+依次评测五组的批处理命令：
+
+```bash
+python -m experiments.run_ch3_downstream_qa \
+  --dataset webqsp --phase all --smoke_size 100 --dry_run --no_progress
+```
+
+实际冒烟会从共同的 WebQSP 测试集按 hop 分层抽取 100 条，避免 `--limit` 只取文件开头；模型和
+adapter 仅加载一次。冒烟通过后去掉 `--smoke_size 100` 即运行全量 1,581 条：
+
+```bash
+# 100 条分层冒烟
+python -m experiments.run_ch3_downstream_qa \
+  --dataset webqsp --phase all --smoke_size 100 --no_progress
+
+# 全量基座零样本对照
+python -m experiments.run_ch3_downstream_qa \
+  --dataset webqsp --layer base_zeroshot --phase all --no_progress
+```
+
+输出位于 `ch3_retrieval/webqsp/transfernet/downstream_qa/transfernet_v1/`：每组有独立的
+`run_manifest.json`、`progress.json`、`eval/predictions.jsonl` 和 `eval/summary.json`；共享模型
+批处理的完整控制台输出位于对应 `batch/logs/console.log`。报告写到
+`reports/<层次>/{smoke_<n>,full}/`。`fixed_pfit_adapter` 层只接受来自
+`ch4_pfit/.../adapter/` 且训练清单指向已确认 `train.jsonl` 的 adapter；训练源消融需要新建训练集
+和训练多个 LoRA，不由此命令执行。
