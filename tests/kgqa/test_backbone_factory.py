@@ -16,7 +16,7 @@ class TestBackboneFactory(unittest.TestCase):
         cwq = make_score_producer("cwq", limit=5)
 
         self.assertIsInstance(webqsp, WebQSPScoreProducer)
-        self.assertEqual(webqsp.bert_name, "bert-base-uncased")
+        self.assertEqual(webqsp.bert_name, "BAAI/bge-base-en-v1.5")
         self.assertIsInstance(metaqa, MetaQAScoreProducer)
         self.assertEqual(metaqa.per_hop_limit, 3)
         self.assertIsInstance(cwq, CWQScoreProducer)
