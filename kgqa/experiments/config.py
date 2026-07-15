@@ -62,6 +62,16 @@ class ExperimentPaths:
     def ch3_profile_dir(self, dataset: str, backbone: str, config_id: str) -> Path:
         return self.output_root / "ch3_retrieval" / dataset / backbone / "confirmed_profiles" / config_id
 
+    def ch3_score_ablation_dir(self, dataset: str, backbone: str, config_id: str) -> Path:
+        return self.output_root / "ch3_retrieval" / dataset / backbone / "score_component_ablations" / config_id
+
+    def ch3_shortest_path_dir(self, dataset: str, backbone: str, config_id: str) -> Path:
+        return self.output_root / "ch3_retrieval" / dataset / backbone / "shortest_path_baselines" / config_id
+
+    def ch3_downstream_qa_dir(self, dataset: str, backbone: str, config_id: str) -> Path:
+        """第三章固定检索路径的下游大模型问答对照目录。"""
+        return self.output_root / "ch3_retrieval" / dataset / backbone / "downstream_qa" / config_id
+
     def ch4_run_dir(self, dataset: str, config_id: str, experiment_id: str, seed: int) -> Path:
         return self.output_root / "ch4_pfit" / dataset / config_id / experiment_id / f"seed_{seed}"
 

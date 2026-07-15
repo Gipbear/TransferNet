@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 from pydantic import ValidationError
 from kgqa.core.contracts import RetrieveResult
 
@@ -41,6 +42,15 @@ class TestServer(unittest.TestCase):
     def test_retrieve_rejects_removed_method_parameter(self):
         with self.assertRaises(ValidationError):
             self.request_type(sample_index=0, method="baseline")
+
+    def test_client_forwards_step_score_mode(self):
+        from kgqa.retrieve.api.client import PathRetrieveClient
+        client = PathRetrieveClient()
+        with patch.object(client, "_post", return_value=object()) as post:
+            client.retrieve(question="q", step_score_mode="relation_only", eta=0.0)
+        self.assertEqual(post.call_args.args[0], "/retrieve")
+        self.assertEqual(post.call_args.args[1]["step_score_mode"], "relation_only")
+        self.assertEqual(post.call_args.args[1]["eta"], 0.0)
 
 
 if __name__ == "__main__":

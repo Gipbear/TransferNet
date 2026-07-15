@@ -13,6 +13,13 @@ data/output/kgqa/
 ├── shared/<数据集>/backbones/<基础检索模型>/scores/<得分编号>/
 ├── ch3_retrieval/<数据集>/<基础检索模型>/
 │   ├── topk_saturation/<实验编号>/
+│   ├── shortest_path_baselines/<实验编号>/<基线编号>/
+│   ├── score_component_ablations/<实验编号>/<消融项>/
+│   ├── downstream_qa/<实验编号>/
+│   │   ├── base_zeroshot/{smoke_<n>,full}/<条件>/
+│   │   ├── fixed_pfit_adapter/<adapter编号>/{smoke_<n>,full}/<条件>/
+│   │   ├── smoke_inputs/smoke_<n>/
+│   │   └── reports/<层次>/{smoke_<n>,full}/
 │   └── confirmed_profiles/<配置编号>/
 ├── ch4_pfit/<数据集>/<配置编号>/<实验编号>/seed_<随机种子>/
 └── ch5_pv_gac/<数据集>/<配置编号>/
@@ -44,6 +51,15 @@ data/output/kgqa/
 `topk=500` 是候选默认值，不是固定结论。第三章对 WebQSP、MetaQA、CWQ 均执行
 `100/250/500/1000` 饱和性实验，随后由人工确认每个数据集的 top-k 与检索参数。
 程序不会根据测试集指标自动选择配置。
+
+第三章的“基于 TransferNet 候选答案的最短路径后处理基线”当前只支持 WebQSP / TransferNet。
+它复用已有离线 score 缓存和知识图谱邻接表，不生成新 score、不加载 checkpoint，也不应称为
+完整 GNN-RAG 复现。
+
+第三章下游 QA 当前只支持 WebQSP / TransferNet。它固定比较无路径、最短路径、普通
+Score-Beam（`lambda=0，eta=0`）、终点感知 Score-Beam（`lambda=0，eta=1.5`）和
+TARRS（`lambda=0.5，eta=1.5`）。五组由同一批处理进程共享一次模型/adapter 加载，但各自
+保留独立的运行清单、进度和评测产物；训练源消融属于第四章的另行训练实验，不在该目录执行。
 
 ## 配置与下游依赖
 

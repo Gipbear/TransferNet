@@ -122,12 +122,18 @@ class TestServiceApp(unittest.TestCase):
         body = self.endpoints["/retrieve"](
             RetrieveRequest(question="toy question", topic_entities=["m.topic"])
         )
-        # 响应只暴露现役 eta 字段
+        # 响应显式记录现役评分配置
         for key in ("question", "sample_index", "topics", "hop", "mmr_reason_paths",
-                    "prediction", "elapsed_ms", "eta", "threshold",
+                    "prediction", "elapsed_ms", "eta", "step_score_mode", "threshold",
                     "beam_size", "lambda_val", "cache_path", "group_tails"):
             self.assertIn(key, body)
         self.assertNotIn("alpha_final", body)
+
+    def test_single_score_mode_requires_zero_eta(self):
+        from kgqa.retrieve.api.service import PathRetrieveService
+        service = PathRetrieveService(_ToyAdapter(), cache_path="toy.pt")
+        with self.assertRaisesRegex(ValueError, "必须设置 eta=0"):
+            service.retrieve(question="toy question", step_score_mode="entity_only", eta=1.0)
 
     def test_request_rejects_legacy_alpha_final(self):
         from pydantic import ValidationError

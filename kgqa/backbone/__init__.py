@@ -13,7 +13,7 @@ def make_score_producer(
 ) -> ScoreProducer:
     if dataset == "webqsp":
         from kgqa.backbone.webqsp import WebQSPScoreProducer
-        return WebQSPScoreProducer(bert_name=bert_name or "bert-base-uncased")
+        return WebQSPScoreProducer(bert_name=bert_name or "BAAI/bge-base-en-v1.5")
     if dataset == "metaqa":
         from kgqa.backbone.metaqa import MetaQAScoreProducer
         return MetaQAScoreProducer(per_hop_limit=per_hop_limit)

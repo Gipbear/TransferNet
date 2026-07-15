@@ -20,6 +20,14 @@ class TestExperimentPaths(unittest.TestCase):
             Path("/tmp/project/data/output/kgqa/ch4_pfit/metaqa/v1/main/seed_17"),
         )
         self.assertEqual(
+            paths.ch3_shortest_path_dir("webqsp", "transfernet", "v1"),
+            Path("/tmp/project/data/output/kgqa/ch3_retrieval/webqsp/transfernet/shortest_path_baselines/v1"),
+        )
+        self.assertEqual(
+            paths.ch3_downstream_qa_dir("webqsp", "transfernet", "v1"),
+            Path("/tmp/project/data/output/kgqa/ch3_retrieval/webqsp/transfernet/downstream_qa/v1"),
+        )
+        self.assertEqual(
             paths.ch5_dir("webqsp", "v1", "benchmark"),
             Path("/tmp/project/data/output/kgqa/ch5_pv_gac/webqsp/v1/benchmark"),
         )

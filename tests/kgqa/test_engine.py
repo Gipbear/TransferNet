@@ -32,6 +32,34 @@ class TestEngine(unittest.TestCase):
         self.assertEqual(set(d), {1})
         self.assertAlmostEqual(d[1], 0.8, places=5)
 
+    def test_step_score_modes_follow_declared_formulas(self):
+        rel_dict = {1: 0.6, 2: 0.4}
+        ent_dict = {3: 0.75, 4: 0.25}
+        relation = math.log(0.6)
+        entity = math.log(0.75)
+        self.assertAlmostEqual(engine.compute_step_score(rel_dict, ent_dict, 1, 3), relation + entity)
+        self.assertAlmostEqual(engine.compute_step_score(rel_dict, ent_dict, 1, 3, "joint"), relation + entity)
+        self.assertAlmostEqual(engine.compute_step_score(rel_dict, ent_dict, 1, 3, "relation_only"), relation)
+        self.assertAlmostEqual(engine.compute_step_score(rel_dict, ent_dict, 1, 3, "entity_only"), entity)
+
+    def test_single_score_modes_keep_intersection_candidate_space(self):
+        rel_dicts = [{1: 0.8, 2: 0.7}]
+        ent_dicts = [{1: 0.6, 2: 0.5}]
+        expected = None
+        for mode in ("joint", "relation_only", "entity_only"):
+            candidates = engine.search_path_candidates(
+                [0], rel_dicts, ent_dicts, 1, self.kg.valid_edges_dict, 10,
+                step_score_mode=mode,
+            )
+            paths = {(tuple(candidate.nodes), tuple(candidate.rels)) for candidate in candidates}
+            if expected is None:
+                expected = paths
+            self.assertEqual(paths, expected)
+
+    def test_single_score_mode_rejects_terminal_entity_fusion(self):
+        with self.assertRaisesRegex(ValueError, "必须设置 eta=0"):
+            engine.validate_score_scheme("relation_only", 1.0)
+
     def test_candidate_score_is_tail_blend_with_length_normalization(self):
         candidate = engine.PathCandidate(
             nodes=[0, 1, 2], rels=[1, 2], hop=2,
@@ -66,6 +94,18 @@ class TestEngine(unittest.TestCase):
         self.assertIn("m.gold", tails)
         # prediction 取 e_score argmax（0.95 > 0.4）→ 只含 m.gold
         self.assertEqual(set(r.prediction), {"m.gold"})
+
+    def test_joint_mode_is_identical_to_omitted_mode(self):
+        default = engine.retrieve_one(
+            _Sample(), self.kg, self.id2ent, self.id2rel,
+            beam_size=10, threshold=0.01, lambda_val=0.2, eta=1.5,
+        )
+        explicit = engine.retrieve_one(
+            _Sample(), self.kg, self.id2ent, self.id2rel,
+            beam_size=10, threshold=0.01, lambda_val=0.2, eta=1.5,
+            step_score_mode="joint",
+        )
+        self.assertEqual(default.paths, explicit.paths)
 
     def test_drop_loopback_removes_self_return(self):
         paths = [([0, 1], [1], -0.1), ([0, 0], [1], -0.2)]

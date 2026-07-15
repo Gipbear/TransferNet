@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import os
 from dataclasses import asdict
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -27,6 +28,7 @@ class RetrieveRequest(BaseModel):
     lambda_val: float = 0.2
     threshold: float = 0.01
     eta: float = 1.0
+    step_score_mode: Literal["joint", "relation_only", "entity_only"] = "joint"
 
 
 def create_app(backend) -> FastAPI:
@@ -41,6 +43,7 @@ def create_app(backend) -> FastAPI:
         result = backend.retrieve(
             req.sample_index, beam_size=req.beam_size,
             lambda_val=req.lambda_val, threshold=req.threshold, eta=req.eta,
+            step_score_mode=req.step_score_mode,
         )
         return asdict(result)
 
@@ -60,6 +63,7 @@ def create_service_app(service, *, drop_loopback: bool | None = None) -> FastAPI
                 sample_index=req.sample_index,
                 topic_entities=req.topic_entities,
                 eta=req.eta,
+                step_score_mode=req.step_score_mode,
                 threshold=req.threshold,
                 beam_size=req.beam_size,
                 lambda_val=req.lambda_val,
