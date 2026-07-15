@@ -591,6 +591,33 @@ def run_single(samples: list, model, tokenizer, cfg: dict, spec,
     return results
 
 
+def load_inference_model(*, model: str, max_seq_length: int, adapter: str | None):
+    """加载一次基座模型及可选 adapter，供同配置的多输入评测复用。"""
+    from utils.huggingface import resolve_model_path_local_first
+
+    try:
+        from unsloth import FastLanguageModel
+    except ImportError:
+        sys.exit("[Error] unsloth 未安装。请运行: pip install unsloth")
+    model_path = resolve_model_path_local_first(model)
+    model_obj, tokenizer = FastLanguageModel.from_pretrained(
+        model_name=model_path,
+        max_seq_length=max_seq_length,
+        dtype=None,
+        load_in_4bit=True,
+        local_files_only=True,
+    )
+    if adapter:
+        from peft import PeftModel
+        model_obj = PeftModel.from_pretrained(model_obj, adapter)
+    FastLanguageModel.for_inference(model_obj)
+    model_obj.eval()
+    tokenizer.padding_side = "left"
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    return model_obj, tokenizer
+
+
 def run_eval(*, dataset: str, input_path: str, exp_dir: str,
              adapter: str = None, fmt: str = "v2", path_format: str = "chain",
              entity_repr: str = None, entity_map_path: str = None,
@@ -601,7 +628,8 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
              model: str = "unsloth/meta-llama-3.1-8b-instruct-bnb-4bit",
              max_seq_length: int = 2048, max_new_tokens: int = 256,
              batch_size: int = 4, show_progress: bool = True,
-             progress_interval: int = 50, run_dir: str | None = None) -> dict:
+             progress_interval: int = 50, run_dir: str | None = None,
+             loaded_model=None, loaded_tokenizer=None) -> dict:
     """评测主入口:写 exp_dir/eval/{predictions.jsonl,summary.json};同配置跳过。"""
     spec = get_pfit_spec(dataset)
     entity_repr = entity_repr or spec.default_entity_repr
@@ -667,28 +695,16 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
         entity_map_dict = load_entity_map(resolved_map_path)
         rev_entity_map = build_reverse_entity_map(entity_map_dict)
 
-    # ── 加载模型 ─────────────────────────────────────────────────────────────
-    try:
-        from unsloth import FastLanguageModel
-    except ImportError:
-        sys.exit("[Error] unsloth 未安装。请运行: pip install unsloth")
+    # ── 加载或复用模型 ───────────────────────────────────────────────────────
     import torch
-
-    model_obj, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=model,
-        max_seq_length=max_seq_length,
-        dtype=None,
-        load_in_4bit=True,
-        local_files_only=True,
-    )
-    if adapter:
-        from peft import PeftModel
-        model_obj = PeftModel.from_pretrained(model_obj, adapter)
-    FastLanguageModel.for_inference(model_obj)
-    model_obj.eval()
-    tokenizer.padding_side = "left"
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    if (loaded_model is None) != (loaded_tokenizer is None):
+        raise ValueError("loaded_model 与 loaded_tokenizer 必须同时提供")
+    if loaded_model is None:
+        model_obj, tokenizer = load_inference_model(
+            model=model, max_seq_length=max_seq_length, adapter=adapter
+        )
+    else:
+        model_obj, tokenizer = loaded_model, loaded_tokenizer
 
     cfg = {
         "fmt": fmt, "path_format": path_format, "show_score": show_score,

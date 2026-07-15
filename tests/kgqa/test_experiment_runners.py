@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import torch
 
-from experiments import run_ch3, run_ch4, run_ch5
+from experiments import run_ch3, run_ch3_downstream_qa, run_ch4, run_ch5
 from experiments.common import run_command
 from kgqa.retrieve.cli import eval as eval_cli
 from kgqa.retrieve.cli.dump_scores import truncate_score_cache
@@ -22,6 +22,45 @@ def write_json(path: Path, value: dict) -> Path:
 
 
 class TestExperimentRunners(unittest.TestCase):
+    def test_ch3_downstream_qa_dry_run_uses_unified_root_without_writing_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            profile = write_json(root / "profile.json", {
+                "kind": "ch3_retrieval_profile", "status": "confirmed", "dataset": "webqsp",
+                "backbone": "transfernet", "config_id": "v1", "topk": 500, "retrieve": {},
+            })
+            row = {"question": "q", "golden": ["a"], "hop": 1, "mmr_reason_paths": []}
+            conditions = []
+            methods = {
+                "no_path": {"no_paths": True},
+                "shortest_path": {"method": "shortest_path_postprocess"},
+                "score_beam": {"beam_size": 20, "lambda_val": 0.0, "eta": 0.0},
+                "terminal_score_beam": {"beam_size": 20, "lambda_val": 0.0, "eta": 1.5},
+                "tarrs": {"beam_size": 20, "lambda_val": 0.5, "eta": 1.5},
+            }
+            for condition_id, method in methods.items():
+                input_path = root / f"{condition_id}.jsonl"
+                input_path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+                condition = {"id": condition_id, "label": condition_id, "input": str(input_path), "method": method}
+                if condition_id == "no_path":
+                    condition["no_paths"] = True
+                conditions.append(condition)
+            config = write_json(root / "downstream.json", {
+                "kind": "ch3_downstream_qa", "dataset": "webqsp", "backbone": "transfernet", "config_id": "v1",
+                "profile": str(profile), "evaluation": {"model": "model", "format": "v2", "path_format": "chain", "entity_repr": "name", "max_new_tokens": 2, "batch_size": 1, "path_budget": 20},
+                "conditions": conditions, "fixed_pfit_adapter": None,
+            })
+            stream = io.StringIO()
+            with redirect_stdout(stream):
+                run_ch3_downstream_qa.main([
+                    "--dataset", "webqsp", "--config", str(config), "--project_dir", str(root),
+                    "--phase", "eval", "--dry_run", "--no_progress",
+                ])
+            text = stream.getvalue()
+            self.assertIn("kgqa.pfit.eval_batch", text)
+            self.assertIn("data/output/kgqa/ch3_retrieval/webqsp/transfernet/downstream_qa/v1/base_zeroshot/full/batch/jobs.json", text)
+            self.assertFalse((root / "data/output/kgqa/ch3_retrieval/webqsp/transfernet/downstream_qa/v1").exists())
+
     def test_batch_evaluation_marks_batch_run_completed(self):
         with tempfile.TemporaryDirectory() as directory:
             jobs_file = Path(directory) / "jobs.json"
@@ -167,15 +206,43 @@ class TestExperimentRunners(unittest.TestCase):
             self.assertIn("score_component_ablations/v1/joint/test", output)
             self.assertIn("score_component_ablations/v1/relation/test", output)
             self.assertEqual(output.count('"-m" "kgqa.retrieve.cli.eval"'), 1)
-            manifest = json.loads((
+            self.assertFalse((
                 root / "data/output/kgqa/ch3_retrieval/webqsp/transfernet/"
                 "score_component_ablations/v1/relation/test/run_manifest.json"
-            ).read_text(encoding="utf-8"))
-            self.assertEqual(manifest["score_scheme"], {
-                "candidate_gate": "intersection",
-                "step_score_mode": "relation_only",
-                "terminal_entity_eta": 0.0,
+            ).exists())
+
+    def test_ch3_shortest_path_dry_run_keeps_completed_progress_unchanged(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = write_json(root / "ch3.json", {
+                "dataset": "webqsp", "backbone": "transfernet", "config_id": "v1", "topk": 500,
+                "selection_split": "test",
+                "retrieve": {"beam_size": 20, "lambda_val": 0.5, "threshold": 0.01, "eta": 1.5},
+                "score_source": {"ckpt": "models/a.pt", "input_dir": "data/input/WebQSP", "splits": {
+                    "test": {"qa_file": "data/test.txt"},
+                }},
+                "shortest_path_baseline": {
+                    "id": "top20", "label": "候选答案最短路径", "candidate_topk": 20,
+                    "max_paths_per_pair": 20, "path_budget": 20,
+                    "max_hop_source": "available_steps", "drop_loopback": True,
+                },
             })
+            progress_path = (
+                root / "data/output/kgqa/ch3_retrieval/webqsp/transfernet/"
+                "shortest_path_baselines/v1/top20/test/progress.json"
+            )
+            progress_path.parent.mkdir(parents=True)
+            completed = {"status": "completed", "completed": 1581, "total": 1581}
+            progress_path.write_text(json.dumps(completed), encoding="utf-8")
+            stream = io.StringIO()
+            with redirect_stdout(stream):
+                run_ch3.main([
+                    "--dataset", "webqsp", "--config", str(config), "--project_dir", str(root),
+                    "--phase", "shortest_path", "--dry_run", "--no_progress",
+                ])
+            self.assertIn("kgqa.retrieve.cli.shortest_path", stream.getvalue())
+            self.assertIn("shortest_path_baselines/v1/top20/test.jsonl", stream.getvalue())
+            self.assertEqual(json.loads(progress_path.read_text(encoding="utf-8")), completed)
 
     def test_ch3_parameter_scan_generates_stable_candidate_ids(self):
         items = run_ch3._parameter_scan_items({
