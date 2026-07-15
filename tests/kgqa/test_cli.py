@@ -12,7 +12,7 @@ CACHE = "data/output/WebQSP/path_retrieve_server/score_cache/webqsp_test_1581.pt
 
 class TestCLI(unittest.TestCase):
     def test_parsers_build(self):
-        from kgqa.retrieve.cli import retrieve, eval as eval_cli, dump_scores
+        from kgqa.retrieve.cli import retrieve, eval as eval_cli, dump_scores, shortest_path
         retrieve_parser = retrieve.build_parser()
         self.assertIsNotNone(retrieve_parser)
         self.assertNotIn("--method", retrieve_parser.format_help())
@@ -25,6 +25,9 @@ class TestCLI(unittest.TestCase):
             retrieve_parser.parse_args(["--dataset", "webqsp", "--input_dir", "x", "--alpha_final", "0.7"])
         self.assertIsNotNone(eval_cli.build_parser())
         self.assertIsNotNone(dump_scores.build_parser())
+        shortest_path_parser = shortest_path.build_parser()
+        self.assertIn("--candidate_topk", shortest_path_parser.format_help())
+        self.assertNotIn("--lambda_val", shortest_path_parser.format_help())
 
     def test_active_pfit_and_agent_parsers_have_runtime_args(self):
         from kgqa.agent.cli.eval_checked_batch import build_parser as build_agent_parser
@@ -54,7 +57,7 @@ class TestCLI(unittest.TestCase):
             ),
         )
 
-        summary = eval_cli._evaluate_results(backend, [result], None)
+        summary = eval_cli.evaluate_results(backend, [result], None)
 
         self.assertEqual(summary["backbone"]["overall"]["hit1"], 0.0)
         self.assertEqual(summary["path"]["overall"]["answer_hit"], 1.0)

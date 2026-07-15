@@ -31,9 +31,6 @@ def run_command(command: list[str], run_dir: Path, *, dry_run: bool) -> None:
     console_path = run_dir / "logs" / "console.log"
     if dry_run:
         print(f"[演练] {text}")
-        console_path.parent.mkdir(parents=True, exist_ok=True)
-        with console_path.open("a", encoding="utf-8") as handle:
-            handle.write(f"[演练] {text}\n")
         return
     console_path.parent.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()

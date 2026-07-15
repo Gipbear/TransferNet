@@ -43,7 +43,7 @@ def _gold_strings(sample, adapter, id2ent, gold_key: str) -> set[str]:
     return out
 
 
-def _write_results(results, output: str | None) -> None:
+def write_results(results, output: str | None) -> None:
     if not output:
         return
     os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
@@ -56,7 +56,7 @@ def _write_results(results, output: str | None) -> None:
             }, ensure_ascii=False) + "\n")
 
 
-def _evaluate_results(backend, results, summary_path: str | None) -> dict:
+def evaluate_results(backend, results, summary_path: str | None) -> dict:
     adapter = backend.adapter
     spec = adapter.metric_spec()
     id2ent = backend.bundle.meta.id2ent
@@ -107,8 +107,8 @@ def _run_job(backend, job: dict, *, no_progress: bool, progress_interval: int) -
             progress.update(1)
             if progress.n % interval == 0 or progress.n == total:
                 update_progress(job["run_dir"], completed=progress.n, total=total, phase="参数扫描")
-    _write_results(results, job["output"])
-    summary = _evaluate_results(backend, results, job["summary"])
+    write_results(results, job["output"])
+    summary = evaluate_results(backend, results, job["summary"])
     update_progress(job["run_dir"], completed=total, total=total, status="completed", phase="参数扫描")
     emit_event(job["run_dir"], "phase_end", phase="参数扫描", samples=total)
     return results, summary, time.perf_counter() - started
@@ -157,7 +157,7 @@ def main(argv=None):
         return
     started = time.perf_counter()
     backend, results = run_retrieval(args)
-    summary = _evaluate_results(backend, results, args.summary)
+    summary = evaluate_results(backend, results, args.summary)
     run_dir = getattr(args, "run_dir", "") or (os.path.dirname(os.path.abspath(args.summary)) if args.summary else "")
     update_progress(run_dir, completed=len(results), total=len(results), status="completed", phase="检索评测")
     emit_event(run_dir, "phase_end", phase="检索评测", samples=len(results))

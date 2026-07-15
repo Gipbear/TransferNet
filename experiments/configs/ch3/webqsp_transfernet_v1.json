@@ -45,5 +45,14 @@
       "label": "仅实体逐跳排序分数",
       "retrieve": {"step_score_mode": "entity_only", "eta": 0.0}
     }
-  ]
+  ],
+  "shortest_path_baseline": {
+    "id": "top20_hop_available",
+    "label": "TransferNet 候选答案最短路径后处理",
+    "candidate_topk": 20,
+    "max_paths_per_pair": 20,
+    "path_budget": 20,
+    "max_hop_source": "available_steps",
+    "drop_loopback": true
+  }
 }
