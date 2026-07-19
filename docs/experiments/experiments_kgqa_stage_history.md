@@ -1,4 +1,4 @@
-# KGQA 阶段迁移与验证历史档案（2026-07-09 至 2026-07-12）
+# KGQA 阶段迁移与验证历史档案（2026-07-09 至 2026-07-19）
 
 > 文档性质：历史工程迁移与验证记录，不是现役实验规范，也不能直接作为论文正式结果表的来源。
 > 现役 Ch3、Ch4、Ch5 的目录与产物规则见
@@ -10,6 +10,7 @@
 1. [Stage1：统一检索框架全量验证](#stage1)
 2. [Stage2：PFIT 迁移与验证](#stage2)
 3. [Stage3：checked-batch agent 迁移与验证](#stage3)
+4. [第三章专项实验设计落地与验证](#ch3-special)
 
 <a id="stage1"></a>
 ## Stage1：统一检索框架全量验证
@@ -100,10 +101,42 @@ Cit-P 83.35、Cit-R 86.50、Hallucination Rate 0.14。它用于当时与论文�
 `data/output/kgqa/<dataset>/agent/<run_id>/`，不得覆盖旧
 `data/output/WebQSP/checked_batch_agent/`。
 
+<a id="ch3-special"></a>
+## 第三章专项实验设计落地与验证
+
+**定位。** 本节归档已完成的第三章专项设计及其实现入口；正式结果数值以
+`docs/experiments/ch3/experiment_results.md` 为准，运行命令与云端前置产物以
+`experiments/README.md` 为准。
+
+### TransferNet 候选答案最短路径后处理（SP）
+
+- 已实现为 `kgqa/retrieve/shortest_path.py`，由 `python -m experiments.ch3.run --phase shortest_path`
+  编排。它从最终实体得分 Top-20 候选出发，在可用推理跳数内执行有界最短路径枚举，并固定
+  候选排序、邻接访问、等长路径与最终截断规则，输出 20 条路径。
+- WebQSP 全量结果已生成至
+  `data/output/kgqa/ch3_retrieval/webqsp/transfernet/shortest_path_baselines/transfernet_v1/top20_hop_available/`。
+  SP 仅是“基于 TransferNet 候选答案的最短路径后处理”基线，不等同于完整 GNN-RAG 或 ReaRev。
+- 行为由 `tests/kgqa/test_shortest_path_baseline.py`、`tests/kgqa/test_experiment_runners.py` 和
+  `tests/kgqa/test_cli.py` 覆盖；比较时只使用 `path` 指标，不将固定的 `backbone` 实体预测当作
+  路径方法结果。
+
+### 多检索路径固定大模型问答
+
+- 已实现为 `experiments/ch3/downstream_qa.py`、`experiments/ch3/run_downstream_qa.py` 与
+  `experiments/ch3/downstream_report.py`。基座零样本层固定同一模型、提示格式、路径表示、解码和
+  20 条路径预算，仅替换无路径、SP、普通 Score-Beam、终点感知 Score-Beam 与 TARRS 五组输入。
+- 五组题目与 golden 在运行前逐条对齐；编排器记录输入指纹，并将 100 条分层冒烟与 1,581 条全量
+  评测分别写入 `downstream_qa/transfernet_v1/` 下的独立运行目录和 `reports/` 汇总目录。
+- 已完成五组全量基座零样本 QA。它检验固定模型对不同路径证据的可利用性，不替代第四章训练实验，
+  也不构成路径忠实性干预证据。
+
+未实施的固定 LoRA 上下文反事实与训练源消融不作为本节的完成记录；若未来恢复这些方向，应另行
+建立第四章或第三章待办，而不回写为已完成的专项设计。
+
 ## 当前文档路由
 
 | 需求 | 应查阅的现役文档 |
 |---|---|
-| Ch3 路径检索与下游 QA | `experiments/README.md`、第三章专用配置与对应运行产物 |
+| Ch3 路径检索与下游 QA | `docs/experiments/ch3/experiment_results.md`、`experiment_todo.md`、`thesis_outline.md`、本节及 `experiments/README.md` |
 | Ch4 目录、配置与可复现编排 | `docs/experiments/experiments_kgqa_reproducible_layout.md`、`experiments/README.md`、`kgqa/pfit/specs.py` |
 | Ch5 现役 checked-batch | `AGENTS.md` 的服务与评测章节、`kgqa/agent/` CLI 与 `experiments/README.md` |

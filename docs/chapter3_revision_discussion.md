@@ -2,9 +2,9 @@
 
 > 文档性质：第三章重写前的讨论结论与实验规划，不是可直接并入论文的最终正文。
 > 当前状态：本轮以 **WebQSP / TransferNet** 为论文与实验闭环范围；已完成 SP 路径基线、
-> 分数组成消融和五组全量下游 QA。当前执行计划以
-> [第三章 TransferNet 路径检索论文与实验总计划](experiments/experiments_ch3_transfernet_current_plan.md)
-> 为准。ReaRev 适配、跨骨干比较和路径忠实性干预均为后续可选扩展，不是本轮完成条件；下文
+> 分数组成消融和五组全量下游 QA。当前结果与待补实验分别以
+> [第三章实验结果汇总](experiments/ch3/experiment_results.md) 和
+> [第三章待补实验与待决事项](experiments/ch3/experiment_todo.md) 为准。ReaRev 适配、跨骨干比较和路径忠实性干预均为后续可选扩展，不是本轮完成条件；下文
 > 涉及它们的建议均按此边界理解。
 
 ## 1. 第三章应回答的核心问题
