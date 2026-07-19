@@ -58,6 +58,15 @@ class PathCandidate:
             object.__setattr__(self, "score", self.base_score)
 
 
+@dataclass
+class RetrievalDiagnostics:
+    """可选的算法工作量计数，不参与路径打分或排序。"""
+
+    expanded_states: int = 0
+    candidate_paths: int = 0
+    final_paths: int = 0
+
+
 def compute_candidate_score(
     candidate: PathCandidate,
     eta: float = 1.0,
@@ -190,6 +199,7 @@ def search_path_candidates(
     final_ent_scores: Optional[dict[int, float]] = None,
     order_start: int = 0,
     step_score_mode: str = "joint",
+    diagnostics: Optional[RetrievalDiagnostics] = None,
 ) -> list[PathCandidate]:
     """Beam-expand candidate paths and attach cached features for reranking."""
     beam: list[tuple[list[int], list[int], float]] = [([t_id], [], 0.0) for t_id in topic_ids]
@@ -200,6 +210,8 @@ def search_path_candidates(
         ent_dict = ent_dicts[t]
         next_candidates: list[tuple[list[int], list[int], float]] = []
         for nodes, rels, cur_score in beam:
+            if diagnostics is not None:
+                diagnostics.expanded_states += 1
             head = nodes[-1]
             edges = valid_edges_dict.get(head, [])
             for rel_id, tail_id in edges:
@@ -309,7 +321,8 @@ def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, 
                  threshold: float = 0.01, beam_size: int = 50,
                  lambda_val: float = 0.2, drop_loopback: bool = True,
                  step_score_mode: str = "joint",
-                 penalty_mode: str = "adaptive") -> RetrieveResult:
+                 penalty_mode: str = "adaptive",
+                 diagnostics: Optional[RetrievalDiagnostics] = None) -> RetrieveResult:
     """单样本检索：稀疏重建 → 逐跳 beam 展开 → MMR 选择 → 序列化。
 
     与 offline_path_search.run_experiment 的单样本分支逻辑等价（Task 11 回归锁定）。"""
@@ -333,7 +346,11 @@ def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, 
             valid_edges_dict, beam_size,
             final_ent_scores=final_scores, order_start=len(path_candidates),
             step_score_mode=step_score_mode,
+            diagnostics=diagnostics,
         ))
+
+    if diagnostics is not None:
+        diagnostics.candidate_paths += len(path_candidates)
 
     selected = select_path_candidates(
         path_candidates, beam_size, eta=eta, lambda_val=lambda_val,
@@ -342,6 +359,8 @@ def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, 
     candidates = [candidate_to_tuple(c) for c in selected]
     if drop_loopback:
         candidates = drop_loopback_paths(candidates)
+    if diagnostics is not None:
+        diagnostics.final_paths += len(candidates)
 
     topics = [id2ent.get(int(t), str(int(t))) for t in sample.topic_ids]
     golden = [id2ent.get(int(g), str(int(g))) for g in getattr(sample, "gold_ids", [])]

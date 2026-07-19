@@ -138,6 +138,23 @@ class TestEngine(unittest.TestCase):
         # prediction 取 e_score argmax（0.95 > 0.4）→ 只含 m.gold
         self.assertEqual(set(r.prediction), {"m.gold"})
 
+    def test_retrieve_diagnostics_do_not_change_results(self):
+        diagnostics = engine.RetrievalDiagnostics()
+        observed = engine.retrieve_one(
+            _Sample(), self.kg, self.id2ent, self.id2rel,
+            beam_size=10, threshold=0.01, lambda_val=0.2,
+            diagnostics=diagnostics,
+        )
+        expected = engine.retrieve_one(
+            _Sample(), self.kg, self.id2ent, self.id2rel,
+            beam_size=10, threshold=0.01, lambda_val=0.2,
+        )
+
+        self.assertEqual(observed.paths, expected.paths)
+        self.assertEqual(diagnostics.expanded_states, 4)
+        self.assertEqual(diagnostics.candidate_paths, 2)
+        self.assertEqual(diagnostics.final_paths, 2)
+
     def test_joint_mode_is_identical_to_omitted_mode(self):
         default = engine.retrieve_one(
             _Sample(), self.kg, self.id2ent, self.id2rel,

@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "kind": "ch3_p2_evidence",
+  "dataset": "webqsp",
+  "backbone": "transfernet",
+  "config_id": "transfernet_v1",
+  "estimand": "paired_sample_mean(left - right)",
+  "statistics": {
+    "bootstrap_replicates": 20000,
+    "confidence_level": 0.95,
+    "seed": 20260719,
+    "path_inputs": {
+      "shortest_path": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/shortest_path_baselines/transfernet_v1/top20_hop_available/test.jsonl",
+      "score_beam": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/confirmed_profiles/transfernet_v1/candidates/beam20_lambda0_eta0/test.jsonl",
+      "terminal_score_beam": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/confirmed_profiles/transfernet_v1/candidates/beam20_lambda0_eta1/test.jsonl",
+      "fixed": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/penalty_ablations/transfernet_v1/fixed/test.jsonl",
+      "adaptive": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/penalty_ablations/transfernet_v1/adaptive/test.jsonl"
+    },
+    "qa_inputs": {
+      "no_path": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/downstream_qa/transfernet_v1/base_zeroshot/full/no_path/eval/predictions.jsonl",
+      "score_beam": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/downstream_qa/transfernet_v1/base_zeroshot/full/score_beam/eval/predictions.jsonl",
+      "terminal_score_beam": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/downstream_qa/transfernet_v1/base_zeroshot/full/terminal_score_beam/eval/predictions.jsonl",
+      "tarrs": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/downstream_qa/transfernet_v1/base_zeroshot/full/tarrs/eval/predictions.jsonl"
+    },
+    "comparisons": [
+      {
+        "id": "path_score_beam_vs_shortest_path",
+        "family": "path",
+        "left": "score_beam",
+        "right": "shortest_path",
+        "metrics": ["answer_hit", "top1_hit"]
+      },
+      {
+        "id": "path_terminal_vs_score_beam",
+        "family": "path",
+        "left": "terminal_score_beam",
+        "right": "score_beam",
+        "metrics": ["answer_hit", "top1_hit"]
+      },
+      {
+        "id": "path_adaptive_vs_fixed",
+        "family": "path",
+        "left": "adaptive",
+        "right": "fixed",
+        "metrics": ["answer_hit", "top1_hit"]
+      },
+      {
+        "id": "path_adaptive_vs_terminal",
+        "family": "path",
+        "left": "adaptive",
+        "right": "terminal_score_beam",
+        "metrics": ["answer_hit", "top1_hit"]
+      },
+      {
+        "id": "qa_terminal_vs_score_beam",
+        "family": "qa",
+        "left": "terminal_score_beam",
+        "right": "score_beam",
+        "metrics": ["hit1"]
+      },
+      {
+        "id": "qa_tarrs_vs_terminal",
+        "family": "qa",
+        "left": "tarrs",
+        "right": "terminal_score_beam",
+        "metrics": ["hit1"]
+      },
+      {
+        "id": "qa_tarrs_vs_no_path",
+        "family": "qa",
+        "left": "tarrs",
+        "right": "no_path",
+        "metrics": ["hit1"]
+      }
+    ],
+    "pending_comparisons": [
+      {
+        "id": "qa_adaptive_vs_fixed",
+        "reason": "P1-QA 的 fixed 全量 1581 条尚未执行",
+        "metrics": ["macro_f1", "hit1"]
+      }
+    ]
+  },
+  "efficiency": {
+    "cache": "data/output/WebQSP/path_retrieve_server/score_cache/webqsp_test_1581.pt",
+    "input_dir": "data/input/WebQSP",
+    "warmup_samples": 100,
+    "timing_repeats": 3,
+    "sample_limit": 0,
+    "methods": [
+      {
+        "id": "shortest_path",
+        "kind": "shortest_path",
+        "params": {
+          "candidate_topk": 20,
+          "max_paths_per_pair": 20,
+          "path_budget": 20,
+          "drop_loopback": true
+        }
+      },
+      {
+        "id": "score_beam",
+        "kind": "score_beam",
+        "params": {
+          "beam_size": 20,
+          "lambda_val": 0.0,
+          "threshold": 0.01,
+          "eta": 0.0,
+          "step_score_mode": "joint",
+          "penalty_mode": "none"
+        }
+      },
+      {
+        "id": "terminal_score_beam",
+        "kind": "score_beam",
+        "params": {
+          "beam_size": 20,
+          "lambda_val": 0.0,
+          "threshold": 0.01,
+          "eta": 1.0,
+          "step_score_mode": "joint",
+          "penalty_mode": "none"
+        }
+      },
+      {
+        "id": "fixed",
+        "kind": "score_beam",
+        "params": {
+          "beam_size": 20,
+          "lambda_val": 0.2,
+          "threshold": 0.01,
+          "eta": 1.0,
+          "step_score_mode": "joint",
+          "penalty_mode": "fixed"
+        }
+      },
+      {
+        "id": "adaptive",
+        "kind": "score_beam",
+        "params": {
+          "beam_size": 20,
+          "lambda_val": 0.2,
+          "threshold": 0.01,
+          "eta": 1.0,
+          "step_score_mode": "joint",
+          "penalty_mode": "adaptive"
+        }
+      }
+    ]
+  }
+}
