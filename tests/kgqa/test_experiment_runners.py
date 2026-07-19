@@ -85,6 +85,14 @@ class TestExperimentRunners(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "未知或重复条件"):
             run_downstream_qa._selected_conditions("tarrs,tarrs")
 
+        metaqa_conditions = ("no_path", "shortest_path", "score_beam", "fixed", "tarrs")
+        self.assertEqual(
+            run_downstream_qa._selected_conditions("all", metaqa_conditions),
+            metaqa_conditions,
+        )
+        with self.assertRaisesRegex(ValueError, "未知或重复条件"):
+            run_downstream_qa._selected_conditions("terminal_score_beam", metaqa_conditions)
+
     def test_batch_evaluation_marks_batch_run_completed(self):
         with tempfile.TemporaryDirectory() as directory:
             jobs_file = Path(directory) / "jobs.json"

@@ -23,22 +23,53 @@ CONDITION_IDS = (
     "tarrs",
 )
 
+METAQA_CONDITION_IDS = (
+    "no_path",
+    "shortest_path",
+    "score_beam",
+    "fixed",
+    "tarrs",
+)
+
 _EXPECTED_METHODS = {
-    "no_path": {"no_paths": True},
-    "shortest_path": {"method": "shortest_path_postprocess"},
-    "score_beam": {
-        "beam_size": 20, "lambda_val": 0.0, "eta": 0.0, "penalty_mode": "none",
+    "webqsp": {
+        "no_path": {"no_paths": True},
+        "shortest_path": {"method": "shortest_path_postprocess"},
+        "score_beam": {
+            "beam_size": 20, "lambda_val": 0.0, "eta": 0.0, "penalty_mode": "none",
+        },
+        "terminal_score_beam": {
+            "beam_size": 20, "lambda_val": 0.0, "eta": 1.0, "penalty_mode": "none",
+        },
+        "fixed": {
+            "beam_size": 20, "lambda_val": 0.2, "eta": 1.0, "penalty_mode": "fixed",
+        },
+        "tarrs": {
+            "beam_size": 20, "lambda_val": 0.2, "eta": 1.0, "penalty_mode": "adaptive",
+        },
     },
-    "terminal_score_beam": {
-        "beam_size": 20, "lambda_val": 0.0, "eta": 1.0, "penalty_mode": "none",
-    },
-    "fixed": {
-        "beam_size": 20, "lambda_val": 0.2, "eta": 1.0, "penalty_mode": "fixed",
-    },
-    "tarrs": {
-        "beam_size": 20, "lambda_val": 0.2, "eta": 1.0, "penalty_mode": "adaptive",
+    "metaqa": {
+        "no_path": {"no_paths": True},
+        "shortest_path": {"method": "shortest_path_postprocess"},
+        "score_beam": {
+            "beam_size": 20, "lambda_val": 0.0, "eta": 1.0, "penalty_mode": "none",
+        },
+        "fixed": {
+            "beam_size": 20, "lambda_val": 0.2, "eta": 1.0, "penalty_mode": "fixed",
+        },
+        "tarrs": {
+            "beam_size": 20, "lambda_val": 0.2, "eta": 1.0, "penalty_mode": "adaptive",
+        },
     },
 }
+
+
+def condition_ids_for_dataset(dataset: str) -> tuple[str, ...]:
+    if dataset == "webqsp":
+        return CONDITION_IDS
+    if dataset == "metaqa":
+        return METAQA_CONDITION_IDS
+    raise ValueError(f"第三章下游 QA 不支持数据集 {dataset!r}")
 
 
 def _read_jsonl_signature(path: Path, *, require_paths: bool) -> tuple[int, str]:
@@ -69,14 +100,14 @@ def _read_jsonl_signature(path: Path, *, require_paths: bool) -> tuple[int, str]
 
 
 def load_downstream_config(config_path: str | Path, project_dir: Path) -> dict[str, Any]:
-    """读取并严格校验六组下游 QA 对照配置。"""
+    """读取并严格校验数据集对应的下游 QA 对照配置。"""
     config_path = Path(config_path).resolve()
     config = load_json_config(config_path)
     require_fields(config, "kind", "dataset", "backbone", "config_id", "profile", "evaluation", "conditions")
     if config["kind"] != "ch3_downstream_qa":
         raise ValueError("不是第三章下游 QA 配置")
-    if config["dataset"] != "webqsp" or config["backbone"] != "transfernet":
-        raise ValueError("第三章下游 QA 当前只支持 WebQSP / TransferNet")
+    if config["dataset"] not in _EXPECTED_METHODS or config["backbone"] != "transfernet":
+        raise ValueError("第三章下游 QA 当前只支持 WebQSP / MetaQA + TransferNet")
 
     profile_path = resolve_path(project_dir, config["profile"])
     profile = load_confirmed_config(profile_path)
@@ -100,13 +131,17 @@ def load_downstream_config(config_path: str | Path, project_dir: Path) -> dict[s
     condition_ids = [item.get("id") for item in conditions if isinstance(item, dict)]
     if len(condition_ids) != len(conditions) or len(set(condition_ids)) != len(condition_ids):
         raise ValueError("conditions 必须由不重复的对象组成")
-    if set(condition_ids) != set(CONDITION_IDS):
-        raise ValueError("conditions 必须且只能包含六组标准对照")
+    expected_condition_ids = condition_ids_for_dataset(config["dataset"])
+    if set(condition_ids) != set(expected_condition_ids):
+        raise ValueError(
+            f"{config['dataset']} conditions 必须且只能包含: "
+            f"{', '.join(expected_condition_ids)}"
+        )
 
     for condition in conditions:
         require_fields(condition, "id", "label", "input", "method")
         condition_id = condition["id"]
-        expected = _EXPECTED_METHODS[condition_id]
+        expected = _EXPECTED_METHODS[config["dataset"]][condition_id]
         if condition["method"] != expected:
             raise ValueError(f"条件 {condition_id} 的方法定义不符合规范")
         if condition_id == "no_path" and condition.get("no_paths") is not True:
@@ -121,7 +156,7 @@ def load_downstream_config(config_path: str | Path, project_dir: Path) -> dict[s
 
 
 def validate_condition_inputs(config: dict[str, Any], project_dir: Path) -> dict[str, dict[str, Any]]:
-    """逐行核对六组题目与 golden，并返回输入指纹和路径。"""
+    """逐行核对各条件题目与 golden，并返回输入指纹和路径。"""
     result: dict[str, dict[str, Any]] = {}
     anchor: tuple[int, str] | None = None
     for condition in config["conditions"]:
@@ -146,7 +181,7 @@ def validate_condition_inputs(config: dict[str, Any], project_dir: Path) -> dict
 def write_stratified_smoke_inputs(
     config: dict[str, Any], project_dir: Path, output_dir: Path, sample_size: int
 ) -> dict[str, Path]:
-    """按 WebQSP hop 均衡抽取共同样本，避免 ``--limit`` 只取文件开头。"""
+    """按输入中的 hop 均衡抽取共同样本；单 hop 子集退化为顺序抽样。"""
     if sample_size < 2:
         raise ValueError("冒烟样本数至少为 2")
     anchor = condition_by_id(config, "no_path")
@@ -162,8 +197,6 @@ def write_stratified_smoke_inputs(
                 raise ValueError(f"锚定输入缺少整数 hop: {anchor_path}:{position + 1}")
             by_hop.setdefault(hop, []).append(position)
     hops = sorted(by_hop)
-    if len(hops) < 2:
-        raise ValueError("冒烟输入至少需要两个 hop 分组")
     per_hop, remainder = divmod(sample_size, len(hops))
     selected: list[int] = []
     for offset, hop in enumerate(hops):

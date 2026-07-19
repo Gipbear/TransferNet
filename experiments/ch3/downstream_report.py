@@ -5,11 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from experiments.ch3.downstream_qa import (
-    CONDITION_IDS,
-    extract_qa_metrics,
-    summarize_input_paths,
-)
+from experiments.ch3.downstream_qa import extract_qa_metrics, summarize_input_paths
 
 
 def write_report(
@@ -19,12 +15,16 @@ def write_report(
     input_paths: dict[str, Path],
     layer_dir: Path,
     report_dir: Path,
+    selected_condition_ids: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     """从各条件 summary.json 生成机器可读矩阵和中文 Markdown 摘要。"""
     rows: list[dict[str, Any]] = []
     labels = {item["id"]: item["label"] for item in config["conditions"]}
     methods = {item["id"]: item["method"] for item in config["conditions"]}
-    for condition_id in CONDITION_IDS:
+    condition_ids = selected_condition_ids or tuple(labels)
+    for condition_id in condition_ids:
+        if condition_id not in labels:
+            raise ValueError(f"报告条件不在配置中: {condition_id}")
         summary_path = layer_dir / condition_id / "eval" / "summary.json"
         if not summary_path.is_file():
             raise ValueError(f"条件 {condition_id} 尚无完成的 QA 汇总: {summary_path}")

@@ -215,6 +215,25 @@ python -m experiments.ch3.run_downstream_qa \
 `ch4_pfit/.../adapter/` 且训练清单指向已确认 `train.jsonl` 的 adapter；训练源消融需要新建训练集
 和训练多个 LoRA，不由此命令执行。
 
+MetaQA P5 只评测 P4 已冻结的 3-hop 子集。`smoke_30` 保留五组共同的前 30 条样本用于链路演练；正式结果只运行 TARRS 完整方法的 14,274 条下游 QA，不再做条件对比或消融。中断后重跑会复用已完成条件：
+
+```bash
+# P5：30 条五条件冒烟
+python -m experiments.ch3.run_downstream_qa \
+  --dataset metaqa --condition all --layer base_zeroshot \
+  --phase eval --smoke_size 30 --no_progress
+
+# P5：TARRS 完整方法全量评测与单条件报告
+python -m experiments.ch3.run_downstream_qa \
+  --dataset metaqa --condition tarrs --layer base_zeroshot \
+  --phase eval --progress_interval 100
+python -m experiments.ch3.run_downstream_qa \
+  --dataset metaqa --condition tarrs --layer base_zeroshot --phase report
+```
+
+MetaQA P5 输出位于
+`ch3_retrieval/metaqa/transfernet/downstream_qa/transfernet_v1_3hop/`，目录结构与 WebQSP 相同。
+
 #### 云端或新环境运行的前置产物
 
 第三章检索结果目录被 gitignore。若在云端或新环境运行上述全量下游 QA，须先从已完成的本地

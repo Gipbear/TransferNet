@@ -10,6 +10,7 @@ from typing import Any
 from experiments.ch3.downstream_qa import (
     CONDITION_IDS,
     condition_by_id,
+    condition_ids_for_dataset,
     load_downstream_config,
     resolve_fixed_adapter,
     validate_condition_inputs,
@@ -22,9 +23,9 @@ from kgqa.runtime import file_fingerprint
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="第三章多检索路径下游大模型问答编排")
-    parser.add_argument("--dataset", choices=["webqsp"], required=True, help="数据集")
+    parser.add_argument("--dataset", choices=["webqsp", "metaqa"], required=True, help="数据集")
     parser.add_argument(
-        "--config", default=str(ROOT / "experiments/configs/ch3/webqsp_transfernet_v1_downstream_qa.json"),
+        "--config", default=None,
         help="第三章下游 QA 配置 JSON",
     )
     parser.add_argument("--layer", choices=["base_zeroshot", "fixed_pfit_adapter"], default="base_zeroshot")
@@ -39,22 +40,33 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _selected_conditions(requested: str) -> tuple[str, ...]:
+def _selected_conditions(
+    requested: str, allowed_condition_ids: tuple[str, ...] = CONDITION_IDS,
+) -> tuple[str, ...]:
     if requested == "all":
-        return CONDITION_IDS
+        return allowed_condition_ids
     selected = tuple(item.strip() for item in requested.split(",") if item.strip())
-    if not selected or len(set(selected)) != len(selected) or any(item not in CONDITION_IDS for item in selected):
-        raise ValueError(f"未知或重复条件；可选值为 all、{', '.join(CONDITION_IDS)}")
+    if (
+        not selected
+        or len(set(selected)) != len(selected)
+        or any(item not in allowed_condition_ids for item in selected)
+    ):
+        raise ValueError(f"未知或重复条件；可选值为 all、{', '.join(allowed_condition_ids)}")
     return selected
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     project_dir = Path(args.project_dir).resolve()
-    config = load_downstream_config(args.config, project_dir)
+    config_path = args.config or str(
+        ROOT / "experiments/configs/ch3" /
+        f"{args.dataset}_transfernet_v1_downstream_qa.json"
+    )
+    config = load_downstream_config(config_path, project_dir)
     if args.dataset != config["dataset"]:
         raise ValueError("命令行数据集与下游 QA 配置不一致")
-    selected_conditions = _selected_conditions(args.condition)
+    condition_ids = condition_ids_for_dataset(config["dataset"])
+    selected_conditions = _selected_conditions(args.condition, condition_ids)
     input_info = validate_condition_inputs(config, project_dir)
     paths = ExperimentPaths(project_dir)
     root_dir = paths.ch3_downstream_qa_dir(config["dataset"], config["backbone"], config["config_id"])
@@ -78,7 +90,10 @@ def main(argv: list[str] | None = None) -> int:
         smoke_dir = root_dir / "smoke_inputs" / run_name
         if args.dry_run:
             print(f"[演练] 将按 hop 分层生成 {args.smoke_size} 条共同冒烟输入到 {smoke_dir}")
-            input_paths = {condition_id: smoke_dir / f"{condition_id}.jsonl" for condition_id in CONDITION_IDS}
+            input_paths = {
+                condition_id: smoke_dir / f"{condition_id}.jsonl"
+                for condition_id in condition_ids
+            }
         else:
             from experiments.ch3.downstream_qa import write_stratified_smoke_inputs
             input_paths = write_stratified_smoke_inputs(config, project_dir, smoke_dir, args.smoke_size)
@@ -139,15 +154,15 @@ def main(argv: list[str] | None = None) -> int:
             command.append("--no_progress")
         run_command(command, batch_dir, dry_run=args.dry_run)
     if args.phase in {"report", "all"}:
-        if args.condition != "all":
-            raise ValueError("汇总报告必须读取全部六个条件，请使用 --condition all")
+        report_name = run_name if args.condition == "all" else f"{run_name}_{'_'.join(selected_conditions)}"
         if args.dry_run:
-            print(f"[演练] 将汇总 {layer_dir} 到 {root_dir / 'reports' / args.layer / run_name}")
+            print(f"[演练] 将汇总 {layer_dir} 到 {root_dir / 'reports' / args.layer / report_name}")
         else:
-            report_dir = root_dir / "reports" / args.layer / run_name
+            report_dir = root_dir / "reports" / args.layer / report_name
             write_report(
                 config=config, input_info=input_info, input_paths=input_paths,
                 layer_dir=layer_dir, report_dir=report_dir,
+                selected_condition_ids=selected_conditions,
             )
     return 0
 

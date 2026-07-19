@@ -15,7 +15,7 @@
 | 最后更新时间 | 2026-07-19 |
 | 主要整理人 | Codex（根据本地完整实验产物整理，待人工复核） |
 | 当前主要数据集 | WebQSP；MetaQA（仅 3-hop 路径级） |
-| 待补数据集 | MetaQA 端到端 QA、CWQ |
+| 待补数据集 | MetaQA TARRS 单条件端到端 QA；CWQ 延期，不纳入当前版本 |
 | 当前正式方法配置 | TransferNet 推理得分引导的路径检索：路径规模 \(K=20\)（代码字段 `beam_size`）、关系冗余惩罚系数 0.2、终点实体权重 1.0；WebQSP 配置见 `experiments/configs/ch3/webqsp_transfernet_v1.json`，MetaQA P4 固定协议见 `experiments/configs/ch3/metaqa_transfernet_v1_p4.json` |
 | 代码版本或Git提交 | [待审阅] 现有运行清单未统一保存 Git commit；结果可通过配置文件、输入指纹和产物目录追溯，提交号待后续补录 |
 | 结果产物根目录 | `data/output/kgqa/ch3_retrieval/{webqsp,metaqa}/transfernet/` |
@@ -48,8 +48,8 @@
 | 实验编号 | 实验名称 | 数据集 | 样本数 | 结果状态 | 结果性质 | 结果位置 | 可否进入论文 |
 |---|---|---|---:|---|---|---|---|
 | E1 | 与先进方法总体对比 | WebQSP | 1,581 | 待整理外部论文 | 论文引用/本地结果 | 第3.1、3.2节 | 暂否 |
-| E2 | MetaQA 3-hop 路径主对照 | MetaQA | 14,274 | 已完成路径级四组对照；端到端 QA 待补 | 本地 3-hop 测试子集 | 第4.2节 / P4 | 是，须限定为 3-hop 路径级结果 |
-| E3 | 与先进方法总体对比 | CWQ | 待补 | 已确认扩展，未执行 | 本地路径实验 | `experiment_todo.md` / O2 | 暂否 |
+| E2 | MetaQA 3-hop 路径主对照与端到端 QA | MetaQA | 14,274 | 路径级四组对照已完成；P5 五条件 `smoke_30` 仅作链路验证，TARRS 单条件全量 QA 待补 | 本地 3-hop 测试子集 | 第4.2节 / P4、P5 | 正式 QA 表只纳入 TARRS 全量结果 |
+| E3 | 与先进方法总体对比 | CWQ | — | 延期 | — | `experiment_todo.md` / O2 | 不纳入当前版本 |
 | E4 | 同子图路径检索主对比 | WebQSP | 1,581 | 已完成 | 本地完整测试集 | 第4.1节 | 是，须注明比较边界 |
 | E5 | 固定与自适应惩罚对比 | WebQSP | 1,581 | 已完成 | 本地完整测试集 | 第4.1、5.1节 | 是，须报告 F1 权衡 |
 | E6 | 路径得分组成分析 | WebQSP | 1,581 | 已完成 | 本地完整测试集 | 第5.2节 | 是 |
@@ -72,7 +72,7 @@
 | C4 | 路径得分自适应惩罚优于固定加性惩罚 | 自适应相对固定惩罚的 Answer Hit 提高 1.01、关系多样性提高 5.84 个百分点，Top1 不变，但 F1 下降 1.01 个百分点。 | 表4-1、表5-1 | 部分支持（覆盖—关系多样性占优，F1 不占优） |
 | C5 | 所检索路径能够改善固定LLM的下游问答效果 | 六组全量结果中，五种路径上下文均明显优于无路径；完整方法的 QA Hit@1 / Hit_any 最高，但与固定惩罚的 QA Macro-F1 / Hit@1 配对区间均跨 0。 | 表7-1、表9-3 | 充分支持路径上下文收益；不支持自适应相对固定的稳定 QA 优势 |
 | C6 | 本章方法的额外检索成本低于LLM逐跳规划路线 | 同环境检索基准显示 TARRS 相对普通 Score-Beam 未呈现可分辨的额外开销，且路径检索阶段不调用 LLM；尚无外部 LLM 规划方法的同口径基准。 | 表8-1、表8-2 | 部分支持 |
-| C7 | 方法在WebQSP、MetaQA和CWQ上均具有稳定效果 | MetaQA 3-hop 已运行，但自适应相对固定仅带来 0.07 个百分点的关系多样性差异，主指标持平；CWQ 尚未运行。 | 表4-1、表4-2 | 未判断 |
+| C7 | 方法在WebQSP和MetaQA上保持稳定效果 | MetaQA 3-hop 路径级结果已运行；自适应相对固定仅带来 0.07 个百分点的关系多样性差异，端到端 QA 待补 TARRS 单条件全量结果。 | 表4-1、表4-2、表7-3 | 待 MetaQA QA |
 
 支持程度统一填写：
 
@@ -90,8 +90,8 @@
 | 数据集 | 训练集 | 验证集 | 测试集 | 知识图谱版本 | 平均主题实体数 | 平均答案数 | 跳数分布 | 备注 |
 |---|---:|---:|---:|---|---:|---:|---|---|
 | WebQSP | 2,996 | 无独立验证集 | 1,581 | [待补] 当前输入目录未记录可引用版本号 | 待统计 | 待统计 | 最高 2-hop（由骨干可用推理步数决定） | 当前正式结果集 |
-| MetaQA | 待补 | 待补 | 39,093（P4 取 3-hop 14,274） | MetaQA_KB 本地预处理 KG | 待统计 | 待统计 | 1-hop 9,947；2-hop 14,872；3-hop 14,274 | P4 路径级结果只报告 3-hop；端到端 QA 延后补充 |
-| CWQ | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 | 路径级结果先行；端到端 QA 延后补充 |
+| MetaQA | 待补 | 待补 | 39,093（P4 取 3-hop 14,274） | MetaQA_KB 本地预处理 KG | 待统计 | 待统计 | 1-hop 9,947；2-hop 14,872；3-hop 14,274 | P4 路径级结果只报告 3-hop；P5 只补 TARRS 单条件端到端 QA |
+| CWQ | — | — | — | — | — | — | — | 延期，不纳入当前版本 |
 
 ### 2.2 问题子图与候选空间
 
@@ -99,7 +99,7 @@
 |---|---|---|---:|---:|---:|---:|---|
 | WebQSP | TransferNet 离线逐跳 score cache，`topk=500` | 待核对 | 待统计 | 待统计 | 2 | 待统计 | `confirmed_profiles/transfernet_v1/` |
 | MetaQA | TransferNet 离线逐跳 score cache，`topk=500`；P4 按缓存 `hop==3` 显式筛选 | MetaQA KG 文件已包含反向边 | 待统计 | 待统计 | 3 | 待统计 | `shared/metaqa/backbones/transfernet/scores/topk500_test_3hop/test_3hop_manifest.json` |
-| CWQ | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 | 后续实验前补充 |
+| CWQ | — | — | — | — | — | — | 延期，不纳入当前版本 |
 
 ### 2.3 最终方法参数
 
@@ -178,20 +178,9 @@
 - 3-hop是否出现明显退化：
 - 本章方法的主要优势或限制：
 
-### 3.4 CWQ总体结果
+### 3.4 CWQ总体结果（延期）
 
-| 类型 | 方法 | Hit@1↑ | Hit@10↑ | F1↑ | EM↑ | 结果来源 | 备注 |
-|---|---|---:|---:|---:|---:|---|---|
-| 传统KGQA | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 |
-| GNN-KGQA | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 |
-| KG+LLM | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 |
-| 本章方法 | 完整方法 | 待补 | 待补 | 待补 | 待补 | 本地 | 待补 |
-
-**表后分析：**
-
-- 复杂组合问题上的表现：
-- 与WebQSP结果是否一致：
-- 失败主要来自子图召回、路径排序还是答案生成：
+CWQ 整体实验延期，本版本不运行 CWQ，也不在论文正文中报告 CWQ 结果。
 
 ## 4. 同一问题子图下的路径检索主对比
 
@@ -256,14 +245,9 @@
 - **机制结论：** SP 的终点候选仍来自 TransferNet 的最终实体分数，因此并非完全没有问题语义约束；但从主题实体到候选终点的路径重建只依据 KG 拓扑和最短距离，不使用逐跳关系分数或关系语义约束。随着跳数增加，同一候选终点可对应更多等长最短路径，因而更容易引入关系模式丰富但语义相关性不足的替代路径。故 SP 较高的关系多样性不能直接解释为有效证据更多；当前结果更适合表述为：得分引导方法牺牲部分关系模式多样性，换取更高的答案覆盖和集合 F1。由于 MetaQA 没有逐题标准推理路径标注，该结论是基于检索机制与指标差异的解释，不将 SP 路径逐条判定为错误。
 - 四组逐题 JSONL 的 `sample_index`、问题、golden、样本数与路径三元组格式已通过机器校验；统一汇总见 `p4_3hop/transfernet_v1_3hop_summary.json`。
 
-### 4.3 CWQ路径检索结果
+### 4.3 CWQ路径检索结果（延期）
 
-| 方法 | Answer Hit@K↑ | Top1 Hit↑ | P↑ | R↑ | F1↑ | 关系多样性↑ | 平均路径数 | 结果位置 |
-|---|---:|---:|---:|---:|---:|---:|---:|---|
-| SP | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 |
-| 得分引导候选路径 | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 |
-| 固定惩罚 | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 |
-| 完整方法 | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 | 待补 |
+CWQ 整体实验延期，本版本不运行 CWQ 路径级对照。
 
 ## 5. 消融与机制分析
 
@@ -406,16 +390,11 @@
 - 多样性提高但QA下降的情况及可能原因：完整方法增加互补证据也增加了上下文内的候选答案和关系模式；固定零样本提示未必能稳定整合额外信息。该解释是推断，需案例分析验证。
 - 该结果与第四章路径监督微调的区别：本节固定基座模型、只替换检索上下文，验证路径的即时可利用性；第四章另行改变模型参数与训练数据。
 
-### 7.3 MetaQA和CWQ下游问答
+### 7.3 MetaQA下游问答
 
 | 数据集 | 条件 | Hit@1↑ | Hit_any↑ | Macro-F1↑ | EM↑ | 样本数 | 结果位置 |
 |---|---|---:|---:|---:|---:|---:|---|
-| MetaQA | 无路径 | 待补 | 待补 | 待补 | 待补 | 待补 | [待审阅] 延后必做，仅限 3-hop；路径级实验完成后执行。 |
-| MetaQA | SP | 待补 | 待补 | 待补 | 待补 | 待补 | 同上 |
-| MetaQA | 完整方法 | 待补 | 待补 | 待补 | 待补 | 待补 | 同上 |
-| CWQ | 无路径 | 待补 | 待补 | 待补 | 待补 | 待补 | [待审阅] 延后必做；路径级实验完成后执行。 |
-| CWQ | SP | 待补 | 待补 | 待补 | 待补 | 待补 | 同上 |
-| CWQ | 完整方法 | 待补 | 待补 | 待补 | 待补 | 待补 | 同上 |
+| MetaQA | 完整方法（TARRS） | 待补 | 待补 | 待补 | 待补 | 14,274 | 只运行单条件全量 QA；冒烟数值不进入本表。 |
 
 ## 8. 检索效率与成本
 
@@ -471,7 +450,7 @@
 | 3-hop | SP | 14,274 | 100.00 | 100.00 | 50.97 | 55.00 | 待补 |
 | 3-hop | 完整方法 | 14,274 | 100.00 | 100.00 | 57.47 | 18.65 | 待补 |
 
-> [待审阅] WebQSP 当前未导出可靠的逐题 hop 分层标签，故本表不填；MetaQA 当前只填路径级 3-hop 行，端到端 QA 留待 P5。
+> [待审阅] WebQSP 当前未导出可靠的逐题 hop 分层标签，故本表不填；MetaQA 当前只填路径级 3-hop 行，TARRS 单条件端到端 QA 留待 P5。
 
 ### 9.2 按答案数量或问题类型
 
@@ -599,13 +578,13 @@
 | A4 | WebQSP | 完整方法（TARRS） | `webqsp_transfernet_v1.json` | `penalty_ablations/transfernet_v1/adaptive/` | `test_summary.json` | [待补] | \(\beta=0.2,\eta=1\)；与既有正式 JSONL SHA-256 一致 |
 | A5 | WebQSP | 下游QA六组 | `webqsp_transfernet_v1_downstream_qa.json` | `downstream_qa/transfernet_v1/reports/base_zeroshot/full/` | `condition_matrix.json` | `a677a68` | 完整测试集，N=1,581；fixed 全量产物与统一报告已补齐 |
 | A6 | WebQSP | 参数敏感性 | `webqsp_transfernet_v1.json` | `confirmed_profiles/transfernet_v1/candidates/` | 各候选目录 `test_summary.json` | [待补] | 仅描述性诊断 |
-| A7 | MetaQA | 3-hop 路径主对照 | `metaqa_transfernet_v1_p4.json` | `metaqa/transfernet/{penalty_ablations,shortest_path_baselines}/transfernet_v1_3hop/` | `p4_3hop/transfernet_v1_3hop_summary.json` | `f6b1a98` | 同一 14,274 条 3-hop 子缓存；端到端 QA 延后至 P5 |
-| A8 | CWQ | 路径主对照与端到端 QA | 待补 | 待补 | 待补 | 待补 | 路径级结果先行，端到端 QA 延后补充 |
+| A7 | MetaQA | 3-hop 路径主对照与 TARRS 端到端 QA | `metaqa_transfernet_v1_p4.json` / `metaqa_transfernet_v1_downstream_qa.json` | `metaqa/transfernet/{penalty_ablations,shortest_path_baselines,downstream_qa}/transfernet_v1_3hop/` | `p4_3hop/transfernet_v1_3hop_summary.json`；P5 报告待补 | `f6b1a98` | 同一 14,274 条 3-hop 子缓存；QA 只运行 TARRS 单条件 |
+| A8 | CWQ | 路径主对照与端到端 QA | — | — | — | — | 延期，不纳入当前版本 |
 | A9 | WebQSP | score cache top-k 饱和性 | `webqsp_transfernet_v1.json` | `topk_saturation/transfernet_v1/` | `topk{100,250,500,1000}_test/test_summary.json` | [待补] | 固定 \(K=20,\lambda=0.2,\eta=1\) |
 
 ## 15. 每轮结果填写检查清单
 
-- [x] WebQSP 完整测试集与 MetaQA 3-hop 子集的样本数、配置和结果路径已核对；CWQ 待后续补充；
+- [x] WebQSP 完整测试集与 MetaQA 3-hop 子集的样本数、配置和结果路径已核对；CWQ 已延期；
 - [ ] 实验配置和结果路径可追溯；代码提交号尚未统一补录；
 - [ ] 指标使用百分数还是小数已经统一；
 - [ ] 外部论文结果已记录表格编号或页码；

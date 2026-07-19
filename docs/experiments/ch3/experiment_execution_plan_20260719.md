@@ -124,22 +124,40 @@ python -m experiments.ch3.metaqa_p4 --phase report
 
 ### P5. MetaQA 3-hop 端到端 QA（T6）
 
-- [ ] 将第三章下游 QA 编排扩展为支持 MetaQA。
-- [ ] 固定同一个 base model、提示、解码设置和路径预算。
-- [ ] 运行无路径、SP、得分路径、固定、自适应五组条件。
-- [ ] 报告 Hit@1、Hit_any、Macro-F1、Micro-F1、EM，并补充 QA Hit@1 配对区间。
+- [x] 将第三章下游 QA 编排扩展为支持 MetaQA。
+- [x] 固定同一个 base model、提示、解码设置和路径预算。
+- [x] 严格校验五组 14,274 条 3-hop 输入，并完成共同前 30 条的五条件真实冒烟与汇总。
+- [x] 使用实际 tokenizer 预计算 TARRS 全量输入长度：P99=842、最大=1,025，0 条超过 2,048。
+- [ ] 全量运行 TARRS 完整方法单一条件（14,274 条 3-hop 样本）。
+- [ ] 基于 TARRS 全量结果报告 Hit@1、Hit_any、Macro-F1、Micro-F1、EM；不再补充 MetaQA 条件对比或配对区间。
 
-**阶段结论：** 待运行。必须建立在 MetaQA 3-hop 路径产物稳定之后。
+**全量执行入口：**
 
-### P6. CWQ 路径主对照与端到端 QA（O2、T7）
+```bash
+python -m experiments.ch3.run_downstream_qa \
+  --dataset metaqa --condition tarrs --layer base_zeroshot \
+  --phase eval --progress_interval 100
 
-- [ ] 补齐 CWQ checkpoint、QA 输入、逐样本子图和 score cache 配置。
-- [ ] 核对逐样本 triples 与缓存、golden、样本索引的一致性。
-- [ ] 先完成 SP、得分引导、固定、自适应路径级对照。
-- [ ] 分析子图覆盖、候选裁剪、路径排序和 LLM 利用失败来源。
-- [ ] 路径结果稳定后，按固定模型、提示、解码和路径预算完成端到端 QA。
+python -m experiments.ch3.run_downstream_qa \
+  --dataset metaqa --condition tarrs --layer base_zeroshot \
+  --phase report
+```
 
-**阶段结论：** 待运行。CWQ 路径级结果完成前不启动端到端 QA。
+同机 `smoke_30` 的 30 个样本单条件生成约耗时 2–3 分钟，线性外推 TARRS 单条件全量约需 19 GPU 小时，实际以运行时为准。重跑会跳过已有兼容 `summary.json` 的条件；被中断的单个条件需要从头执行。
+
+**阶段结论：** 执行代码与冒烟已完成，全量 TARRS QA 尚未运行。五组输入均为同一批 14,274 条 MetaQA 3-hop 样本，题目与 golden 签名一致；实际 tokenizer 扫描显示 TARRS 输入 P99=842、最大=1,025，未触发 2,048 上下文限制；`smoke_30` 的五组预测数均为 30，逐条件状态均为 `completed`，统一报告位于 `data/output/kgqa/ch3_retrieval/metaqa/transfernet/downstream_qa/transfernet_v1_3hop/reports/base_zeroshot/smoke_30/`。冒烟指标只用于确认执行链路健康，不写入正式全量结果表，也不据此比较方法优劣。
+
+### P6. CWQ 路径主对照与端到端 QA（O2、T7，整体延期）
+
+**阶段状态：** 延期。本阶段不执行 CWQ 路径级实验、下游 QA 或任何消融，当前论文正文不提 CWQ。
+
+- [ ] （延期）补齐 CWQ checkpoint、QA 输入、逐样本子图和 score cache 配置。
+- [ ] （延期）核对逐样本 triples 与缓存、golden、样本索引的一致性。
+- [ ] （延期）先完成 SP、得分引导、固定、自适应路径级对照。
+- [ ] （延期）分析子图覆盖、候选裁剪、路径排序和 LLM 利用失败来源。
+- [ ] （延期）路径结果稳定后，按固定模型、提示、解码和路径预算完成端到端 QA。
+
+**阶段结论：** 已决定延期，不纳入当前实验闭环和论文正文。
 
 ### P7. 外部方法可比性核对（T2）
 
@@ -163,9 +181,9 @@ python -m experiments.ch3.metaqa_p4 --phase report
 ## 当前总状态
 
 - 已完成：P0 基线审计；P1 固定加性惩罚；P1-QA 六组 WebQSP 全量评测；P2 配对统计与同环境效率；P4 MetaQA 3-hop 路径主对照。
-- 当前进行：无；P3 按此前安排暂时跳过。
-- 下一步候选：P5 MetaQA 3-hop 端到端 QA，或 P6 CWQ 路径主对照；P3 案例分析仍保留待办。
-- 当前未完成：P3、P5–P8 的案例、跨数据集端到端实验、外部方法核对和最终论文证据收口。
+- 当前进行：P5 MetaQA 3-hop 端到端 QA；执行代码和 `smoke_30` 已完成，等待用户运行 TARRS 单条件 14,274 条全量评测。
+- 下一步：P5 全量完成后生成单条件报告；P3 按此前安排继续跳过，CWQ 整体延期。
+- 当前未完成：P3、P5、P7–P8 的案例、外部方法核对和最终论文证据收口；P6/CWQ 已延期。
 
 ## 最终结论记录区
 
@@ -176,6 +194,6 @@ python -m experiments.ch3.metaqa_p4 --phase report
 - WebQSP 统计与效率结论：终点融合的核心路径与 QA 命中收益具有不跨 0 的配对区间；自适应相对固定的路径覆盖提升稳定，但 Top1 和下游 QA Macro-F1 / Hit@1 未形成不跨 0 的优势。五组平均检索时间约 66–69ms/题，TARRS 相对普通 Score-Beam 未呈现可分辨的额外开销。
 - WebQSP 案例与适用边界：待补
 - MetaQA 3-hop 结论：四组 Answer Hit@20 与 Top1 均为 100.00%；三种得分方法 F1 为 57.47%，高于 SP 的 50.97%，但关系多样性更低；自适应相对固定仅提高 0.07 个百分点的关系多样性，不能支持稳定优势。
-- CWQ 结论：待补
+- CWQ 结论：延期，不纳入当前版本
 - 外部方法可比性结论：待补
 - 第三章最终证据边界：待补
