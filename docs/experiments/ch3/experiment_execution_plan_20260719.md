@@ -106,12 +106,21 @@
 
 ### P4. MetaQA 3-hop 路径主对照（O1）
 
-- [ ] 补齐 MetaQA checkpoint、QA 输入、score cache 和 3-hop 数据划分核验。
-- [ ] 只运行 3-hop 路径级主对照：SP、得分引导、固定、自适应。
-- [ ] 检查各条件的题目顺序、golden、样本数和路径格式完全一致。
-- [ ] 按 3-hop 报告 Answer Hit@K、Top1 Hit、F1、关系多样性和平均路径数。
+- [x] 补齐 MetaQA checkpoint、QA 输入、score cache 和 3-hop 数据划分核验。
+- [x] 只运行 3-hop 路径级主对照：SP、得分引导、固定、自适应。
+- [x] 检查各条件的题目顺序、golden、样本数和路径格式完全一致。
+- [x] 按 3-hop 报告 Answer Hit@K、Top1 Hit、F1、关系多样性和平均路径数。
 
-**阶段结论：** 待运行。完成前不写跨数据集稳定性结论。
+**执行入口：**
+
+```bash
+python -m experiments.ch3.metaqa_p4 --phase prepare
+python -m experiments.ch3.run --dataset metaqa --config experiments/configs/ch3/metaqa_transfernet_v1_p4.json --phase penalty_ablation --no_progress
+python -m experiments.ch3.run --dataset metaqa --config experiments/configs/ch3/metaqa_transfernet_v1_p4.json --phase shortest_path --no_progress
+python -m experiments.ch3.metaqa_p4 --phase report
+```
+
+**阶段结论：** 已完成。先从 39,093 条 MetaQA test cache 中按数据集标签显式筛出 14,274 条 3-hop 样本，源顺序保持不变；四组结果的 `sample_index`、问题、golden、样本数及路径三元组格式均通过严格对齐检查。SP、得分引导、固定和自适应四组的 Answer Hit@20 / Top1 Hit 均为 100.00%；得分引导、固定、自适应的 F1 均为 57.47%，高于 SP 的 50.97%，但关系多样性约 18.6%，低于 SP 的 55.00%。自适应相对固定只将关系多样性从 18.58% 提高到 18.65%，其余主指标在四位小数口径相同，因此 P4 不能支持“自适应在 MetaQA 上稳定显著优于固定惩罚”或“三个数据集均稳定提升”的结论。机器汇总位于 `data/output/kgqa/ch3_retrieval/metaqa/transfernet/p4_3hop/transfernet_v1_3hop_summary.json`。
 
 ### P5. MetaQA 3-hop 端到端 QA（T6）
 
