@@ -7,14 +7,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from experiments.ch3_downstream_qa import (
+from experiments.ch3.downstream_qa import (
     CONDITION_IDS,
     condition_by_id,
     load_downstream_config,
     resolve_fixed_adapter,
     validate_condition_inputs,
 )
-from experiments.ch3_downstream_report import write_report
+from experiments.ch3.downstream_report import write_report
 from experiments.common import ROOT, resolve_path, run_command
 from kgqa.experiments import ExperimentPaths
 from kgqa.runtime import file_fingerprint
@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="第三章下游 QA 配置 JSON",
     )
     parser.add_argument("--layer", choices=["base_zeroshot", "fixed_pfit_adapter"], default="base_zeroshot")
-    parser.add_argument("--condition", choices=["all", *CONDITION_IDS], default="all")
+    parser.add_argument("--condition", default="all", help="条件 ID；多个条件以英文逗号分隔，all 表示全部")
     parser.add_argument("--phase", choices=["validate", "eval", "report", "all"], default="all")
     parser.add_argument("--smoke_size", type=int, default=0, help="按 hop 分层抽取的共同冒烟样本数；0 表示全量")
     parser.add_argument("--project_dir", default=str(ROOT), help="项目根目录")
@@ -40,7 +40,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _selected_conditions(requested: str) -> tuple[str, ...]:
-    return CONDITION_IDS if requested == "all" else (requested,)
+    if requested == "all":
+        return CONDITION_IDS
+    selected = tuple(item.strip() for item in requested.split(",") if item.strip())
+    if not selected or len(set(selected)) != len(selected) or any(item not in CONDITION_IDS for item in selected):
+        raise ValueError(f"未知或重复条件；可选值为 all、{', '.join(CONDITION_IDS)}")
+    return selected
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -74,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[演练] 将按 hop 分层生成 {args.smoke_size} 条共同冒烟输入到 {smoke_dir}")
             input_paths = {condition_id: smoke_dir / f"{condition_id}.jsonl" for condition_id in CONDITION_IDS}
         else:
-            from experiments.ch3_downstream_qa import write_stratified_smoke_inputs
+            from experiments.ch3.downstream_qa import write_stratified_smoke_inputs
             input_paths = write_stratified_smoke_inputs(config, project_dir, smoke_dir, args.smoke_size)
             input_info = {
                 condition_id: {

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from experiments.ch3_downstream_qa import (
+from experiments.ch3.downstream_qa import (
     build_eval_command,
     load_downstream_config,
     validate_condition_inputs,
@@ -37,8 +37,8 @@ def make_config(root: Path) -> Path:
         "no_path": {"no_paths": True},
         "shortest_path": {"method": "shortest_path_postprocess"},
         "score_beam": {"beam_size": 20, "lambda_val": 0.0, "eta": 0.0},
-        "terminal_score_beam": {"beam_size": 20, "lambda_val": 0.0, "eta": 1.5},
-        "tarrs": {"beam_size": 20, "lambda_val": 0.5, "eta": 1.5},
+        "terminal_score_beam": {"beam_size": 20, "lambda_val": 0.0, "eta": 1.0},
+        "tarrs": {"beam_size": 20, "lambda_val": 0.2, "eta": 1.0},
     }
     for condition_id, method in methods.items():
         input_path = write_jsonl(root / f"{condition_id}.jsonl", rows)

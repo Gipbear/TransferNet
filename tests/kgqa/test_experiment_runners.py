@@ -10,7 +10,10 @@ from unittest.mock import patch
 
 import torch
 
-from experiments import run_ch3, run_ch3_downstream_qa, run_ch4, run_ch5
+from experiments.ch3 import run as run_ch3
+from experiments.ch3 import run_downstream_qa
+from experiments.ch4 import run as run_ch4
+from experiments.ch5 import run as run_ch5
 from experiments.common import run_command
 from kgqa.retrieve.cli import eval as eval_cli
 from kgqa.retrieve.cli.dump_scores import truncate_score_cache
@@ -35,8 +38,8 @@ class TestExperimentRunners(unittest.TestCase):
                 "no_path": {"no_paths": True},
                 "shortest_path": {"method": "shortest_path_postprocess"},
                 "score_beam": {"beam_size": 20, "lambda_val": 0.0, "eta": 0.0},
-                "terminal_score_beam": {"beam_size": 20, "lambda_val": 0.0, "eta": 1.5},
-                "tarrs": {"beam_size": 20, "lambda_val": 0.5, "eta": 1.5},
+                "terminal_score_beam": {"beam_size": 20, "lambda_val": 0.0, "eta": 1.0},
+                "tarrs": {"beam_size": 20, "lambda_val": 0.2, "eta": 1.0},
             }
             for condition_id, method in methods.items():
                 input_path = root / f"{condition_id}.jsonl"
@@ -52,7 +55,7 @@ class TestExperimentRunners(unittest.TestCase):
             })
             stream = io.StringIO()
             with redirect_stdout(stream):
-                run_ch3_downstream_qa.main([
+                run_downstream_qa.main([
                     "--dataset", "webqsp", "--config", str(config), "--project_dir", str(root),
                     "--phase", "eval", "--dry_run", "--no_progress",
                 ])
@@ -60,6 +63,14 @@ class TestExperimentRunners(unittest.TestCase):
             self.assertIn("kgqa.pfit.eval_batch", text)
             self.assertIn("data/output/kgqa/ch3_retrieval/webqsp/transfernet/downstream_qa/v1/base_zeroshot/full/batch/jobs.json", text)
             self.assertFalse((root / "data/output/kgqa/ch3_retrieval/webqsp/transfernet/downstream_qa/v1").exists())
+
+    def test_ch3_downstream_qa_accepts_multiple_conditions_in_one_batch(self):
+        self.assertEqual(
+            run_downstream_qa._selected_conditions("terminal_score_beam,tarrs"),
+            ("terminal_score_beam", "tarrs"),
+        )
+        with self.assertRaisesRegex(ValueError, "未知或重复条件"):
+            run_downstream_qa._selected_conditions("tarrs,tarrs")
 
     def test_batch_evaluation_marks_batch_run_completed(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -161,11 +172,11 @@ class TestExperimentRunners(unittest.TestCase):
         self.assertEqual(len(triples), len(scan["beam_size"]) * len(scan["lambda_val"]) * len(scan["eta"]))
         self.assertIn((50, 0.2, 1.0), triples)
         self.assertEqual(scan["eta"], [0, 0.5, 1.0, 1.5, 2])
-        self.assertEqual(config["retrieve"]["eta"], 1.5)
+        self.assertEqual(config["retrieve"]["eta"], 1.0)
         self.assertEqual(config["retrieve"]["step_score_mode"], "joint")
         self.assertEqual(
             [item["id"] for item in config["score_component_ablation"]],
-            ["joint_eta15", "joint_eta0", "relation_only", "entity_only"],
+            ["joint_eta1", "joint_eta0", "relation_only", "entity_only"],
         )
 
     def test_ch3_score_ablation_is_explicit_not_cartesian_scan(self):

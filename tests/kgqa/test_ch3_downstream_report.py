@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from experiments.ch3_downstream_qa import CONDITION_IDS
-from experiments.ch3_downstream_report import write_report
+from experiments.ch3.downstream_qa import CONDITION_IDS
+from experiments.ch3.downstream_report import write_report
 
 
 def write_jsonl(path: Path, rows: list[dict]) -> None:
