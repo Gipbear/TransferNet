@@ -210,3 +210,22 @@ python -m experiments.ch3.run_downstream_qa \
 `reports/<层次>/{smoke_<n>,full}/`。`fixed_pfit_adapter` 层只接受来自
 `ch4_pfit/.../adapter/` 且训练清单指向已确认 `train.jsonl` 的 adapter；训练源消融需要新建训练集
 和训练多个 LoRA，不由此命令执行。
+
+#### 云端或新环境运行的前置产物
+
+第三章检索结果目录被 gitignore。若在云端或新环境运行上述全量下游 QA，须先从已完成的本地
+实验同步以下 WebQSP 输入；不要复制整个 `data/output/`：
+
+```text
+data/output/kgqa/ch3_retrieval/webqsp/transfernet/
+├── confirmed_profiles/transfernet_v1/
+│   ├── confirmed_config.json
+│   └── test.jsonl
+├── confirmed_profiles/transfernet_v1/candidates/
+│   ├── beam20_lambda0_eta0/test.jsonl
+│   └── beam20_lambda0_eta1/test.jsonl
+└── shortest_path_baselines/transfernet_v1/top20_hop_available/test.jsonl
+```
+
+这些文件分别对应正式 TARRS、普通/终点感知 Score-Beam 与 SP 条件；同步后先执行
+`--dry_run` 核对题目与 golden 对齐，再运行实际评测。
