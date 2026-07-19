@@ -12,6 +12,7 @@
 | T5 | 配对 bootstrap 置信区间 | 已完成路径与下游 QA 的预定比较。自适应相对固定的路径 Answer Hit@20 区间不跨 0；QA Macro-F1 / Hit@1 的差值为 +0.16 / +0.57 个百分点，但 95% CI 均跨 0。结果见 `experiment_results.md` 表9-3及 `data/analysis/20260719_1719__ch3_p2_evidence/paired_bootstrap.json`。 |
 | T8 | WebQSP 固定惩罚下游 QA | 已完成 1,581 条 fixed 全量评测和六组统一报告。fixed 的 Hit@1 / Hit_any / Macro-F1 / Micro-F1 / EM 为 82.16% / 89.31% / 64.71% / 34.20% / 34.47%；结果见 `experiment_results.md` 表7-1及 `downstream_qa/transfernet_v1/reports/base_zeroshot/full/condition_matrix.json`。 |
 | O1 | MetaQA 3-hop 路径主对照 | 已完成 SP / 得分引导 / 固定 / 自适应四组 14,274 条全量对照。四组 Answer Hit@20 与 Top1 均为 100.00%；得分方法 F1 高于 SP，但关系多样性更低；自适应相对固定只增加 0.07 个百分点的关系多样性。结果见 `experiment_results.md` 表4-2及 `p4_3hop/transfernet_v1_3hop_summary.json`。 |
+| T2 | 外部先进方法结果与可比性核对 | 已完成 WebQSP 的 TransferNet、ReaRev、UniKGQA、RoG、ToG、GNN-RAG 论文/年份、表号/页码、KG/子图、实体链接、骨干/LLM、训练差异和逐行可比性说明。结果见 `experiment_results.md` 第3.1、3.2节；CWQ 按决定延期。 |
 
 ## 1. 待决事项
 
@@ -24,7 +25,6 @@
 
 | 编号 | 需要补充的工作 | 触发的论文主张 | 当前缺口 | 产物要求 |
 |---|---|---|---|---|
-| T2 | 外部先进方法结果与可比性核对 | “总体竞争力”或“优于现有方法” | 尚无论文表号、数据划分、KG/子图和模型差异记录。 | 文献对比表，逐行记录来源、表号/页码与可比性说明。 |
 | T4 | 成功与失败案例分析 | 方法机理图、适用边界或定性解释 | 尚未挑选可复核样本。 | 至少一例终点融合收益、一例 TARRS 覆盖收益、一例失败/噪声案例。 |
 | T6 | MetaQA 3-hop 端到端 QA | “方法在三跳问题上的下游可利用性” | 五条件编排、14,274 条输入对齐校验和 `smoke_30` 已完成；TARRS 单条件全量 QA 待运行。 | 只运行 TARRS 完整方法的 14,274 条全量 QA；不再做 MetaQA 条件对比、消融或配对区间。 |
 | T7 | CWQ 端到端 QA | 暂延期，不进入当前论文 | CWQ 整体延期，当前无路径级或 QA 结果。 | 本阶段不执行，后续重新立项时再补充。 |
