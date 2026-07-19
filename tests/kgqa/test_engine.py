@@ -81,6 +81,49 @@ class TestEngine(unittest.TestCase):
     def test_candidate_hops_include_every_available_step(self):
         self.assertEqual(engine.candidate_hop_numbers(3), [1, 2, 3])
 
+    def test_penalty_modes_follow_declared_formulas(self):
+        candidates = [
+            engine.PathCandidate([0, 1], [1], 1, -0.1, order=0),
+            engine.PathCandidate([0, 2], [1], 1, -0.2, order=1),
+            engine.PathCandidate([0, 3], [2], 1, -0.4, order=2),
+        ]
+
+        none = engine.select_path_candidates(
+            candidates, 2, eta=0.0, lambda_val=0.5, penalty_mode="none",
+        )
+        fixed = engine.select_path_candidates(
+            candidates, 2, eta=0.0, lambda_val=0.5, penalty_mode="fixed",
+        )
+        adaptive = engine.select_path_candidates(
+            candidates, 2, eta=0.0, lambda_val=0.5, penalty_mode="adaptive",
+        )
+
+        self.assertEqual([candidate.order for candidate in none], [0, 1])
+        self.assertEqual([candidate.order for candidate in fixed], [0, 2])
+        self.assertEqual([candidate.order for candidate in adaptive], [0, 1])
+        self.assertEqual(none[0].order, fixed[0].order)
+        self.assertEqual(fixed[0].order, adaptive[0].order)
+
+    def test_zero_lambda_makes_all_penalty_modes_identical(self):
+        candidates = [
+            engine.PathCandidate([0, 1], [1], 1, -0.1, order=0),
+            engine.PathCandidate([0, 2], [1], 1, -0.2, order=1),
+            engine.PathCandidate([0, 3], [2], 1, -0.4, order=2),
+        ]
+        orders = {
+            mode: [candidate.order for candidate in engine.select_path_candidates(
+                candidates, 3, eta=0.0, lambda_val=0.0, penalty_mode=mode,
+            )]
+            for mode in ("none", "fixed", "adaptive")
+        }
+        self.assertEqual(orders["none"], orders["fixed"])
+        self.assertEqual(orders["fixed"], orders["adaptive"])
+
+    def test_unknown_penalty_mode_is_rejected(self):
+        candidate = engine.PathCandidate([0, 1], [1], 1, -0.1)
+        with self.assertRaisesRegex(ValueError, "未知冗余惩罚模式"):
+            engine.select_path_candidates([candidate], 1, penalty_mode="unknown")
+
     def test_retrieve_one_returns_paths_and_prediction(self):
         r = engine.retrieve_one(
             _Sample(), self.kg, self.id2ent, self.id2rel,
@@ -104,6 +147,18 @@ class TestEngine(unittest.TestCase):
             _Sample(), self.kg, self.id2ent, self.id2rel,
             beam_size=10, threshold=0.01, lambda_val=0.2, eta=1.5,
             step_score_mode="joint",
+        )
+        self.assertEqual(default.paths, explicit.paths)
+
+    def test_adaptive_penalty_is_identical_to_omitted_mode(self):
+        default = engine.retrieve_one(
+            _Sample(), self.kg, self.id2ent, self.id2rel,
+            beam_size=10, threshold=0.01, lambda_val=0.2,
+        )
+        explicit = engine.retrieve_one(
+            _Sample(), self.kg, self.id2ent, self.id2rel,
+            beam_size=10, threshold=0.01, lambda_val=0.2,
+            penalty_mode="adaptive",
         )
         self.assertEqual(default.paths, explicit.paths)
 

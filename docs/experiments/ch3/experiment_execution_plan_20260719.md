@@ -47,9 +47,9 @@
 
 | 项目 | SHA-256 / 版本 |
 |---|---|
-| WebQSP 配置 | `095f3f629d5843ba6f22b86c2c8a4f266cdfffb5a4fc6a88d455da231f4d3519` |
-| MetaQA 配置 | `f4214e2b09ae303eb1bd32d320bcb8e45167c2937b9759cd67e3de14f44e6d7c` |
-| CWQ 配置 | `2e3c59f13e81c3b340cd8fc3c3705385a1bf41654ddfe648350a868028c7e114` |
+| WebQSP 配置 | `c066ecada0e1cc9cf0e6b70275cde9d589719bd960298975ae71ccf6d2513c9e` |
+| MetaQA 配置 | `c169312a4775fe1c321fc771280ffb9c0edc86f40e3094de351e5f7175a74f77` |
+| CWQ 配置 | `9ec3d64af8d54c55854e803e85d3de45799c26b36f788f7039e7a2b704352146` |
 | WebQSP checkpoint | `ffbd8a2edb8a65fc474c74d59b956b398adda1cc52ca9374a5afc0f50c3e4c1e` |
 | MetaQA checkpoint | `24ac064027977e3f67c61162438c652806644ea0baef38c39a13b6cc45f465b2` |
 | CWQ checkpoint | `9c858a38db90d60b26af8bfff0c9181a96ee0a9db34a135b66a733ae9d40c8fb` |
@@ -59,19 +59,32 @@
 
 ### P1. 固定加性惩罚基线（T1）
 
-- [ ] 在路径选择器中增加三种显式策略：无惩罚、固定加性惩罚、自适应惩罚。
-- [ ] 将策略字段贯通 offline backend、CLI、实验编排器、manifest 和结果摘要。
-- [ ] 增加回归测试：`lambda=0` 退化、首条路径保持、固定/自适应公式、确定性并列排序和非法策略校验。
-- [ ] WebQSP 小样本冒烟，确认输出字段、样本对齐和路径预算。
-- [ ] WebQSP 全量运行三组：无惩罚、固定、自适应。
-- [ ] 回填 `experiment_results.md` 的表4-1、差值表和表5-1。
+- [x] 在路径选择器中增加三种显式策略：无惩罚、固定加性惩罚、自适应惩罚。
+- [x] 将策略字段贯通 offline backend、CLI、实验编排器、manifest 和结果摘要。
+- [x] 增加回归测试：`lambda=0` 退化、首条路径保持、固定/自适应公式、确定性并列排序和非法策略校验。
+- [x] WebQSP 小样本冒烟，确认输出字段、样本对齐和路径预算。
+- [x] WebQSP 全量运行三组：无惩罚、固定、自适应。
+- [x] 回填 `experiment_results.md` 的表4-1、差值表和表5-1。
 
-**阶段结论：** 待运行。只有完成本阶段后，才能判断“自适应惩罚优于固定加性惩罚”是否成立。
+**阶段结论：** 已完成。WebQSP 全量 1,581 条、同一 `topk=500` cache、`K=20, lambda=0.2, eta=1` 下，自适应相对固定加性惩罚的 Answer Hit@20 从 92.66 提高到 93.67，关系多样性从 65.26 提高到 71.10，Top1 均为 73.06；集合 F1 从 41.94 降至 40.93。结论限定为“自适应在保持首条命中的同时改善答案覆盖和关系互补性”，不能表述为所有质量指标全面更优。正式结果位于 `data/output/kgqa/ch3_retrieval/webqsp/transfernet/penalty_ablations/transfernet_v1/`。
+
+**验证记录：** P1 定向回归 56 项通过（跳过 1 项产物门控测试），`compileall` 与 `git diff --check` 通过。默认全量套件仍有与 P1 无关的历史失败：只读 legacy 调用已移除的 `alpha_final` 参数，以及 `test_retrieve_golden` 的 fake backend 与现役逐样本接口不一致；本阶段未扩大范围修复。
+
+### P1-QA. WebQSP 固定与自适应惩罚的下游 QA 补充（T8，延后执行）
+
+- [x] 在 `webqsp_transfernet_v1_downstream_qa.json` 中增加 `fixed` 条件，输入固定为 `penalty_ablations/transfernet_v1/fixed/test.jsonl`。
+- [x] 实现 `--condition fixed` 独立评测与 `batch_fixed/` 独立批处理记录，复用已有 `terminal_score_beam`（无惩罚）和 `tarrs`（自适应）QA 结果，不重跑或覆盖其他五组已完成条件。
+- [x] 固定同一 base model、prompt、路径格式、解码设置和 20 条路径预算，已完成 100 条分层 `fixed` 冒烟并通过对齐校验。
+- [ ] 在相同设置下运行 WebQSP 全量 1,581 条 `fixed` QA。
+- [ ] 将无惩罚 / 固定 / 自适应三组的 QA Hit@1、Hit_any、Macro-F1、Micro-F1 和 EM 回填第7节，并在 P2 中补充配对区间。
+- [ ] 论文中将 **QA Macro-F1** 作为最终回答集合质量的主 F1，Micro-F1 和 EM 作补充；将当前路径 F1 明确标为“路径尾实体集合 F1”，只用于解释检索覆盖—噪声权衡。
+
+**阶段结论：** 执行代码已就绪，真实六组输入对齐校验、`fixed` 冒烟和全量 dry-run 已通过。 100 条冒烟的 Hit@1=77.00%、Hit_any=85.00%、QA Macro-F1=62.38%、QA Micro-F1=24.47%、EM=34.00%，该数值仅作执行健康检查，不写入正式全量结果表。全量推理与报告回填待后续执行；该阶段可晚于 P2/P3，但应在 P8 论文证据收口前完成。
 
 ### P2. WebQSP 统计证据（T3、T5）
 
 - [ ] 预先固定配对比较和统计指标，避免结果导向的比较选择。
-- [ ] 对路径 Answer Hit@20、Top1 Hit 和下游 QA Hit@1 计算配对 bootstrap 95% 置信区间。
+- [ ] 对路径 Answer Hit@20、Top1 Hit 和下游 QA Hit@1 计算配对 bootstrap 95% 置信区间；P1-QA 完成后对固定 / 自适应的 QA Macro-F1 同步补充配对区间。
 - [ ] 在同一环境、同一 cache、同一题目顺序下，对 SP、Score-Beam、终点感知、固定、自适应进行预热和重复计时。
 - [ ] 采集平均时间、P50、P95、峰值内存、扩展状态数、候选路径数和最终路径数。
 - [ ] 回填结果文档第8、9节，并保存机器可读统计产物。
@@ -131,22 +144,24 @@
 - [ ] 更新 `experiment_results.md` 的状态、结论和待补标记。
 - [ ] 更新 `experiment_todo.md`，删除已完成事项或标记其结果位置。
 - [ ] 核对 `thesis_outline.md` 的每个论文主张都有对应证据。
-- [ ] 明确保留的限制：不重跑既有四组分数组成消融、五组 WebQSP QA、210 组扫描和 top-k 饱和性。
+- [ ] 明确保留的限制：不重跑既有四组分数组成消融、五组 WebQSP QA、210 组扫描和 top-k 饱和性；WebQSP QA 只补充新的 `fixed` 条件。
 
 **阶段结论：** 待收口。完成后再形成第三章最终实验结论。
 
 ## 当前总状态
 
-- 已完成：P0 的分支、配置、输入、缓存和环境审计。
-- 当前进行：专项计划建立。
-- 下一步：实现 P1 固定加性惩罚基线。
-- 当前未完成：P1–P8 的实验、统计、案例和论文收口。
+- 已完成：P0 基线审计；P1 固定加性惩罚实现、测试与 WebQSP 全量对照。
+- 当前进行：等待进入 P2 统计证据阶段。
+- 下一步：P2 配对 bootstrap 与同环境效率基准。
+- 延后补充：P1-QA 执行代码已就绪；只待新跑固定惩罚的 WebQSP 冒烟与全量 QA，不阻塞 P2/P3，但须在 P8 前完成。
+- 当前未完成：P1-QA 以及 P2–P8 的统计、案例、跨数据集实验和论文收口。
 
 ## 最终结论记录区
 
 > 只有对应阶段的代码、测试和正式产物都完成后，才将阶段状态改为 `[x]`，并在这里写入结论。不得用冒烟结果替代全量结果。
 
-- 固定加性惩罚结论：待补
+- 固定加性惩罚结论：固定惩罚相对无惩罚带来小幅覆盖和关系多样性收益；自适应相对固定进一步提高 Answer Hit 1.01、关系多样性 5.84 个百分点并保持 Top1，但路径尾实体集合 F1 下降 1.01 个百分点。
+- 固定 / 自适应下游 QA 结论：待补；最终以 QA Macro-F1 主报回答集合质量，不用路径 F1 代替。
 - WebQSP 统计与效率结论：待补
 - WebQSP 案例与适用边界：待补
 - MetaQA 3-hop 结论：待补

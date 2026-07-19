@@ -59,7 +59,7 @@ def write_report(
         "",
         "## 上游路径质量（与本次 QA 使用相同输入）",
         "",
-        "| 条件 | Path Answer Hit | Path Top1 Hit | Path P | Path R | Path F1 |",
+        "| 条件 | Path Answer Hit | Path Top1 Hit | Path P | Path R | Path Tail-Entity F1 |",
         "| --- | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in rows:

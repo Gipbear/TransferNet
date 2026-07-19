@@ -120,13 +120,18 @@ class TestServiceApp(unittest.TestCase):
     def test_retrieve_endpoint_schema_compat(self):
         from kgqa.retrieve.api.schema import RetrieveRequest
         body = self.endpoints["/retrieve"](
-            RetrieveRequest(question="toy question", topic_entities=["m.topic"])
+            RetrieveRequest(
+                question="toy question",
+                topic_entities=["m.topic"],
+                penalty_mode="fixed",
+            )
         )
         # 响应显式记录现役评分配置
         for key in ("question", "sample_index", "topics", "hop", "mmr_reason_paths",
                     "prediction", "elapsed_ms", "eta", "step_score_mode", "threshold",
-                    "beam_size", "lambda_val", "cache_path", "group_tails"):
+                    "beam_size", "lambda_val", "penalty_mode", "cache_path", "group_tails"):
             self.assertIn(key, body)
+        self.assertEqual(body["penalty_mode"], "fixed")
         self.assertNotIn("alpha_final", body)
 
     def test_single_score_mode_requires_zero_eta(self):

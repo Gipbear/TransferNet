@@ -172,41 +172,45 @@ data/output/kgqa/
 
 ### 第三章：多检索路径下游大模型 QA
 
-该对照评测“相同大模型面对不同检索上下文”的影响，不是第四章的训练源消融。五组固定为：无路径、
+该对照评测“相同大模型面对不同检索上下文”的影响，不是第四章的训练源消融。六组固定为：无路径、
 最短路径、普通 Score-Beam（`beam=20，λ=0，η=0`）、终点感知 Score-Beam
-（`beam=20，λ=0，η=1.0`）和 TARRS（`beam=20，λ=0.2，η=1.0`）。普通 Score-Beam 的
+（`beam=20，λ=0，η=1.0`）、固定加性惩罚（`beam=20，λ=0.2，η=1.0，penalty_mode=fixed`）
+和 TARRS（`beam=20，λ=0.2，η=1.0，penalty_mode=adaptive`）。普通 Score-Beam 的
 `η` 必须为 0。
 
-先进行不加载模型的演练。它会校验五份 JSONL 的题目和 golden 完全对齐，并展示单次模型加载后
-依次评测五组的批处理命令：
+先进行不加载模型的演练。它会校验六份 JSONL 的题目和 golden 完全对齐，并展示单次模型加载后
+依次评测所选条件的批处理命令。P1-QA 只新跑 `fixed`，其子集批处理记录写入独立的
+`batch_fixed/`，不覆盖既有全条件 `batch/` 记录：
 
 ```bash
 python -m experiments.ch3.run_downstream_qa \
-  --dataset webqsp --phase all --smoke_size 100 --dry_run --no_progress
+  --dataset webqsp --condition fixed --layer base_zeroshot \
+  --phase eval --smoke_size 100 --dry_run --no_progress
 ```
 
 实际冒烟会从共同的 WebQSP 测试集按 hop 分层抽取 100 条，避免 `--limit` 只取文件开头；模型和
 adapter 仅加载一次。冒烟通过后去掉 `--smoke_size 100` 即运行全量 1,581 条：
 
 ```bash
-# 100 条分层冒烟
+# P1-QA：100 条分层冒烟，只评测 fixed
 python -m experiments.ch3.run_downstream_qa \
-  --dataset webqsp --phase all --smoke_size 100 --no_progress
+  --dataset webqsp --condition fixed --layer base_zeroshot \
+  --phase eval --smoke_size 100 --no_progress
 
-# 全量基座零样本对照
+# P1-QA：全量 1,581 条，只评测 fixed
 python -m experiments.ch3.run_downstream_qa \
-  --dataset webqsp --layer base_zeroshot --phase all --no_progress
+  --dataset webqsp --condition fixed --layer base_zeroshot \
+  --phase eval --no_progress
 
-# 仅重跑两个随正式检索配置变化的条件；它们在同一个批处理内复用模型加载
+# fixed 完成后，复用既有五组 summary 汇总六组报告
 python -m experiments.ch3.run_downstream_qa \
-  --dataset webqsp \
-  --condition terminal_score_beam,tarrs \
-  --layer base_zeroshot --phase eval --no_progress
+  --dataset webqsp --condition all --layer base_zeroshot \
+  --phase report --no_progress
 ```
 
 输出位于 `ch3_retrieval/webqsp/transfernet/downstream_qa/transfernet_v1/`：每组有独立的
 `run_manifest.json`、`progress.json`、`eval/predictions.jsonl` 和 `eval/summary.json`；共享模型
-批处理的完整控制台输出位于对应 `batch/logs/console.log`。报告写到
+批处理的完整控制台输出位于对应 `batch*/logs/console.log`。报告写到
 `reports/<层次>/{smoke_<n>,full}/`。`fixed_pfit_adapter` 层只接受来自
 `ch4_pfit/.../adapter/` 且训练清单指向已确认 `train.jsonl` 的 adapter；训练源消融需要新建训练集
 和训练多个 LoRA，不由此命令执行。
@@ -224,8 +228,9 @@ data/output/kgqa/ch3_retrieval/webqsp/transfernet/
 ├── confirmed_profiles/transfernet_v1/candidates/
 │   ├── beam20_lambda0_eta0/test.jsonl
 │   └── beam20_lambda0_eta1/test.jsonl
+├── penalty_ablations/transfernet_v1/fixed/test.jsonl
 └── shortest_path_baselines/transfernet_v1/top20_hop_available/test.jsonl
 ```
 
-这些文件分别对应正式 TARRS、普通/终点感知 Score-Beam 与 SP 条件；同步后先执行
+这些文件分别对应正式 TARRS、普通/终点感知 Score-Beam、固定惩罚与 SP 条件；同步后先执行
 `--dry_run` 核对题目与 golden 对齐，再运行实际评测。

@@ -56,7 +56,9 @@ def write_results(results, output: str | None) -> None:
             }, ensure_ascii=False) + "\n")
 
 
-def evaluate_results(backend, results, summary_path: str | None) -> dict:
+def evaluate_results(
+    backend, results, summary_path: str | None, retrieve_params: dict | None = None,
+) -> dict:
     adapter = backend.adapter
     spec = adapter.metric_spec()
     id2ent = backend.bundle.meta.id2ent
@@ -77,6 +79,7 @@ def evaluate_results(backend, results, summary_path: str | None) -> dict:
         "backbone": answer_summary(backbone_records, spec),
         "path": path_summary(results, gold_by_index, spec, id2rel=id2rel),
         "n": len(results),
+        "retrieve": dict(retrieve_params or {}),
     }
     if summary_path:
         os.makedirs(os.path.dirname(os.path.abspath(summary_path)), exist_ok=True)
@@ -94,6 +97,7 @@ def _run_job(backend, job: dict, *, no_progress: bool, progress_interval: int) -
     params = {
         **{key: job[key] for key in ("beam_size", "lambda_val", "threshold", "eta")},
         "step_score_mode": job.get("step_score_mode", "joint"),
+        "penalty_mode": job.get("penalty_mode", "adaptive"),
     }
     validate_score_scheme(params["step_score_mode"], params["eta"])
     total = len(backend.bundle.samples)
@@ -108,7 +112,7 @@ def _run_job(backend, job: dict, *, no_progress: bool, progress_interval: int) -
             if progress.n % interval == 0 or progress.n == total:
                 update_progress(job["run_dir"], completed=progress.n, total=total, phase="参数扫描")
     write_results(results, job["output"])
-    summary = evaluate_results(backend, results, job["summary"])
+    summary = evaluate_results(backend, results, job["summary"], retrieve_params=params)
     update_progress(job["run_dir"], completed=total, total=total, status="completed", phase="参数扫描")
     emit_event(job["run_dir"], "phase_end", phase="参数扫描", samples=total)
     return results, summary, time.perf_counter() - started
@@ -157,7 +161,15 @@ def main(argv=None):
         return
     started = time.perf_counter()
     backend, results = run_retrieval(args)
-    summary = evaluate_results(backend, results, args.summary)
+    retrieve_params = {
+        "beam_size": args.beam_size,
+        "lambda_val": args.lambda_val,
+        "threshold": args.threshold,
+        "eta": args.eta,
+        "step_score_mode": args.step_score_mode,
+        "penalty_mode": args.penalty_mode,
+    }
+    summary = evaluate_results(backend, results, args.summary, retrieve_params=retrieve_params)
     run_dir = getattr(args, "run_dir", "") or (os.path.dirname(os.path.abspath(args.summary)) if args.summary else "")
     update_progress(run_dir, completed=len(results), total=len(results), status="completed", phase="检索评测")
     emit_event(run_dir, "phase_end", phase="检索评测", samples=len(results))

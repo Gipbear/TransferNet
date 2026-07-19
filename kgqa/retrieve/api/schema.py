@@ -20,6 +20,7 @@ class RetrieveRequest(BaseModel):
     threshold: float = Field(0.01, ge=0.0, le=1.0)
     beam_size: int = Field(50, ge=1, le=200)
     lambda_val: float = Field(0.2, ge=0.0, le=10.0)
+    penalty_mode: Literal["none", "fixed", "adaptive"] = "adaptive"
 
     @model_validator(mode="after")
     def require_lookup_key(self):
@@ -43,5 +44,6 @@ class RetrieveResponse(BaseModel):
     threshold: float
     beam_size: int
     lambda_val: float
+    penalty_mode: Literal["none", "fixed", "adaptive"] = "adaptive"
     cache_path: str
     group_tails: dict[str, list[str]] = Field(default_factory=dict)

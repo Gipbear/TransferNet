@@ -26,6 +26,7 @@ class RetrieveRequest(BaseModel):
     sample_index: int
     beam_size: int = 50
     lambda_val: float = 0.2
+    penalty_mode: Literal["none", "fixed", "adaptive"] = "adaptive"
     threshold: float = 0.01
     eta: float = 1.0
     step_score_mode: Literal["joint", "relation_only", "entity_only"] = "joint"
@@ -43,7 +44,7 @@ def create_app(backend) -> FastAPI:
         result = backend.retrieve(
             req.sample_index, beam_size=req.beam_size,
             lambda_val=req.lambda_val, threshold=req.threshold, eta=req.eta,
-            step_score_mode=req.step_score_mode,
+            step_score_mode=req.step_score_mode, penalty_mode=req.penalty_mode,
         )
         return asdict(result)
 
@@ -67,6 +68,7 @@ def create_service_app(service, *, drop_loopback: bool | None = None) -> FastAPI
                 threshold=req.threshold,
                 beam_size=req.beam_size,
                 lambda_val=req.lambda_val,
+                penalty_mode=req.penalty_mode,
                 drop_loopback=drop_loopback,
             )
             return result.to_dict()

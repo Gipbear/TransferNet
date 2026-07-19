@@ -54,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     config = load_downstream_config(args.config, project_dir)
     if args.dataset != config["dataset"]:
         raise ValueError("命令行数据集与下游 QA 配置不一致")
+    selected_conditions = _selected_conditions(args.condition)
     input_info = validate_condition_inputs(config, project_dir)
     paths = ExperimentPaths(project_dir)
     root_dir = paths.ch3_downstream_qa_dir(config["dataset"], config["backbone"], config["config_id"])
@@ -95,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"inputs": input_info, "layer": args.layer}, ensure_ascii=False, indent=2))
     if args.phase in {"eval", "all"}:
         jobs: list[dict[str, Any]] = []
-        for condition_id in _selected_conditions(args.condition):
+        for condition_id in selected_conditions:
             condition = condition_by_id(config, condition_id)
             input_path = input_paths[condition_id]
             run_dir = layer_dir / condition_id
@@ -110,7 +111,8 @@ def main(argv: list[str] | None = None) -> int:
                 "exp_dir": str(run_dir), "run_dir": str(run_dir),
                 "no_paths": condition_id == "no_path", "manifest": manifest,
             })
-        batch_dir = layer_dir / "batch"
+        batch_name = "batch" if args.condition == "all" else f"batch_{'_'.join(selected_conditions)}"
+        batch_dir = layer_dir / batch_name
         jobs_file = batch_dir / "jobs.json"
         if not args.dry_run:
             jobs_file.parent.mkdir(parents=True, exist_ok=True)
@@ -138,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
         run_command(command, batch_dir, dry_run=args.dry_run)
     if args.phase in {"report", "all"}:
         if args.condition != "all":
-            raise ValueError("汇总报告必须读取全部五个条件，请使用 --condition all")
+            raise ValueError("汇总报告必须读取全部六个条件，请使用 --condition all")
         if args.dry_run:
             print(f"[演练] 将汇总 {layer_dir} 到 {root_dir / 'reports' / args.layer / run_name}")
         else:

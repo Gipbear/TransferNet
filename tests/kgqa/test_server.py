@@ -43,14 +43,20 @@ class TestServer(unittest.TestCase):
         with self.assertRaises(ValidationError):
             self.request_type(sample_index=0, method="baseline")
 
-    def test_client_forwards_step_score_mode(self):
+    def test_client_forwards_score_and_penalty_modes(self):
         from kgqa.retrieve.api.client import PathRetrieveClient
         client = PathRetrieveClient()
         with patch.object(client, "_post", return_value=object()) as post:
-            client.retrieve(question="q", step_score_mode="relation_only", eta=0.0)
+            client.retrieve(
+                question="q",
+                step_score_mode="relation_only",
+                eta=0.0,
+                penalty_mode="fixed",
+            )
         self.assertEqual(post.call_args.args[0], "/retrieve")
         self.assertEqual(post.call_args.args[1]["step_score_mode"], "relation_only")
         self.assertEqual(post.call_args.args[1]["eta"], 0.0)
+        self.assertEqual(post.call_args.args[1]["penalty_mode"], "fixed")
 
 
 if __name__ == "__main__":

@@ -19,15 +19,25 @@ CONDITION_IDS = (
     "shortest_path",
     "score_beam",
     "terminal_score_beam",
+    "fixed",
     "tarrs",
 )
 
 _EXPECTED_METHODS = {
     "no_path": {"no_paths": True},
     "shortest_path": {"method": "shortest_path_postprocess"},
-    "score_beam": {"beam_size": 20, "lambda_val": 0.0, "eta": 0.0},
-    "terminal_score_beam": {"beam_size": 20, "lambda_val": 0.0, "eta": 1.0},
-    "tarrs": {"beam_size": 20, "lambda_val": 0.2, "eta": 1.0},
+    "score_beam": {
+        "beam_size": 20, "lambda_val": 0.0, "eta": 0.0, "penalty_mode": "none",
+    },
+    "terminal_score_beam": {
+        "beam_size": 20, "lambda_val": 0.0, "eta": 1.0, "penalty_mode": "none",
+    },
+    "fixed": {
+        "beam_size": 20, "lambda_val": 0.2, "eta": 1.0, "penalty_mode": "fixed",
+    },
+    "tarrs": {
+        "beam_size": 20, "lambda_val": 0.2, "eta": 1.0, "penalty_mode": "adaptive",
+    },
 }
 
 
@@ -59,7 +69,7 @@ def _read_jsonl_signature(path: Path, *, require_paths: bool) -> tuple[int, str]
 
 
 def load_downstream_config(config_path: str | Path, project_dir: Path) -> dict[str, Any]:
-    """读取并严格校验五组下游 QA 对照配置。"""
+    """读取并严格校验六组下游 QA 对照配置。"""
     config_path = Path(config_path).resolve()
     config = load_json_config(config_path)
     require_fields(config, "kind", "dataset", "backbone", "config_id", "profile", "evaluation", "conditions")
@@ -91,7 +101,7 @@ def load_downstream_config(config_path: str | Path, project_dir: Path) -> dict[s
     if len(condition_ids) != len(conditions) or len(set(condition_ids)) != len(condition_ids):
         raise ValueError("conditions 必须由不重复的对象组成")
     if set(condition_ids) != set(CONDITION_IDS):
-        raise ValueError("conditions 必须且只能包含五组标准对照")
+        raise ValueError("conditions 必须且只能包含六组标准对照")
 
     for condition in conditions:
         require_fields(condition, "id", "label", "input", "method")
@@ -111,7 +121,7 @@ def load_downstream_config(config_path: str | Path, project_dir: Path) -> dict[s
 
 
 def validate_condition_inputs(config: dict[str, Any], project_dir: Path) -> dict[str, dict[str, Any]]:
-    """逐行核对五组题目与 golden，并返回输入指纹和路径。"""
+    """逐行核对六组题目与 golden，并返回输入指纹和路径。"""
     result: dict[str, dict[str, Any]] = {}
     anchor: tuple[int, str] | None = None
     for condition in config["conditions"]:

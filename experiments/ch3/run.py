@@ -13,7 +13,7 @@ from tqdm import tqdm
 from experiments.common import ROOT, require_fields, resolve_path, run_command
 from kgqa.experiments import ExperimentPaths, load_confirmed_config, load_json_config
 from kgqa.retrieve.cli.dump_scores import materialize_truncated_score_cache
-from kgqa.retrieve.engine import validate_score_scheme
+from kgqa.retrieve.engine import validate_penalty_mode, validate_score_scheme
 from kgqa.runtime import configure_runtime, emit_event, update_progress
 
 
@@ -26,7 +26,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dataset", choices=["webqsp", "metaqa", "cwq"], required=True)
     parser.add_argument("--backbone", default="transfernet", choices=["transfernet", "rearev"])
     parser.add_argument("--config", default="", help="版本化检索配置 JSON；默认按数据集与基础检索模型选择")
-    parser.add_argument("--phase", choices=["scores", "scan", "score_ablation", "shortest_path", "publish", "all"], default="all")
+    parser.add_argument(
+        "--phase",
+        choices=["scores", "scan", "score_ablation", "penalty_ablation", "shortest_path", "publish", "all"],
+        default="all",
+    )
     parser.add_argument("--project_dir", default=str(ROOT), help="项目根目录，仅供实验编排定位配置与产物")
     parser.add_argument("--dry_run", action="store_true", help="只展示命令和目标目录，不执行模型")
     parser.add_argument("--no_progress", action="store_true", help="关闭全部 tqdm 进度条")
@@ -48,14 +52,18 @@ def _score_source(config: dict[str, Any], split: str) -> dict[str, str]:
 def _retrieve_params(config: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     params = {**config["retrieve"], **override}
     params.setdefault("step_score_mode", "joint")
-    unsupported = set(params) - {"beam_size", "lambda_val", "threshold", "eta", "step_score_mode"}
+    params.setdefault("penalty_mode", "adaptive")
+    unsupported = set(params) - {
+        "beam_size", "lambda_val", "threshold", "eta", "step_score_mode", "penalty_mode",
+    }
     if unsupported:
         raise ValueError(f"检索配置不接受字段: {', '.join(sorted(unsupported))}")
-    required = {"beam_size", "lambda_val", "threshold", "eta", "step_score_mode"}
+    required = {"beam_size", "lambda_val", "threshold", "eta", "step_score_mode", "penalty_mode"}
     missing = sorted(required - set(params))
     if missing:
         raise ValueError(f"检索配置缺少字段: {', '.join(missing)}")
     validate_score_scheme(params["step_score_mode"], params["eta"])
+    validate_penalty_mode(params["penalty_mode"])
     return params
 
 
@@ -67,6 +75,7 @@ def _retrieve_args(config: dict[str, Any], override: dict[str, Any]) -> list[str
         "--threshold", str(params["threshold"]),
         "--eta", str(params["eta"]),
         "--step_score_mode", params["step_score_mode"],
+        "--penalty_mode", params["penalty_mode"],
     ]
 
 
@@ -184,6 +193,37 @@ def _score_ablation_items(config: dict[str, Any]) -> list[dict[str, Any]]:
     return normalized
 
 
+def _penalty_ablation_items(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """读取无惩罚、固定惩罚与自适应惩罚三组显式对照。"""
+    items = config.get("penalty_ablation", [])
+    if not isinstance(items, list):
+        raise ValueError("penalty_ablation 必须是实验项列表")
+    if not items:
+        return []
+    normalized = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError("penalty_ablation 的每项必须是对象")
+        unsupported = set(item) - {"id", "label", "retrieve"}
+        if unsupported:
+            raise ValueError(f"penalty_ablation 不接受字段: {', '.join(sorted(unsupported))}")
+        if not isinstance(item.get("id"), str) or not item["id"]:
+            raise ValueError("penalty_ablation 每项必须提供非空 id")
+        if not isinstance(item.get("label"), str) or not item["label"]:
+            raise ValueError("penalty_ablation 每项必须提供非空中文 label")
+        override = item.get("retrieve")
+        if not isinstance(override, dict):
+            raise ValueError("penalty_ablation 每项的 retrieve 必须是对象")
+        normalized.append({
+            "id": item["id"],
+            "label": item["label"],
+            "retrieve": _retrieve_params(config, override),
+        })
+    if [item["id"] for item in normalized] != ["none", "fixed", "adaptive"]:
+        raise ValueError("penalty_ablation 必须按 none、fixed、adaptive 顺序定义三组")
+    return normalized
+
+
 def _shortest_path_params(config: dict[str, Any]) -> dict[str, Any] | None:
     """校验候选答案最短路径后处理基线的显式实验配置。"""
     raw = config.get("shortest_path_baseline")
@@ -233,15 +273,19 @@ def main(argv: list[str] | None = None) -> int:
     saturation_dir = paths.ch3_saturation_dir(args.dataset, args.backbone, config["config_id"])
     profile_dir = paths.ch3_profile_dir(args.dataset, args.backbone, config["config_id"])
     score_ablation_dir = paths.ch3_score_ablation_dir(args.dataset, args.backbone, config["config_id"])
+    penalty_ablation_dir = paths.ch3_penalty_ablation_dir(args.dataset, args.backbone, config["config_id"])
     shortest_path_dir = paths.ch3_shortest_path_dir(args.dataset, args.backbone, config["config_id"])
     splits = list(config.get("score_source", {}).get("splits", {}))
     scan_splits = _scan_splits(config)
     topk_values = config.get("topk_candidates", [100, 250, 500, 1000])
     scan_items = _parameter_scan_items(config) if args.phase in {"scan", "all"} else []
     score_ablation_items = _score_ablation_items(config) if args.phase in {"score_ablation", "all"} else []
+    penalty_ablation_items = _penalty_ablation_items(config) if args.phase in {"penalty_ablation", "all"} else []
     shortest_path_params = _shortest_path_params(config)
     if args.phase == "score_ablation" and not score_ablation_items:
         raise ValueError("当前配置未定义 score_component_ablation，无法执行排序分数消融")
+    if args.phase == "penalty_ablation" and not penalty_ablation_items:
+        raise ValueError("当前配置未定义 penalty_ablation，无法执行冗余惩罚对照")
     if args.phase == "shortest_path" and shortest_path_params is None:
         raise ValueError("当前配置未定义 shortest_path_baseline，无法执行最短路径后处理基线")
     task_total = 0
@@ -251,6 +295,8 @@ def main(argv: list[str] | None = None) -> int:
         task_total += len(scan_items) * len(scan_splits)
     if args.phase in {"score_ablation", "all"}:
         task_total += len(score_ablation_items) * len(scan_splits)
+    if args.phase in {"penalty_ablation", "all"}:
+        task_total += len(penalty_ablation_items) * len(scan_splits)
     if args.phase == "shortest_path" or (args.phase == "all" and shortest_path_params is not None):
         task_total += len(scan_splits)
     if args.phase == "publish":
@@ -451,6 +497,67 @@ def main(argv: list[str] | None = None) -> int:
                 manifest={"config_path": str(config_path), "jobs_file": str(jobs_file),
                           "jobs": len(jobs), "cache": str(cache_path),
                           "candidate_gate": "intersection"},
+            )
+            command = [
+                sys.executable, "-m", "kgqa.retrieve.cli.eval", "--dataset", args.dataset,
+                "--backend", "offline", "--cache", str(cache_path),
+                "--input_dir", str(resolve_path(project_dir, source["input_dir"])),
+                "--jobs_file", str(jobs_file), "--run_dir", str(batch_dir), *_runtime_args(args),
+            ]
+            run_command(command, batch_dir, dry_run=args.dry_run)
+            task_progress.update(len(jobs))
+
+    if args.phase in {"penalty_ablation", "all"}:
+        jobs = []
+        for item in penalty_ablation_items:
+            for split in scan_splits:
+                score_id = f"topk{config['topk']}_{split}"
+                cache_path = paths.score_dir(args.dataset, args.backbone, score_id) / f"{split}.pt"
+                run_dir = penalty_ablation_dir / item["id"] / split
+                output = penalty_ablation_dir / item["id"] / f"{split}.jsonl"
+                summary = penalty_ablation_dir / item["id"] / f"{split}_summary.json"
+                _configure_run(
+                    args, run_dir,
+                    command="第三章关系冗余惩罚对照",
+                    manifest={
+                        "config_path": str(config_path),
+                        "experiment": item["id"],
+                        "experiment_label": item["label"],
+                        "split": split,
+                        "cache": str(cache_path),
+                        "retrieve": item["retrieve"],
+                    },
+                )
+                _write_console_note_for_run(
+                    args, run_dir,
+                    f"[INFO] 该对照由批处理进程执行；完整批处理输出见 "
+                    f"{penalty_ablation_dir / 'batch' / 'logs' / 'console.log'}",
+                )
+                if args.dry_run:
+                    print(f"[演练] 关系冗余惩罚对照 {item['label']}：{cache_path} → {output}")
+                jobs.append({
+                    "id": f"{item['id']}_{split}",
+                    "run_dir": str(run_dir),
+                    "output": str(output),
+                    "summary": str(summary),
+                    **item["retrieve"],
+                })
+
+        if jobs:
+            batch_dir = penalty_ablation_dir / "batch"
+            jobs_file = penalty_ablation_dir / "jobs.json"
+            if not args.dry_run:
+                jobs_file.parent.mkdir(parents=True, exist_ok=True)
+                jobs_file.write_text(json.dumps(jobs, ensure_ascii=False, indent=2), encoding="utf-8")
+            source = _score_source(config, scan_splits[0])
+            cache_path = paths.score_dir(
+                args.dataset, args.backbone, f"topk{config['topk']}_{scan_splits[0]}"
+            ) / f"{scan_splits[0]}.pt"
+            _configure_run(
+                args, batch_dir,
+                command="第三章关系冗余惩罚对照批处理",
+                manifest={"config_path": str(config_path), "jobs_file": str(jobs_file),
+                          "jobs": len(jobs), "cache": str(cache_path)},
             )
             command = [
                 sys.executable, "-m", "kgqa.retrieve.cli.eval", "--dataset", args.dataset,

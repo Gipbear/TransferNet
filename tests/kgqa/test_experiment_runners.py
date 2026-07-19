@@ -37,9 +37,18 @@ class TestExperimentRunners(unittest.TestCase):
             methods = {
                 "no_path": {"no_paths": True},
                 "shortest_path": {"method": "shortest_path_postprocess"},
-                "score_beam": {"beam_size": 20, "lambda_val": 0.0, "eta": 0.0},
-                "terminal_score_beam": {"beam_size": 20, "lambda_val": 0.0, "eta": 1.0},
-                "tarrs": {"beam_size": 20, "lambda_val": 0.2, "eta": 1.0},
+                "score_beam": {
+                    "beam_size": 20, "lambda_val": 0.0, "eta": 0.0, "penalty_mode": "none",
+                },
+                "terminal_score_beam": {
+                    "beam_size": 20, "lambda_val": 0.0, "eta": 1.0, "penalty_mode": "none",
+                },
+                "fixed": {
+                    "beam_size": 20, "lambda_val": 0.2, "eta": 1.0, "penalty_mode": "fixed",
+                },
+                "tarrs": {
+                    "beam_size": 20, "lambda_val": 0.2, "eta": 1.0, "penalty_mode": "adaptive",
+                },
             }
             for condition_id, method in methods.items():
                 input_path = root / f"{condition_id}.jsonl"
@@ -57,17 +66,21 @@ class TestExperimentRunners(unittest.TestCase):
             with redirect_stdout(stream):
                 run_downstream_qa.main([
                     "--dataset", "webqsp", "--config", str(config), "--project_dir", str(root),
-                    "--phase", "eval", "--dry_run", "--no_progress",
+                    "--condition", "fixed", "--phase", "eval", "--dry_run", "--no_progress",
                 ])
             text = stream.getvalue()
             self.assertIn("kgqa.pfit.eval_batch", text)
-            self.assertIn("data/output/kgqa/ch3_retrieval/webqsp/transfernet/downstream_qa/v1/base_zeroshot/full/batch/jobs.json", text)
+            self.assertIn(
+                "data/output/kgqa/ch3_retrieval/webqsp/transfernet/downstream_qa/"
+                "v1/base_zeroshot/full/batch_fixed/jobs.json",
+                text,
+            )
             self.assertFalse((root / "data/output/kgqa/ch3_retrieval/webqsp/transfernet/downstream_qa/v1").exists())
 
     def test_ch3_downstream_qa_accepts_multiple_conditions_in_one_batch(self):
         self.assertEqual(
-            run_downstream_qa._selected_conditions("terminal_score_beam,tarrs"),
-            ("terminal_score_beam", "tarrs"),
+            run_downstream_qa._selected_conditions("terminal_score_beam,fixed,tarrs"),
+            ("terminal_score_beam", "fixed", "tarrs"),
         )
         with self.assertRaisesRegex(ValueError, "未知或重复条件"):
             run_downstream_qa._selected_conditions("tarrs,tarrs")
@@ -174,10 +187,44 @@ class TestExperimentRunners(unittest.TestCase):
         self.assertEqual(scan["eta"], [0, 0.5, 1.0, 1.5, 2])
         self.assertEqual(config["retrieve"]["eta"], 1.0)
         self.assertEqual(config["retrieve"]["step_score_mode"], "joint")
+        self.assertEqual(config["retrieve"]["penalty_mode"], "adaptive")
         self.assertEqual(
             [item["id"] for item in config["score_component_ablation"]],
             ["joint_eta1", "joint_eta0", "relation_only", "entity_only"],
         )
+        self.assertEqual(
+            [item["id"] for item in config["penalty_ablation"]],
+            ["none", "fixed", "adaptive"],
+        )
+
+    def test_ch3_penalty_ablation_dry_run_uses_separate_output_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = write_json(root / "ch3.json", {
+                "dataset": "webqsp", "backbone": "transfernet", "config_id": "v1", "topk": 500,
+                "selection_split": "test",
+                "retrieve": {"beam_size": 20, "lambda_val": 0.2, "threshold": 0.01,
+                             "eta": 1.0, "penalty_mode": "adaptive"},
+                "score_source": {"ckpt": "models/a.pt", "input_dir": "data/input/WebQSP", "splits": {
+                    "test": {"qa_file": "data/test.txt"},
+                }},
+                "penalty_ablation": [
+                    {"id": "none", "label": "无惩罚", "retrieve": {"penalty_mode": "none"}},
+                    {"id": "fixed", "label": "固定", "retrieve": {"penalty_mode": "fixed"}},
+                    {"id": "adaptive", "label": "自适应", "retrieve": {"penalty_mode": "adaptive"}},
+                ],
+            })
+            stream = io.StringIO()
+            with redirect_stdout(stream):
+                run_ch3.main([
+                    "--dataset", "webqsp", "--config", str(config), "--project_dir", str(root),
+                    "--phase", "penalty_ablation", "--dry_run", "--no_progress",
+                ])
+            output = stream.getvalue()
+            self.assertIn("penalty_ablations/v1/none/test", output)
+            self.assertIn("penalty_ablations/v1/fixed/test", output)
+            self.assertIn("penalty_ablations/v1/adaptive/test", output)
+            self.assertEqual(output.count('"-m" "kgqa.retrieve.cli.eval"'), 1)
 
     def test_ch3_score_ablation_is_explicit_not_cartesian_scan(self):
         config = {

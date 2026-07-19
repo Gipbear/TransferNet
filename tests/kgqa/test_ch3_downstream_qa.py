@@ -5,6 +5,7 @@ from pathlib import Path
 
 from experiments.ch3.downstream_qa import (
     build_eval_command,
+    condition_by_id,
     load_downstream_config,
     validate_condition_inputs,
     write_stratified_smoke_inputs,
@@ -36,9 +37,18 @@ def make_config(root: Path) -> Path:
     methods = {
         "no_path": {"no_paths": True},
         "shortest_path": {"method": "shortest_path_postprocess"},
-        "score_beam": {"beam_size": 20, "lambda_val": 0.0, "eta": 0.0},
-        "terminal_score_beam": {"beam_size": 20, "lambda_val": 0.0, "eta": 1.0},
-        "tarrs": {"beam_size": 20, "lambda_val": 0.2, "eta": 1.0},
+        "score_beam": {
+            "beam_size": 20, "lambda_val": 0.0, "eta": 0.0, "penalty_mode": "none",
+        },
+        "terminal_score_beam": {
+            "beam_size": 20, "lambda_val": 0.0, "eta": 1.0, "penalty_mode": "none",
+        },
+        "fixed": {
+            "beam_size": 20, "lambda_val": 0.2, "eta": 1.0, "penalty_mode": "fixed",
+        },
+        "tarrs": {
+            "beam_size": 20, "lambda_val": 0.2, "eta": 1.0, "penalty_mode": "adaptive",
+        },
     }
     for condition_id, method in methods.items():
         input_path = write_jsonl(root / f"{condition_id}.jsonl", rows)
@@ -58,12 +68,30 @@ def make_config(root: Path) -> Path:
 
 
 class TestCh3DownstreamQa(unittest.TestCase):
+    def test_checked_config_defines_fixed_penalty_condition(self):
+        root = Path(__file__).resolve().parents[2]
+        config_path = root / "experiments/configs/ch3/webqsp_transfernet_v1_downstream_qa.json"
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+
+        fixed = condition_by_id(config, "fixed")
+
+        self.assertEqual(
+            fixed["input"],
+            "data/output/kgqa/ch3_retrieval/webqsp/transfernet/"
+            "penalty_ablations/transfernet_v1/fixed/test.jsonl",
+        )
+        self.assertEqual(fixed["method"]["penalty_mode"], "fixed")
+        self.assertEqual(condition_by_id(config, "tarrs")["method"]["penalty_mode"], "adaptive")
+
     def test_validate_inputs_returns_identical_qa_signatures(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             config = load_downstream_config(make_config(root), root)
             inputs = validate_condition_inputs(config, root)
-            self.assertEqual(set(inputs), {"no_path", "shortest_path", "score_beam", "terminal_score_beam", "tarrs"})
+            self.assertEqual(
+                set(inputs),
+                {"no_path", "shortest_path", "score_beam", "terminal_score_beam", "fixed", "tarrs"},
+            )
             self.assertEqual({item["samples"] for item in inputs.values()}, {2})
             self.assertEqual(len({item["qa_signature"] for item in inputs.values()}), 1)
 
