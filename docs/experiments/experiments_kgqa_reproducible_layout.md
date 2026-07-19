@@ -57,8 +57,8 @@ data/output/kgqa/
 完整 GNN-RAG 复现。
 
 第三章下游 QA 当前只支持 WebQSP / TransferNet。它固定比较无路径、最短路径、普通
-Score-Beam（`lambda=0，eta=0`）、终点感知 Score-Beam（`lambda=0，eta=1.5`）和
-TARRS（`lambda=0.5，eta=1.5`）。五组由同一批处理进程共享一次模型/adapter 加载，但各自
+Score-Beam（`lambda=0，eta=0`）、终点感知 Score-Beam（`lambda=0，eta=1.0`）和
+TARRS（`lambda=0.2，eta=1.0`）。五组由同一批处理进程共享一次模型/adapter 加载，但各自
 保留独立的运行清单、进度和评测产物；训练源消融属于第四章的另行训练实验，不在该目录执行。
 
 ## 配置与下游依赖

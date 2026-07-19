@@ -2,8 +2,8 @@
   "schema_version": 1,
   "kind": "ch3_retrieval_profile",
   "status": "confirmed",
-  "confirmation_reason": "人工确认：在测试集参数扫描中，beam=20、λ=0.5、η=1.5 在路径命中、路径 F1 与多样性之间取得均衡，作为后续章节的固定检索配置。",
-  "selected_candidate": "beam20_lambda05_eta15",
+  "confirmation_reason": "人工确认：在固定基座模型的全量端到端 QA 对照中，beam=20、λ=0.2、η=1.0 相对覆盖平衡的 TARRS 配置提升 Hit@1、Hit_any、Macro-F1、Micro-F1 与 EM，故作为后续第四、五章的答案质量优先检索配置。该结论来自同一 WebQSP 测试集诊断，论文中须明确其诊断性边界。",
+  "selected_candidate": "beam20_lambda02_eta1",
   "config_id": "transfernet_v1",
   "dataset": "webqsp",
   "backbone": "transfernet",
@@ -18,7 +18,7 @@
       "test": {"qa_file": "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"}
     }
   },
-  "retrieve": {"beam_size": 20, "lambda_val": 0.5, "threshold": 0.01, "eta": 1.5, "step_score_mode": "joint"},
+  "retrieve": {"beam_size": 20, "lambda_val": 0.2, "threshold": 0.01, "eta": 1.0, "step_score_mode": "joint"},
   "parameter_scan": {
     "beam_size": [3, 5, 10, 20, 50, 100],
     "lambda_val": [0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0],
@@ -26,9 +26,9 @@
   },
   "score_component_ablation": [
     {
-      "id": "joint_eta15",
+      "id": "joint_eta1",
       "label": "联合逐跳分数与终点实体融合（正式基线）",
-      "retrieve": {"step_score_mode": "joint", "eta": 1.5}
+      "retrieve": {"step_score_mode": "joint", "eta": 1.0}
     },
     {
       "id": "joint_eta0",

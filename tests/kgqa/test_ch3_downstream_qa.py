@@ -37,8 +37,8 @@ def make_config(root: Path) -> Path:
         "no_path": {"no_paths": True},
         "shortest_path": {"method": "shortest_path_postprocess"},
         "score_beam": {"beam_size": 20, "lambda_val": 0.0, "eta": 0.0},
-        "terminal_score_beam": {"beam_size": 20, "lambda_val": 0.0, "eta": 1.5},
-        "tarrs": {"beam_size": 20, "lambda_val": 0.5, "eta": 1.5},
+        "terminal_score_beam": {"beam_size": 20, "lambda_val": 0.0, "eta": 1.0},
+        "tarrs": {"beam_size": 20, "lambda_val": 0.2, "eta": 1.0},
     }
     for condition_id, method in methods.items():
         input_path = write_jsonl(root / f"{condition_id}.jsonl", rows)

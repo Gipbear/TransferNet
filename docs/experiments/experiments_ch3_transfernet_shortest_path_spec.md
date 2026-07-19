@@ -1,5 +1,8 @@
 # 第三章 TransferNet 最短路径后处理基线规范
 
+> 状态：实现与 WebQSP 全量路径生成已完成。SP 是当前第三章路径主对照的一组；完整实验矩阵见
+> [第三章 TransferNet 路径检索论文与实验总计划](experiments_ch3_transfernet_current_plan.md)。
+
 ## 1. 目的与定位
 
 本规范定义第三章在 **TransferNet / WebQSP** 上采用的“最短路径后处理”基线。该基线
@@ -26,7 +29,9 @@
 - 不比较 TransferNet 的原始答案指标；该指标在不同路径构造方法之间固定，应仅记为
   `backbone` 参照。
 - 不声称该基线等价于完整 GNN-RAG，也不在本实验中比较 ReaRev。
-- 不进行路径忠实性、语言模型问答或路径监督微调；这些是独立的后续实验。
+- 本阶段不执行路径忠实性干预、语言模型问答或路径监督微调。SP 已作为独立输入接入第三章
+  下游 QA 对照；该对照的规则由 `experiments_ch3_downstream_qa_spec.md` 定义，不能反向证明
+  路径忠实性。
 - 不使用关系分数、逐跳实体分数、`eta` 或 MMR 对最短路径进行排序，以保证其是纯粹的
   答案节点后处理基线。
 
@@ -133,13 +138,14 @@ data/output/kgqa/ch3_retrieval/webqsp/transfernet/
 
 ## 6. 对照与报告规范
 
-WebQSP 全量测试集在相同 `path_budget=20` 下报告三组：
+WebQSP 全量测试集在相同 `path_budget=20` 下报告四组：
 
 | 组别 | 路径构造 | 目的 |
 |---|---|---|
 | SP | TransferNet Top-20 候选答案的有界最短路径 | 答案节点后处理基线 |
-| Score-Beam | 现役联合评分，`lambda_val=0` | 验证逐跳模型分数引导 |
-| TARRS | 现役联合评分，`lambda_val=0.5`、`eta=1.5` | 验证终点感知质量建模与冗余抑制 |
+| 普通 Score-Beam | 现役联合评分，`lambda_val=0`、`eta=0` | 验证逐跳模型分数引导 |
+| 终点感知 Score-Beam | 现役联合评分，`lambda_val=0`、`eta=1.0` | 验证终点实体质量建模 |
+| TARRS | 现役联合评分，`lambda_val=0.2`、`eta=1.0` | 验证终点感知质量建模与冗余抑制 |
 
 主指标为 `path.answer_hit`；约束指标为 `path.top1_hit`；`relation_jaccard_diversity`、
 `tail_diversity`、`relation_coverage` 用于解释覆盖与冗余的变化。路径 F1、Precision、
@@ -156,4 +162,5 @@ Recall 为诊断指标，不单独作为方法优劣结论。
 4. 所有产物仅落在 `data/output/kgqa/ch3_retrieval/.../shortest_path_baselines/`；
 5. 演练不读取 checkpoint、不写入实际评测 JSONL，也不得把已有完成运行的 `progress.json`
    覆盖为 `running`；
-6. 汇总中的 `backbone` 在 SP、Score-Beam、TARRS 三组完全相同，比较结论只使用 `path`。
+6. 汇总中的 `backbone` 在 SP、普通 Score-Beam、终点感知 Score-Beam、TARRS 四组完全相同，
+   比较结论只使用 `path`。

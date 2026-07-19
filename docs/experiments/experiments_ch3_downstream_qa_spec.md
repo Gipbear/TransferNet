@@ -1,5 +1,9 @@
 # 第三章多检索路径下游大模型问答规范
 
+> 状态：五组输入校验、批处理编排、100 条分层冒烟和 1,581 条全量基座零样本 QA 均已完成。
+> 正式配置为 `beam=20，lambda=0.2，eta=1.0`；冒烟结果只用于验证流程。整体实验安排见
+> [第三章 TransferNet 路径检索论文与实验总计划](experiments_ch3_transfernet_current_plan.md)。
+
 ## 1. 目的与定位
 
 本规范定义第三章在 **WebQSP / TransferNet** 上的下游大模型问答（QA）对照。目标是回答：
@@ -14,8 +18,8 @@
 - **无路径**：保留同一题目和 golden，只通过 `--no_paths` 不向模型展示任何检索路径；
 - **最短路径（SP）**：基于 TransferNet Top-20 候选答案的最短路径后处理基线；
 - **普通 Score-Beam**：`beam=20，lambda=0，eta=0`。不含终点感知，也不含冗余抑制；
-- **终点感知 Score-Beam**：`beam=20，lambda=0，eta=1.5`。只加入终点感知质量建模；
-- **TARRS**：`beam=20，lambda=0.5，eta=1.5`。在终点感知 Score-Beam 上加入自适应关系冗余抑制。
+- **终点感知 Score-Beam**：`beam=20，lambda=0，eta=1.0`。只加入终点感知质量建模；
+- **TARRS**：`beam=20，lambda=0.2，eta=1.0`。在终点感知 Score-Beam 上加入自适应关系冗余抑制，是当前正式配置。
 
 因此，`lambda=0，eta=1.5` 不得称为“普通 Score-Beam”。
 
@@ -56,11 +60,11 @@ SP 与普通 Score-Beam 不是严格嵌套的同一算法，故二者只作并�
 
 | 条件 ID | 路径来源 | 检索参数或规则 | 是否向模型展示路径 | 作用 |
 |---|---|---|---|---|
-| `no_path` | 已确认 TARRS 测试 JSONL，仅复用题目与 golden | `--no_paths` | 否 | 衡量无显式证据时的基座 QA |
+| `no_path` | 已发布 `confirmed_profiles/.../test.jsonl`，仅复用题目与 golden | `--no_paths` | 否 | 衡量无显式证据时的基座 QA |
 | `shortest_path` | `shortest_path_baselines/.../top20_hop_available/test.jsonl` | Top-20 候选、可用跳数、预算 20 | 是 | 候选答案最短路径基线 |
 | `score_beam` | `candidates/beam20_lambda0_eta0/test.jsonl` | `beam=20，lambda=0，eta=0` | 是 | 逐跳得分引导基线 |
-| `terminal_score_beam` | `candidates/beam20_lambda0_eta15/test.jsonl` | `beam=20，lambda=0，eta=1.5` | 是 | 终点感知贡献 |
-| `tarrs` | 已发布 `confirmed_profiles/.../test.jsonl` | `beam=20，lambda=0.5，eta=1.5` | 是 | 完整方法 |
+| `terminal_score_beam` | `candidates/beam20_lambda0_eta1/test.jsonl` | `beam=20，lambda=0，eta=1.0` | 是 | 终点感知贡献 |
+| `tarrs` | 已发布 `confirmed_profiles/.../test.jsonl` | `beam=20，lambda=0.2，eta=1.0` | 是 | 完整方法 |
 
 所有路径输入必须有相同测试样本集合、顺序、题目和 `golden`；运行前必须进行逐条
 `question`（兼容历史字段 `question_raw`）/ `golden` 对齐检查。若任何一个条件缺失或错位，整组不进入正式比较。
@@ -118,10 +122,11 @@ Recall、F1、边/关系 Jaccard 多样性、尾节点多样性、关系覆盖�
 
 ## 6. 目录、配置与运行清单
 
-新增专用配置：`experiments/configs/ch3/webqsp_transfernet_v1_downstream_qa.json`。它必须显式记录：
+新增专用配置：`experiments/configs/ch3/webqsp_transfernet_v1_downstream_qa.json`。配置必须显式记录：
 
-- 已确认检索配置文件与其 SHA-256；
-- 五个条件的 JSONL 路径、方法标签、检索参数、输入 SHA-256；
+- 已确认检索配置文件路径；其内容指纹由每次运行的 `run_manifest.json` 记录；
+- 五个条件的 JSONL 路径、方法标签和检索参数；各输入 SHA-256 由编排器在校验后写入运行清单和
+  `condition_matrix.json`；
 - 模型、adapter（可空）、提示格式、解码和路径展示开关；
 - 比较层次（`base_zeroshot` 或 `fixed_pfit_adapter`）及 adapter 训练清单指纹；
 - 固定测试集样本数和对齐规则版本。
@@ -159,3 +164,5 @@ data/output/kgqa/ch3_retrieval/webqsp/transfernet/
 5. 演练不加载模型、不创建预测、不覆盖已有完成状态；
 6. 汇总报告能够追溯到第三章已确认配置和每份 JSONL 的 SHA-256；
 7. 训练源消融另建配置、训练目录和表格，不与测试上下文对照合并。
+8. 只有五组全量输入均为 1,581 条、每组预测数为 1,581 条且 `full/condition_matrix.json` 记录的
+   输入指纹一致时，结果才可进入第三章正式 QA 表；`smoke_<n>` 结果仅可用于工程验证说明。

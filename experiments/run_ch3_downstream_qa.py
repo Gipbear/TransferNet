@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="第三章下游 QA 配置 JSON",
     )
     parser.add_argument("--layer", choices=["base_zeroshot", "fixed_pfit_adapter"], default="base_zeroshot")
-    parser.add_argument("--condition", choices=["all", *CONDITION_IDS], default="all")
+    parser.add_argument("--condition", default="all", help="条件 ID；多个条件以英文逗号分隔，all 表示全部")
     parser.add_argument("--phase", choices=["validate", "eval", "report", "all"], default="all")
     parser.add_argument("--smoke_size", type=int, default=0, help="按 hop 分层抽取的共同冒烟样本数；0 表示全量")
     parser.add_argument("--project_dir", default=str(ROOT), help="项目根目录")
@@ -40,7 +40,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _selected_conditions(requested: str) -> tuple[str, ...]:
-    return CONDITION_IDS if requested == "all" else (requested,)
+    if requested == "all":
+        return CONDITION_IDS
+    selected = tuple(item.strip() for item in requested.split(",") if item.strip())
+    if not selected or len(set(selected)) != len(selected) or any(item not in CONDITION_IDS for item in selected):
+        raise ValueError(f"未知或重复条件；可选值为 all、{', '.join(CONDITION_IDS)}")
+    return selected
 
 
 def main(argv: list[str] | None = None) -> int:
