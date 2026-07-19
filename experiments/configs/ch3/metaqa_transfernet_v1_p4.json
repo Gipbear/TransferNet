@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "kind": "ch3_retrieval_profile",
+  "status": "confirmed",
+  "confirmation_reason": "P4 只在 MetaQA 官方测试集的 3-hop 子集上复用已冻结的 beam=20、lambda=0.2、eta=1.0 协议，不在 MetaQA 测试结果上重新调参。",
+  "selected_candidate": "beam20_lambda02_eta1",
+  "config_id": "transfernet_v1_3hop",
+  "dataset": "metaqa",
+  "backbone": "transfernet",
+  "topk": 500,
+  "selection_split": "test_3hop",
+  "score_source": {
+    "ckpt": "data/ckpt/MetaQA_KB/model_epoch-7_acc-0.9936.pt",
+    "input_dir": "data/input/MetaQA_KB",
+    "splits": {
+      "test_3hop": {"qa_file": "data/input/MetaQA_KB/test.pt"}
+    }
+  },
+  "retrieve": {
+    "beam_size": 20,
+    "lambda_val": 0.2,
+    "threshold": 0.01,
+    "eta": 1.0,
+    "step_score_mode": "joint",
+    "penalty_mode": "adaptive"
+  },
+  "penalty_ablation": [
+    {"id": "none", "label": "得分引导候选路径（无关系冗余惩罚）", "retrieve": {"penalty_mode": "none"}},
+    {"id": "fixed", "label": "固定加性关系冗余惩罚", "retrieve": {"penalty_mode": "fixed"}},
+    {"id": "adaptive", "label": "路径得分自适应关系冗余惩罚", "retrieve": {"penalty_mode": "adaptive"}}
+  ],
+  "shortest_path_baseline": {
+    "id": "top20_hop_available",
+    "label": "TransferNet 候选答案最短路径后处理",
+    "candidate_topk": 20,
+    "max_paths_per_pair": 20,
+    "path_budget": 20,
+    "max_hop_source": "available_steps",
+    "drop_loopback": true
+  },
+  "p4": {
+    "dataset_hop": 3,
+    "expected_samples": 14274,
+    "source_cache": "data/output/MetaQA_KB/score_cache/metaqa_test_full.pt",
+    "prepared_cache": "data/output/kgqa/shared/metaqa/backbones/transfernet/scores/topk500_test_3hop/test_3hop.pt",
+    "manifest": "data/output/kgqa/shared/metaqa/backbones/transfernet/scores/topk500_test_3hop/test_3hop_manifest.json",
+    "report": "data/output/kgqa/ch3_retrieval/metaqa/transfernet/p4_3hop/transfernet_v1_3hop_summary.json"
+  }
+}
