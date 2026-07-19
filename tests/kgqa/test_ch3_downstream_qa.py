@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from experiments.ch3_downstream_qa import (
+from experiments.ch3.downstream_qa import (
     build_eval_command,
     load_downstream_config,
     validate_condition_inputs,

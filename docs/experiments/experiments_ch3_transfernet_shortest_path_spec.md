@@ -108,7 +108,7 @@ score cache 可支持范围的跳数。
 新增第三章阶段：
 
 ```bash
-python -m experiments.run_ch3 --dataset webqsp --phase shortest_path
+python -m experiments.ch3.run --dataset webqsp --phase shortest_path
 ```
 
 `--phase all` 在配置存在 `shortest_path_baseline` 时包含该阶段。该阶段只读取既有

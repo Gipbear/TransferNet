@@ -10,7 +10,10 @@ from unittest.mock import patch
 
 import torch
 
-from experiments import run_ch3, run_ch3_downstream_qa, run_ch4, run_ch5
+from experiments.ch3 import run as run_ch3
+from experiments.ch3 import run_downstream_qa
+from experiments.ch4 import run as run_ch4
+from experiments.ch5 import run as run_ch5
 from experiments.common import run_command
 from kgqa.retrieve.cli import eval as eval_cli
 from kgqa.retrieve.cli.dump_scores import truncate_score_cache
@@ -52,7 +55,7 @@ class TestExperimentRunners(unittest.TestCase):
             })
             stream = io.StringIO()
             with redirect_stdout(stream):
-                run_ch3_downstream_qa.main([
+                run_downstream_qa.main([
                     "--dataset", "webqsp", "--config", str(config), "--project_dir", str(root),
                     "--phase", "eval", "--dry_run", "--no_progress",
                 ])
@@ -63,11 +66,11 @@ class TestExperimentRunners(unittest.TestCase):
 
     def test_ch3_downstream_qa_accepts_multiple_conditions_in_one_batch(self):
         self.assertEqual(
-            run_ch3_downstream_qa._selected_conditions("terminal_score_beam,tarrs"),
+            run_downstream_qa._selected_conditions("terminal_score_beam,tarrs"),
             ("terminal_score_beam", "tarrs"),
         )
         with self.assertRaisesRegex(ValueError, "未知或重复条件"):
-            run_ch3_downstream_qa._selected_conditions("tarrs,tarrs")
+            run_downstream_qa._selected_conditions("tarrs,tarrs")
 
     def test_batch_evaluation_marks_batch_run_completed(self):
         with tempfile.TemporaryDirectory() as directory:

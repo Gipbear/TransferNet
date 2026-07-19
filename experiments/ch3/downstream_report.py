@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from experiments.ch3_downstream_qa import (
+from experiments.ch3.downstream_qa import (
     CONDITION_IDS,
     extract_qa_metrics,
     summarize_input_paths,

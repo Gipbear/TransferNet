@@ -7,14 +7,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from experiments.ch3_downstream_qa import (
+from experiments.ch3.downstream_qa import (
     CONDITION_IDS,
     condition_by_id,
     load_downstream_config,
     resolve_fixed_adapter,
     validate_condition_inputs,
 )
-from experiments.ch3_downstream_report import write_report
+from experiments.ch3.downstream_report import write_report
 from experiments.common import ROOT, resolve_path, run_command
 from kgqa.experiments import ExperimentPaths
 from kgqa.runtime import file_fingerprint
@@ -79,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[演练] 将按 hop 分层生成 {args.smoke_size} 条共同冒烟输入到 {smoke_dir}")
             input_paths = {condition_id: smoke_dir / f"{condition_id}.jsonl" for condition_id in CONDITION_IDS}
         else:
-            from experiments.ch3_downstream_qa import write_stratified_smoke_inputs
+            from experiments.ch3.downstream_qa import write_stratified_smoke_inputs
             input_paths = write_stratified_smoke_inputs(config, project_dir, smoke_dir, args.smoke_size)
             input_info = {
                 condition_id: {

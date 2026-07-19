@@ -65,7 +65,7 @@ TARRS（`lambda=0.2，eta=1.0`）。五组由同一批处理进程共享一次�
 
 版本化 JSON 配置位于 `experiments/configs/`。第三章配置初始状态为 `draft`，完成审核后
 必须填写中文确认理由并改为 `confirmed`；第四、五章入口会拒绝引用未确认配置。
-同时必须填写 `selected_candidate` 并运行 `python -m experiments.run_ch3 --phase publish`，
+同时必须填写 `selected_candidate` 并运行 `python -m experiments.ch3.run --phase publish`，
 将所选候选的 train/test JSONL 发布到正式目录；发布前第四、五章没有可用的上游输入。
 
 第四章每个支持的数据集包含主实验、零样本基线、无路径基线、路径格式、输出格式和
