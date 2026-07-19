@@ -20,6 +20,7 @@
       "no_path": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/downstream_qa/transfernet_v1/base_zeroshot/full/no_path/eval/predictions.jsonl",
       "score_beam": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/downstream_qa/transfernet_v1/base_zeroshot/full/score_beam/eval/predictions.jsonl",
       "terminal_score_beam": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/downstream_qa/transfernet_v1/base_zeroshot/full/terminal_score_beam/eval/predictions.jsonl",
+      "fixed": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/downstream_qa/transfernet_v1/base_zeroshot/full/fixed/eval/predictions.jsonl",
       "tarrs": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/downstream_qa/transfernet_v1/base_zeroshot/full/tarrs/eval/predictions.jsonl"
     },
     "comparisons": [
@@ -71,12 +72,12 @@
         "left": "tarrs",
         "right": "no_path",
         "metrics": ["hit1"]
-      }
-    ],
-    "pending_comparisons": [
+      },
       {
         "id": "qa_adaptive_vs_fixed",
-        "reason": "P1-QA 的 fixed 全量 1581 条尚未执行",
+        "family": "qa",
+        "left": "tarrs",
+        "right": "fixed",
         "metrics": ["macro_f1", "hit1"]
       }
     ]

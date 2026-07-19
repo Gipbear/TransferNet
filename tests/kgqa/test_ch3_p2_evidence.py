@@ -7,6 +7,26 @@ import numpy as np
 
 
 class TestCh3P2Evidence(unittest.TestCase):
+    def test_p2_config_includes_completed_fixed_qa_comparison(self):
+        root = Path(__file__).resolve().parents[2]
+        config = json.loads(
+            (root / "experiments/configs/ch3/webqsp_transfernet_v1_p2.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        statistics = config["statistics"]
+
+        self.assertIn("fixed", statistics["qa_inputs"])
+        comparison = next(
+            item for item in statistics["comparisons"]
+            if item["id"] == "qa_adaptive_vs_fixed"
+        )
+        self.assertEqual(comparison["family"], "qa")
+        self.assertEqual(comparison["left"], "tarrs")
+        self.assertEqual(comparison["right"], "fixed")
+        self.assertEqual(comparison["metrics"], ["macro_f1", "hit1"])
+        self.assertEqual(statistics.get("pending_comparisons", []), [])
+
     def test_paired_bootstrap_is_deterministic_and_keeps_pairing(self):
         from experiments.ch3.p2_evidence import paired_bootstrap_interval
 
