@@ -8,6 +8,9 @@
 | 编号 | 完成事项 | 结论与产物 |
 |---|---|---|
 | T1 | 固定加性惩罚基线 | 已完成无惩罚 / 固定 / 自适应三组 WebQSP 全量对照；自适应相对固定提高 Answer Hit 与关系多样性、保持 Top1，但 F1 下降。结果见 `experiment_results.md` 表4-1、表5-1及 `penalty_ablations/transfernet_v1/`。 |
+| T3 | 同一环境检索效率基准 | 已完成 SP、普通 Score-Beam、终点感知、固定和自适应五组全量 3 次重复计时。五组平均时间约 66–69ms/题，TARRS 相对普通 Score-Beam 未呈现可分辨的额外开销；产物见 `data/analysis/20260719_1719__ch3_p2_evidence/efficiency.json`。 |
+| T5 | 配对 bootstrap 置信区间 | 已完成路径与下游 QA 的预定比较。自适应相对固定的路径 Answer Hit@20 区间不跨 0；QA Macro-F1 / Hit@1 的差值为 +0.16 / +0.57 个百分点，但 95% CI 均跨 0。结果见 `experiment_results.md` 表9-3及 `data/analysis/20260719_1719__ch3_p2_evidence/paired_bootstrap.json`。 |
+| T8 | WebQSP 固定惩罚下游 QA | 已完成 1,581 条 fixed 全量评测和六组统一报告。fixed 的 Hit@1 / Hit_any / Macro-F1 / Micro-F1 / EM 为 82.16% / 89.31% / 64.71% / 34.20% / 34.47%；结果见 `experiment_results.md` 表7-1及 `downstream_qa/transfernet_v1/reports/base_zeroshot/full/condition_matrix.json`。 |
 | O1 | MetaQA 3-hop 路径主对照 | 已完成 SP / 得分引导 / 固定 / 自适应四组 14,274 条全量对照。四组 Answer Hit@20 与 Top1 均为 100.00%；得分方法 F1 高于 SP，但关系多样性更低；自适应相对固定只增加 0.07 个百分点的关系多样性。结果见 `experiment_results.md` 表4-2及 `p4_3hop/transfernet_v1_3hop_summary.json`。 |
 
 ## 1. 待决事项
@@ -22,12 +25,9 @@
 | 编号 | 需要补充的工作 | 触发的论文主张 | 当前缺口 | 产物要求 |
 |---|---|---|---|---|
 | T2 | 外部先进方法结果与可比性核对 | “总体竞争力”或“优于现有方法” | 尚无论文表号、数据划分、KG/子图和模型差异记录。 | 文献对比表，逐行记录来源、表号/页码与可比性说明。 |
-| T3 | 同一环境检索效率基准 | “低额外检索成本” | 未按统一口径采集 SP、普通 Score-Beam、终点感知与 TARRS 的耗时、内存和候选数。 | 预热后多次重复，报告均值、P50、P95、峰值内存和计时边界。 |
 | T4 | 成功与失败案例分析 | 方法机理图、适用边界或定性解释 | 尚未挑选可复核样本。 | 至少一例终点融合收益、一例 TARRS 覆盖收益、一例失败/噪声案例。 |
-| T5 | 配对 bootstrap 置信区间 | “显著提升” | 当前仅有点估计。 | 对路径 Answer Hit、Top1 Hit 和 QA Hit@1 报告配对区间。 |
 | T6 | MetaQA 3-hop 端到端 QA | “方法在三跳问题上的下游可利用性” | MetaQA 3-hop 四组路径产物已完成，但尚无无路径条件和端到端 QA 结果。 | 复用 P4 的 SP / 得分路径 / 固定 / 自适应产物，补齐无路径条件；固定模型、提示、解码和路径预算完成端到端 QA。 |
 | T7 | CWQ 端到端 QA | “方法在组合问题上的下游可利用性” | 当前只有计划，无 CWQ 路径和 QA 结果。 | 先完成 CWQ 路径主对照，再固定模型、提示、解码和路径预算完成端到端 QA。 |
-| T8 | WebQSP 固定惩罚下游 QA | “自适应惩罚相对固定惩罚改善最终回答质量” | 已有无惩罚和自适应全量 QA，但缺少固定惩罚条件。 | 只新跑 WebQSP 1,581 条 `fixed` QA，与已有 none/adaptive 对齐，主报 QA Macro-F1，同时报告 Hit@1、Hit_any、Micro-F1 和 EM。 |
 
 ## 3. 可选扩展，不阻塞当前 WebQSP / TransferNet 闭环
 
@@ -40,7 +40,7 @@
 
 ## 4. 当前不应补做的事项
 
-- 不重新运行已完成的四组分数组成消融、五组全量 QA、210 组参数扫描或 top-k 饱和性；WebQSP QA 只补充新的 `fixed` 条件；
+- 不重新运行已完成的四组分数组成消融、六组全量 QA、210 组参数扫描或 top-k 饱和性；
 - 不将 100 条冒烟结果写入论文数值表；
 - 不把骨干 TransferNet 原始答案指标当作路径方法指标；
 - 不将“自适应在覆盖—关系多样性上优于固定”扩大为“所有路径质量指标都更优”；当前全量结果中自适应的集合 F1 低于固定惩罚。
