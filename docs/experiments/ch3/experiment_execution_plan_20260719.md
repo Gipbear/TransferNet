@@ -6,7 +6,7 @@
 >
 > 基线：本地 `main`，创建时 `HEAD=3fc023f2f36d754ce51700af90388f7c98a2f50d`
 >
-> 原则：所有正式对照固定 `beam=20, lambda=0.2, eta=1, K=20`；参数扫描只用于趋势分析，不重新选参。
+> 原则：第三章正式实验与论文正文只使用 WebQSP；所有正式对照固定 `beam=20, lambda=0.2, eta=1, K=20`；参数扫描只用于趋势分析，不重新选参。MetaQA 3-hop 的已有产物转为归档，不再作为第三章证据；后续仅在第四章完成路径监督微调后，按新的实验计划评估其效果。
 
 ## 状态约定
 
@@ -22,10 +22,10 @@
 - [x] 从本地 `main` 创建 `experiment/ch3-todo-execution`。
 - [x] 核验 `git merge-base HEAD main` 与 `git rev-parse main` 一致。
 - [x] 记录当前工作树中已有的用户改动，不覆盖、不混入本专项变更。
-- [x] 统一 WebQSP、MetaQA、CWQ 的配置、输入、checkpoint、score cache 和运行环境指纹。
+- [x] 审计 WebQSP、MetaQA、CWQ 的配置、输入、checkpoint、score cache 和运行环境指纹；当前第三章正式范围仅保留 WebQSP。
 - [x] 明确正式结果目录、样本数和数据划分，避免历史 cache 与当前实验口径混用。
 
-**阶段结论：** 分支已建立在本地 `main` 当前提交上；工作树原有未提交改动仍保留，后续专项文件只在本分支继续。三套配置均已通过 `experiments.ch3.run --phase scores --dry_run`；MetaQA 现有 test cache 含 1/2/3-hop，正式 P4 仍需显式筛选 3-hop，不能直接把 39,093 条全量缓存当作 P4 结果。
+**阶段结论：** 分支已建立在本地 `main` 当前提交上；工作树原有未提交改动仍保留，后续专项文件只在本分支继续。三套配置曾完成可运行性审计；其中只有 WebQSP 继续作为第三章正式实验数据集。MetaQA 与 CWQ 的审计记录仅保留作后续阶段参考。
 
 #### P0 审计记录
 
@@ -104,48 +104,12 @@
 
 **阶段结论：** 待运行。案例只用于解释机制和边界，不替代全量统计。
 
-### P4. MetaQA 3-hop 路径主对照（O1）
+### P4/P5. MetaQA 3-hop 历史探索（暂缓，不纳入第三章）
 
-- [x] 补齐 MetaQA checkpoint、QA 输入、score cache 和 3-hop 数据划分核验。
-- [x] 只运行 3-hop 路径级主对照：SP、得分引导、固定、自适应。
-- [x] 检查各条件的题目顺序、golden、样本数和路径格式完全一致。
-- [x] 按 3-hop 报告 Answer Hit@K、Top1 Hit、F1、关系多样性和平均路径数。
+- [!] 已有 MetaQA 3-hop 路径与固定 Llama 3.1 8B 零样本 QA 产物转为归档；不再补做条件对比、消融或案例，也不在第三章正文、表格或结论中使用。
+- [ ] 后续如需评估 MetaQA，须在第四章完成路径监督微调后重新立项，并使用微调模型、明确的基线和独立报告口径；不得将当前未微调 LLM 的零样本结果移入第四章比较。
 
-**执行入口：**
-
-```bash
-python -m experiments.ch3.metaqa_p4 --phase prepare
-python -m experiments.ch3.run --dataset metaqa --config experiments/configs/ch3/metaqa_transfernet_v1_p4.json --phase penalty_ablation --no_progress
-python -m experiments.ch3.run --dataset metaqa --config experiments/configs/ch3/metaqa_transfernet_v1_p4.json --phase shortest_path --no_progress
-python -m experiments.ch3.metaqa_p4 --phase report
-```
-
-**阶段结论：** 已完成。先从 39,093 条 MetaQA test cache 中按数据集标签显式筛出 14,274 条 3-hop 样本，源顺序保持不变；四组结果的 `sample_index`、问题、golden、样本数及路径三元组格式均通过严格对齐检查。SP、得分引导、固定和自适应四组的 Answer Hit@20 / Top1 Hit 均为 100.00%；得分引导、固定、自适应的 F1 均为 57.47%，高于 SP 的 50.97%，但关系多样性约 18.6%，低于 SP 的 55.00%。自适应相对固定只将关系多样性从 18.58% 提高到 18.65%，其余主指标在四位小数口径相同，因此 P4 不能支持“自适应在 MetaQA 上稳定显著优于固定惩罚”或“三个数据集均稳定提升”的结论。机器汇总位于 `data/output/kgqa/ch3_retrieval/metaqa/transfernet/p4_3hop/transfernet_v1_3hop_summary.json`。
-
-### P5. MetaQA 3-hop 端到端 QA（T6）
-
-- [x] 将第三章下游 QA 编排扩展为支持 MetaQA。
-- [x] 固定同一个 base model、提示、解码设置和路径预算。
-- [x] 严格校验五组 14,274 条 3-hop 输入，并完成共同前 30 条的五条件真实冒烟与汇总。
-- [x] 使用实际 tokenizer 预计算 TARRS 全量输入长度：P99=842、最大=1,025，0 条超过 2,048。
-- [ ] 全量运行 TARRS 完整方法单一条件（14,274 条 3-hop 样本）。
-- [ ] 基于 TARRS 全量结果报告 Hit@1、Hit_any、Macro-F1、Micro-F1、EM；不再补充 MetaQA 条件对比或配对区间。
-
-**全量执行入口：**
-
-```bash
-python -m experiments.ch3.run_downstream_qa \
-  --dataset metaqa --condition tarrs --layer base_zeroshot \
-  --phase eval --progress_interval 100
-
-python -m experiments.ch3.run_downstream_qa \
-  --dataset metaqa --condition tarrs --layer base_zeroshot \
-  --phase report
-```
-
-同机 `smoke_30` 的 30 个样本单条件生成约耗时 2–3 分钟，线性外推 TARRS 单条件全量约需 19 GPU 小时，实际以运行时为准。重跑会跳过已有兼容 `summary.json` 的条件；被中断的单个条件需要从头执行。
-
-**阶段结论：** 执行代码与冒烟已完成，全量 TARRS QA 尚未运行。五组输入均为同一批 14,274 条 MetaQA 3-hop 样本，题目与 golden 签名一致；实际 tokenizer 扫描显示 TARRS 输入 P99=842、最大=1,025，未触发 2,048 上下文限制；`smoke_30` 的五组预测数均为 30，逐条件状态均为 `completed`，统一报告位于 `data/output/kgqa/ch3_retrieval/metaqa/transfernet/downstream_qa/transfernet_v1_3hop/reports/base_zeroshot/smoke_30/`。冒烟指标只用于确认执行链路健康，不写入正式全量结果表，也不据此比较方法优劣。
+**阶段结论：** 暂缓。现有原始产物保留在 `data/output/kgqa/ch3_retrieval/metaqa/transfernet/`，仅供后续第四章实验设计参考。当前未微调 Llama 3.1 8B 直接利用路径进行 QA 的效果不作为第三章论据，也不据此主张 MetaQA 上的路径或下游优势。
 
 ### P6. CWQ 路径主对照与端到端 QA（O2、T7，整体延期）
 
@@ -170,20 +134,20 @@ python -m experiments.ch3.run_downstream_qa \
 
 ### P8. 论文证据收口
 
-- [ ] 将已完成实验的数值、配置、summary、JSONL 和图表逐项互相追溯。
-- [ ] 更新 `experiment_results.md` 的状态、结论和待补标记。
-- [ ] 更新 `experiment_todo.md`，删除已完成事项或标记其结果位置。
-- [ ] 核对 `thesis_outline.md` 的每个论文主张都有对应证据。
+- [x] 将已完成实验的数值、配置、summary 和 JSONL 逐项互相追溯；图表状态已盘点。
+- [x] 更新 `experiment_results.md` 的状态、结论和待补标记。
+- [x] 更新 `experiment_todo.md`，已完成事项均转入结果文档，当前闭环只剩 P3 案例。
+- [x] 核对 `thesis_outline.md` 的论文主张与当前证据，移除 MetaQA 作为第三章证据，修正外部方法和图号等陈旧状态。
 - [x] 明确保留的限制：不重跑既有四组分数组成消融、六组 WebQSP QA、210 组扫描和 top-k 饱和性。
 
-**阶段结论：** 待收口。完成后再形成第三章最终实验结论。
+**阶段结论：** 进行中。WebQSP 正式实验的配置—JSONL—summary—文档—代码提交追溯已归档于 `data/analysis/20260719_2259__ch3_p8_evidence_audit/`；MetaQA 记录不再进入第三章证据链。P8 暂不关闭，剩余阻塞项只有 P3 成功/失败案例，以及相应案例图和最终结论回填。
 
 ## 当前总状态
 
-- 已完成：P0 基线审计；P1 固定加性惩罚；P1-QA 六组 WebQSP 全量评测；P2 配对统计与同环境效率；P4 MetaQA 3-hop 路径主对照。
-- 当前进行：P5 MetaQA 3-hop 端到端 QA；执行代码和 `smoke_30` 已完成，等待用户运行 TARRS 单条件 14,274 条全量评测。
-- 下一步：P5 全量完成后生成单条件报告；P3 按此前安排继续跳过，CWQ 整体延期。
-- 当前未完成：P3、P5、P8 的案例和最终论文证据收口；P6/CWQ 已延期。
+- 已完成：P0 基线审计；P1 固定加性惩罚；P1-QA 六组 WebQSP 全量评测；P2 配对统计与同环境效率；P7 外部方法可比性核对。
+- 当前进行：P8 论文证据收口；WebQSP 正式实验追溯已完成。
+- 下一步：完成 P3 案例，再回填案例图和第三章最终结论；CWQ 整体延期。
+- 当前未完成：P3 与 P8 的案例和最终论文证据收口；P4/P5 MetaQA 与 P6/CWQ 均已暂缓，不纳入第三章。
 
 ## 最终结论记录区
 
@@ -193,7 +157,7 @@ python -m experiments.ch3.run_downstream_qa \
 - 固定 / 自适应下游 QA 结论：固定惩罚与自适应的 QA Macro-F1 分别为 64.71% 和 64.87%；自适应差值 +0.16 个百分点，95% CI [-0.76, 1.08]，不能支持最终回答集合质量的稳定优势。Hit@1 点估计提高 0.57 个百分点，但 95% CI [-0.51, 1.64] 同样跨 0。
 - WebQSP 统计与效率结论：终点融合的核心路径与 QA 命中收益具有不跨 0 的配对区间；自适应相对固定的路径覆盖提升稳定，但 Top1 和下游 QA Macro-F1 / Hit@1 未形成不跨 0 的优势。五组平均检索时间约 66–69ms/题，TARRS 相对普通 Score-Beam 未呈现可分辨的额外开销。
 - WebQSP 案例与适用边界：待补
-- MetaQA 3-hop 结论：四组 Answer Hit@20 与 Top1 均为 100.00%；三种得分方法 F1 为 57.47%，高于 SP 的 50.97%，但关系多样性更低；自适应相对固定仅提高 0.07 个百分点的关系多样性，不能支持稳定优势。
+- MetaQA 3-hop 处理：暂缓，不纳入第三章正文、图表或结论。已有未微调 Llama 3.1 8B 零样本 QA 产物只作归档；如需继续，将在第四章路径监督微调完成后按新的实验计划评估。
 - CWQ 结论：延期，不纳入当前版本
 - 外部方法可比性结论：WebQSP 外部结果已完成协议审计。监督式 KGQA、LLM 路径规划和 GNN+LLM 结果不能与本章固定 Llama 3.1 8B 零样本 QA 或路径 Answer Hit 直接合并排名，论文正文仅明确子图、模型、训练方式和指标定义差异。
-- 第三章最终证据边界：待补
+- 第三章最终证据边界：只支持 WebQSP/TransferNet 同骨干受控路径对照、固定 Llama 3.1 8B 零样本下游收益、配对区间和同环境检索成本结论。外部方法只作背景参照，不支持无条件 SOTA、跨数据集或跨模型通用性、路径因果忠实性或跨硬件速度优势。P3 完成前不形成第三章最终闭环结论。

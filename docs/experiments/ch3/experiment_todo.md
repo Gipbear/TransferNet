@@ -2,6 +2,7 @@
 
 > 本文件只记录当前结果文档无法覆盖、且需要新增实验、外部文献核对或用户决策的事项。
 > 已完成结果见 [experiment_results.md](experiment_results.md)。
+> 第三章正式实验范围现收敛为 WebQSP。P8 已完成 WebQSP 证据追溯；MetaQA 3-hop 的既有产物转为归档，后续仅在第四章路径监督微调后重新评估；CWQ 继续延期。当前闭环阻塞项只剩 T4 案例。
 
 ## 0. 已完成并转入结果文档
 
@@ -11,14 +12,13 @@
 | T3 | 同一环境检索效率基准 | 已完成 SP、普通 Score-Beam、终点感知、固定和自适应五组全量 3 次重复计时。五组平均时间约 66–69ms/题，TARRS 相对普通 Score-Beam 未呈现可分辨的额外开销；产物见 `data/analysis/20260719_1719__ch3_p2_evidence/efficiency.json`。 |
 | T5 | 配对 bootstrap 置信区间 | 已完成路径与下游 QA 的预定比较。自适应相对固定的路径 Answer Hit@20 区间不跨 0；QA Macro-F1 / Hit@1 的差值为 +0.16 / +0.57 个百分点，但 95% CI 均跨 0。结果见 `experiment_results.md` 表9-3及 `data/analysis/20260719_1719__ch3_p2_evidence/paired_bootstrap.json`。 |
 | T8 | WebQSP 固定惩罚下游 QA | 已完成 1,581 条 fixed 全量评测和六组统一报告。fixed 的 Hit@1 / Hit_any / Macro-F1 / Micro-F1 / EM 为 82.16% / 89.31% / 64.71% / 34.20% / 34.47%；结果见 `experiment_results.md` 表7-1及 `downstream_qa/transfernet_v1/reports/base_zeroshot/full/condition_matrix.json`。 |
-| O1 | MetaQA 3-hop 路径主对照 | 已完成 SP / 得分引导 / 固定 / 自适应四组 14,274 条全量对照。四组 Answer Hit@20 与 Top1 均为 100.00%；得分方法 F1 高于 SP，但关系多样性更低；自适应相对固定只增加 0.07 个百分点的关系多样性。结果见 `experiment_results.md` 表4-2及 `p4_3hop/transfernet_v1_3hop_summary.json`。 |
 | T2 | 外部先进方法结果与可比性核对 | 已完成 WebQSP 的 TransferNet、ReaRev、UniKGQA、RoG、ToG、GNN-RAG 论文/年份、表号/页码、KG/子图、实体链接、骨干/LLM、训练差异和逐行可比性说明。结果见 `experiment_results.md` 第3.1、3.2节；CWQ 按决定延期。 |
 
 ## 1. 待决事项
 
 | 编号 | 事项 | 为什么需要决定 | 可选方向 |
 |---|---|---|---|
-| D2 | 扩展至 MetaQA | 已确认扩展；MetaQA 3-hop 路径级实验已完成，端到端 QA 延后补充。CWQ 整体延期。 | MetaQA 只补一个 TARRS 完整方法的 3-hop 端到端 QA；CWQ 不执行、不进入当前论文；ReaRev 暂不纳入。 |
+| D2 | 扩展至 MetaQA | 暂缓，MetaQA 不属于第三章正式范围。已有 3-hop 路径与未微调 LLM 零样本 QA 产物仅归档。 | 第四章完成路径监督微调后，如仍有需要再单独立项，使用微调模型和新基线重新评估；CWQ 不执行、不进入当前论文；ReaRev 暂不纳入。 |
 | D3 | 参数报告口径 | 已确认不重跑验证集。 | 全部正式对比固定 `beam=20, lambda=0.2, eta=1`；参数扫描只分析趋势，不使用“独立验证集选出最优参数”的表述。 |
 
 ## 2. 若论文保留相应主张，则必须补充的证据
@@ -26,7 +26,7 @@
 | 编号 | 需要补充的工作 | 触发的论文主张 | 当前缺口 | 产物要求 |
 |---|---|---|---|---|
 | T4 | 成功与失败案例分析 | 方法机理图、适用边界或定性解释 | 尚未挑选可复核样本。 | 至少一例终点融合收益、一例 TARRS 覆盖收益、一例失败/噪声案例。 |
-| T6 | MetaQA 3-hop 端到端 QA | “方法在三跳问题上的下游可利用性” | 五条件编排、14,274 条输入对齐校验和 `smoke_30` 已完成；TARRS 单条件全量 QA 待运行。 | 只运行 TARRS 完整方法的 14,274 条全量 QA；不再做 MetaQA 条件对比、消融或配对区间。 |
+| T6 | MetaQA 3-hop 微调后评估 | 第四章可能的补充评估，不属于第三章 | 当前无路径监督微调后的 MetaQA 比较。 | 仅在第四章路径监督微调完成后重新立项；不得使用现有零样本 QA 结果代替。 |
 | T7 | CWQ 端到端 QA | 暂延期，不进入当前论文 | CWQ 整体延期，当前无路径级或 QA 结果。 | 本阶段不执行，后续重新立项时再补充。 |
 
 ## 3. 可选扩展，不阻塞当前 WebQSP / TransferNet 闭环
