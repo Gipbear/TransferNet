@@ -8,7 +8,7 @@ from collections import deque
 from dataclasses import dataclass
 
 from kgqa.core.contracts import RetrieveResult
-from kgqa.retrieve.engine import EPS, build_prediction, path_to_triples
+from kgqa.retrieve.engine import EPS, RetrievalDiagnostics, build_prediction, path_to_triples
 from kgqa.retrieve.graph.base import KGEdgeSource
 
 
@@ -71,6 +71,7 @@ def _forward_shortest_paths_from_topic(
     *,
     max_hop: int,
     max_paths: int,
+    diagnostics: RetrievalDiagnostics | None = None,
 ) -> dict[int, list[tuple[tuple[int, ...], tuple[int, ...]]]]:
     """一次 BFS 枚举一个主题实体到多个候选答案的等长最短路径。"""
     if max_hop <= 0:
@@ -84,6 +85,8 @@ def _forward_shortest_paths_from_topic(
         depth = len(rels)
         if depth >= max_hop:
             continue
+        if diagnostics is not None:
+            diagnostics.expanded_states += 1
         for rel_id, tail_id in sorted(edge_source.neighbors(nodes[-1]), key=lambda edge: (edge[0], edge[1])):
             if tail_id in nodes:
                 continue
@@ -110,17 +113,21 @@ def _shortest_paths_from_topic(
     *,
     max_hop: int,
     max_paths: int,
+    diagnostics: RetrievalDiagnostics | None = None,
 ) -> dict[int, list[tuple[tuple[int, ...], tuple[int, ...]]]]:
     """以主题实体一跳邻域与候选终点入边相接，枚举 WebQSP 的一、二跳最短路径。"""
     if max_hop > 2:
         return _forward_shortest_paths_from_topic(
             edge_source, topic_id, candidate_ids, max_hop=max_hop, max_paths=max_paths,
+            diagnostics=diagnostics,
         )
     if max_hop <= 0 or not candidate_ids:
         return {}
 
     found: dict[int, list[tuple[tuple[int, ...], tuple[int, ...]]]] = {}
     one_hop: dict[int, list[int]] = {}
+    if diagnostics is not None:
+        diagnostics.expanded_states += 1
     for relation_id, tail_id in sorted(edge_source.neighbors(topic_id), key=lambda edge: (edge[0], edge[1])):
         relation_id, tail_id = int(relation_id), int(tail_id)
         if tail_id == topic_id:
@@ -131,6 +138,8 @@ def _shortest_paths_from_topic(
 
     if max_hop == 1:
         return found
+    if diagnostics is not None:
+        diagnostics.expanded_states += len(one_hop)
     incoming = _incoming_edges(edge_source)
     for candidate_id in sorted(candidate_ids):
         if candidate_id in found:
@@ -159,6 +168,7 @@ def retrieve_shortest_paths_one(
     id2rel: dict[int, str],
     *,
     params: ShortestPathParams,
+    diagnostics: RetrievalDiagnostics | None = None,
 ) -> RetrieveResult:
     """只以最终实体分数作为候选答案，构造有界最短路径。"""
     started = time.perf_counter()
@@ -173,12 +183,15 @@ def retrieve_shortest_paths_one(
             candidate_ids - ({topic_id} if params.drop_loopback else set()),
             max_hop=max_hop,
             max_paths=params.max_paths_per_pair,
+            diagnostics=diagnostics,
         )
         for candidate_id, candidate_score in candidates:
             for nodes, rels in pair_paths.get(candidate_id, []):
                 paths.append(_Path(nodes, rels, candidate_id, candidate_score, topic_id))
 
     deduplicated = {(path.nodes, path.rels): path for path in paths}
+    if diagnostics is not None:
+        diagnostics.candidate_paths += len(deduplicated)
     selected = sorted(
         deduplicated.values(),
         key=lambda path: (
@@ -197,6 +210,8 @@ def retrieve_shortest_paths_one(
         }
         for path in selected
     ]
+    if diagnostics is not None:
+        diagnostics.final_paths += len(serialized)
     hop = int(sample.hop_attn.argmax().item()) + 1
     return RetrieveResult(
         question=sample.question,

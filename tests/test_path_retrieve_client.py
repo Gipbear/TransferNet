@@ -27,9 +27,11 @@ class FakeResponse:
             "prediction": {},
             "elapsed_ms": 1.0,
             "eta": 1.0,
+            "step_score_mode": "joint",
             "threshold": 0.01,
             "beam_size": 50,
             "lambda_val": 0.5,
+            "penalty_mode": "adaptive",
             "cache_path": "cache.pt",
         }
 
@@ -63,9 +65,11 @@ class PathRetrieveClientTests(unittest.TestCase):
                 "sample_index": None,
                 "topic_entities": ["m.03_r3"],
                 "eta": 1.0,
+                "step_score_mode": "joint",
                 "threshold": 0.01,
                 "beam_size": 50,
                 "lambda_val": 0.2,
+                "penalty_mode": "adaptive",
             },
             timeout=120,
         )

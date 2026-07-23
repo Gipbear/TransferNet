@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from kgqa.retrieve.datasets.registry import get_adapter
 from kgqa.backbone import make_score_producer
-from kgqa.retrieve.engine import validate_score_scheme
+from kgqa.retrieve.engine import PENALTY_MODES, validate_penalty_mode, validate_score_scheme
 from kgqa.runtime import add_runtime_arguments, configure_runtime, emit_event, update_progress
 
 
@@ -26,6 +26,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--split", default="test")
     p.add_argument("--beam_size", type=int, default=50)
     p.add_argument("--lambda_val", type=float, default=0.2)
+    p.add_argument("--penalty_mode", choices=sorted(PENALTY_MODES), default="adaptive",
+                   help="关系冗余惩罚：none、fixed=R-λd、adaptive=R-λd|R|")
     p.add_argument("--threshold", type=float, default=0.01)
     p.add_argument("--eta", type=float, default=1.0,
                    help="终点实体分数融合权重 η（论文符号）")
@@ -76,6 +78,7 @@ def build_backend(args):
 
 def run_retrieval(args):
     validate_score_scheme(args.step_score_mode, args.eta)
+    validate_penalty_mode(args.penalty_mode)
     fallback = os.path.dirname(os.path.abspath(args.output)) if args.output else None
     run_dir = configure_runtime(
         args, command="路径检索",
@@ -84,12 +87,14 @@ def run_retrieval(args):
                   "cache": args.cache, "output": args.output,
                   "score_scheme": {"candidate_gate": "intersection",
                                    "step_score_mode": args.step_score_mode,
-                                   "terminal_entity_eta": args.eta}},
+                                   "terminal_entity_eta": args.eta,
+                                   "penalty_mode": args.penalty_mode}},
     )
     backend = build_backend(args)
     params = dict(beam_size=args.beam_size, lambda_val=args.lambda_val,
                   threshold=args.threshold, eta=args.eta,
-                  step_score_mode=args.step_score_mode)
+                  step_score_mode=args.step_score_mode,
+                  penalty_mode=args.penalty_mode)
     samples = backend.bundle.samples[:args.limit] if args.limit else backend.bundle.samples
     total = len(samples)
     results = []

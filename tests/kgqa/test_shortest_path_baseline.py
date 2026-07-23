@@ -32,10 +32,13 @@ class TestShortestPathBaseline(unittest.TestCase):
         self.id2rel = {1: "r1", 2: "r2", 3: "r3", 4: "r4", 5: "r5", 6: "r6", 7: "r7"}
 
     def test_stably_enumerates_top_candidate_shortest_paths(self):
+        from kgqa.retrieve.engine import RetrievalDiagnostics
         from kgqa.retrieve.shortest_path import retrieve_shortest_paths_one
 
+        diagnostics = RetrievalDiagnostics()
         result = retrieve_shortest_paths_one(
             self.sample, self.kg, self.id2ent, self.id2rel, params=self.params,
+            diagnostics=diagnostics,
         )
 
         self.assertEqual(result.sample_index, 7)
@@ -49,6 +52,9 @@ class TestShortestPathBaseline(unittest.TestCase):
             ],
         )
         self.assertTrue(all(path["log_score"] < 0 for path in result.paths))
+        self.assertEqual(diagnostics.expanded_states, 4)
+        self.assertEqual(diagnostics.candidate_paths, 3)
+        self.assertEqual(diagnostics.final_paths, 3)
 
     def test_path_budget_candidate_boundary_and_determinism(self):
         from kgqa.retrieve.shortest_path import ShortestPathParams, retrieve_shortest_paths_one

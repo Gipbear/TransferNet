@@ -45,9 +45,13 @@ class TestCh3DownstreamReport(unittest.TestCase):
                         "_profile_path": "profile.json", "evaluation": {}, "conditions": conditions},
                 input_info=input_info, input_paths=input_paths, layer_dir=root / "runs", report_dir=report_dir,
             )
+            self.assertEqual(len(matrix["conditions"]), len(CONDITION_IDS))
+            self.assertIn("fixed", {item["id"] for item in matrix["conditions"]})
             self.assertIsNone(matrix["conditions"][0]["path"])
             self.assertEqual(matrix["conditions"][1]["path"]["answer_hit"], 1.0)
             self.assertEqual(matrix["conditions"][1]["qa"]["micro_f1"], 1.0)
             summary = (report_dir / "summary.md").read_text(encoding="utf-8")
             self.assertIn("Path Answer Hit", summary)
+            self.assertIn("Path Tail-Entity F1", summary)
+            self.assertIn("QA Macro-F1", summary)
             self.assertIn("QA Micro-F1", summary)

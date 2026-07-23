@@ -14,6 +14,7 @@ class RetrieveParams:
     threshold: float = 0.01
     beam_size: int = 50
     lambda_val: float = 0.2
+    penalty_mode: str = "adaptive"
     drop_loopback: bool = True
 
     def as_kwargs(self) -> dict:
@@ -23,6 +24,7 @@ class RetrieveParams:
             "threshold": self.threshold,
             "beam_size": self.beam_size,
             "lambda_val": self.lambda_val,
+            "penalty_mode": self.penalty_mode,
             "drop_loopback": self.drop_loopback,
         }
 

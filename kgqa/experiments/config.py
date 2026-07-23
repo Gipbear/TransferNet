@@ -65,6 +65,9 @@ class ExperimentPaths:
     def ch3_score_ablation_dir(self, dataset: str, backbone: str, config_id: str) -> Path:
         return self.output_root / "ch3_retrieval" / dataset / backbone / "score_component_ablations" / config_id
 
+    def ch3_penalty_ablation_dir(self, dataset: str, backbone: str, config_id: str) -> Path:
+        return self.output_root / "ch3_retrieval" / dataset / backbone / "penalty_ablations" / config_id
+
     def ch3_shortest_path_dir(self, dataset: str, backbone: str, config_id: str) -> Path:
         return self.output_root / "ch3_retrieval" / dataset / backbone / "shortest_path_baselines" / config_id
 

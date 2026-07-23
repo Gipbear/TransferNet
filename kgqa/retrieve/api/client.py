@@ -30,6 +30,7 @@ class PathRetrieveClient:
         threshold: float = 0.01,
         beam_size: int = 50,
         lambda_val: float = 0.2,
+        penalty_mode: str = "adaptive",
     ) -> PathRetrieveResponse:
         return self._post(
             "/retrieve",
@@ -42,6 +43,7 @@ class PathRetrieveClient:
                 "threshold": threshold,
                 "beam_size": beam_size,
                 "lambda_val": lambda_val,
+                "penalty_mode": penalty_mode,
             },
         )
 

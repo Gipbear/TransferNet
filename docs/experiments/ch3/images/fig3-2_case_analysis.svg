@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1040" viewBox="0 0 1800 1040">
+  <title>WebQSP 中终点融合、自适应覆盖与多样性噪声案例</title>
+  <desc>三个 WebQSP 案例分别展示终点实体融合将正确角色路径置于前列、TARRS 在重复路径中保留直接职位关系，以及更高关系多样性引入替代演员噪声的边界。</desc>
+  <defs>
+    <style>
+      .t { font-family: "Microsoft YaHei", "Noto Sans CJK SC", "SimHei", sans-serif; fill: #172033; }
+      .title { font-size: 34px; font-weight: 700; text-anchor: middle; }
+      .head { font-size: 26px; font-weight: 700; text-anchor: middle; }
+      .sub { font-size: 20px; font-weight: 400; text-anchor: middle; fill: #475569; }
+      .label { font-size: 21px; font-weight: 600; }
+      .body { font-size: 19px; font-weight: 400; }
+      .small { font-size: 17px; font-weight: 400; }
+      .panel { stroke: #64748b; stroke-width: 2; rx: 18; ry: 18; }
+      .box { stroke-width: 1.5; rx: 10; ry: 10; }
+      .path { fill: none; stroke-width: 3; }
+      .good { fill: #dcfce7; stroke: #15803d; }
+      .bad { fill: #fee2e2; stroke: #dc2626; }
+      .neutral { fill: #f1f5f9; stroke: #64748b; }
+      .accent { fill: #dbeafe; stroke: #2563eb; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="#475569"/></marker>
+  </defs>
+  <rect width="1800" height="1040" fill="#ffffff"/>
+  <text class="t title" x="900" y="56">图3-2  WebQSP 路径检索成功与失败案例</text>
+  <text class="t sub" x="900" y="88">案例用于解释全量统计中的机制与边界，不替代整体比较或置信区间</text>
+
+  <!-- S1 -->
+  <rect class="panel" x="40" y="125" width="535" height="820" fill="#f8fafc"/>
+  <rect x="40" y="125" width="535" height="78" rx="18" fill="#dbeafe"/>
+  <text class="t head" x="307" y="174">S1 终点融合：角色路径进入前列</text>
+  <text class="t sub" x="307" y="231">Q: who does michael keaton play in cars</text>
+  <rect class="box accent" x="83" y="265" width="448" height="72"/>
+  <text class="t label" x="105" y="295">普通 Score-Beam</text>
+  <text class="t body" x="105" y="322">QA：John Lasseter；Joe Ranft　Hit@1=0</text>
+  <path class="path" d="M108 382 H502" stroke="#dc2626" marker-end="url(#arrow)"/>
+  <text class="t small" x="114" y="370">story contributor 路径（无关尾实体）</text>
+  <rect class="box bad" x="83" y="405" width="448" height="74"/>
+  <text class="t body" x="105" y="435">Cars → story contributor → John Lasseter</text>
+  <text class="t small" x="105" y="462">首路径尾实体不在 golden</text>
+  <text class="t body" x="307" y="529" text-anchor="middle">+ 最终实体得分融合</text>
+  <path class="path" d="M307 544 V582" stroke="#2563eb" marker-end="url(#arrow)"/>
+  <rect class="box good" x="83" y="605" width="448" height="132"/>
+  <text class="t label" x="105" y="636">终点感知 Score-Beam</text>
+  <text class="t body" x="105" y="666">Cars ← performance → Chick Hicks</text>
+  <text class="t small" x="105" y="694">正确尾实体排名：1, 2；关系多样性：0.6667</text>
+  <text class="t body" x="105" y="721">QA：Chick Hicks　Hit@1=1，F1=1.00</text>
+  <rect x="83" y="790" width="448" height="101" rx="12" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text class="t label" x="105" y="822">说明</text>
+  <text class="t small" x="105" y="852">终点实体得分将问题需要的角色尾实体</text>
+  <text class="t small" x="105" y="877">排在故事贡献者等无关实体之前。</text>
+
+  <!-- S2 -->
+  <rect class="panel" x="633" y="125" width="535" height="820" fill="#f8fafc"/>
+  <rect x="633" y="125" width="535" height="78" rx="18" fill="#dcfce7"/>
+  <text class="t head" x="900" y="174">S2 TARRS：保留直接职位关系</text>
+  <text class="t sub" x="900" y="231">Q: what is the head judge of the supreme court called</text>
+  <rect class="box neutral" x="676" y="265" width="448" height="119"/>
+  <text class="t label" x="698" y="295">固定惩罚</text>
+  <text class="t body" x="698" y="325">USSC → judges → judicial tenure → 法官</text>
+  <text class="t small" x="698" y="352">20 条路径重复法官关系；正确尾实体：无</text>
+  <text class="t small" x="698" y="375">QA：Edward Douglass White Jr.　Hit@1=0</text>
+  <path class="path" d="M900 415 V452" stroke="#15803d" marker-end="url(#arrow)"/>
+  <text class="t body" x="900" y="438" text-anchor="middle">自适应惩罚保留互补关系</text>
+  <rect class="box good" x="676" y="475" width="448" height="132"/>
+  <text class="t label" x="698" y="505">TARRS</text>
+  <text class="t body" x="698" y="535">USSC → offices positions → Chief Justice</text>
+  <text class="t small" x="698" y="563">正确尾实体排名：2；关系多样性：0.1000</text>
+  <text class="t body" x="698" y="591">QA：Chief Justice of the United States　Hit@1=1</text>
+  <rect x="676" y="660" width="448" height="231" rx="12" fill="#f0fdf4" stroke="#15803d" stroke-width="1.5"/>
+  <text class="t label" x="698" y="694">说明</text>
+  <text class="t small" x="698" y="726">该直接职位边的原始分数较低，却避免了</text>
+  <text class="t small" x="698" y="753">“法院—法官”重复模式的盲区并补足答案。</text>
+  <text class="t small" x="698" y="789">这是覆盖收益案例，不代表 TARRS 在最终 QA</text>
+  <text class="t small" x="698" y="816">上相对固定惩罚具有稳定优势。</text>
+
+  <!-- F1 -->
+  <rect class="panel" x="1225" y="125" width="535" height="820" fill="#f8fafc"/>
+  <rect x="1225" y="125" width="535" height="78" rx="18" fill="#fee2e2"/>
+  <text class="t head" x="1492" y="174">F1 多样性：替代演员噪声</text>
+  <text class="t sub" x="1492" y="231">Q: who voiced darth vader in the original star wars movies</text>
+  <rect class="box good" x="1268" y="265" width="448" height="134"/>
+  <text class="t label" x="1290" y="295">固定惩罚</text>
+  <text class="t body" x="1290" y="325">Anakin → performance → James Earl Jones</text>
+  <text class="t small" x="1290" y="353">关系多样性：0.4070；正确尾实体多次出现</text>
+  <text class="t body" x="1290" y="380">QA：James Earl Jones　Hit@1=1，F1=1.00</text>
+  <path class="path" d="M1492 430 V466" stroke="#dc2626" marker-end="url(#arrow)"/>
+  <text class="t body" x="1492" y="453" text-anchor="middle">增加关系模式与替代尾实体</text>
+  <rect class="box bad" x="1268" y="490" width="448" height="163"/>
+  <text class="t label" x="1290" y="520">TARRS</text>
+  <text class="t body" x="1290" y="550">Anakin → TV appearance → Matthew Lanter</text>
+  <text class="t body" x="1290" y="578">Anakin → performance → David Prowse</text>
+  <text class="t small" x="1290" y="606">关系多样性：0.7211；唯一尾实体：4 → 5</text>
+  <text class="t body" x="1290" y="633">QA：David Prowse；James Earl Jones　Hit@1=0</text>
+  <rect x="1268" y="711" width="448" height="180" rx="12" fill="#fff1f2" stroke="#dc2626" stroke-width="1.5"/>
+  <text class="t label" x="1290" y="744">边界</text>
+  <text class="t small" x="1290" y="775">更多互补路径不保证固定零样本提示能完成</text>
+  <text class="t small" x="1290" y="802">时间、角色类型及配音/出演的语义消歧。</text>
+  <text class="t small" x="1290" y="837">因此不能把路径覆盖收益扩写为稳定最终 QA 优势。</text>
+
+  <rect x="110" y="974" width="1580" height="43" rx="12" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
+  <text class="t small" x="900" y="1002" text-anchor="middle">数据：WebQSP 完整测试集；路径预算 K=20；固定 Llama 3.1 8B 零样本 QA。全量结论以表4-1、表5-1、表7-1、表9-3为准。</text>
+</svg>

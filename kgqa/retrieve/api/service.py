@@ -28,6 +28,7 @@ from kgqa.retrieve.engine import (
     reconstruct_rel_dict,
     search_path_candidates,
     select_path_candidates,
+    validate_penalty_mode,
     validate_score_scheme,
 )
 
@@ -97,6 +98,7 @@ class CachedRetrievalResult:
     threshold: float
     beam_size: int
     lambda_val: float
+    penalty_mode: str
     cache_path: str
     group_tails: dict[str, list[str]]
 
@@ -114,6 +116,7 @@ class CachedRetrievalResult:
             "threshold": self.threshold,
             "beam_size": self.beam_size,
             "lambda_val": self.lambda_val,
+            "penalty_mode": self.penalty_mode,
             "cache_path": self.cache_path,
             "group_tails": self.group_tails,
         }
@@ -154,11 +157,13 @@ class PathRetrieveService:
         threshold: float = 0.01,
         beam_size: int = 50,
         lambda_val: float = 0.2,
+        penalty_mode: str = "adaptive",
         drop_loopback: bool = True,
     ) -> CachedRetrievalResult:
         if beam_size < 1:
             raise ValueError("beam_size must be >= 1")
         validate_score_scheme(step_score_mode, eta)
+        validate_penalty_mode(penalty_mode)
 
         t0 = time.perf_counter()
         idx = self._resolve_sample_index(question, sample_index)
@@ -193,6 +198,7 @@ class PathRetrieveService:
             beam_size,
             eta=eta,
             lambda_val=lambda_val,
+            penalty_mode=penalty_mode,
         )
         candidates = [candidate_to_tuple(candidate) for candidate in selected]
         paths = drop_loopback_paths(candidates) if drop_loopback else candidates
@@ -218,6 +224,7 @@ class PathRetrieveService:
             threshold=threshold,
             beam_size=beam_size,
             lambda_val=lambda_val,
+            penalty_mode=penalty_mode,
             cache_path=self.cache_path,
             group_tails=group_tails,
         )

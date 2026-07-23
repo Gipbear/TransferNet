@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "kind": "ch3_downstream_qa",
+  "dataset": "metaqa",
+  "backbone": "transfernet",
+  "config_id": "transfernet_v1_3hop",
+  "profile": "experiments/configs/ch3/metaqa_transfernet_v1_p4.json",
+  "evaluation": {
+    "model": "unsloth/meta-llama-3.1-8b-instruct-bnb-4bit",
+    "format": "v2",
+    "path_format": "chain",
+    "entity_repr": "name",
+    "max_new_tokens": 256,
+    "batch_size": 4,
+    "path_budget": 20
+  },
+  "conditions": [
+    {
+      "id": "no_path",
+      "label": "无路径",
+      "input": "data/output/kgqa/ch3_retrieval/metaqa/transfernet/penalty_ablations/transfernet_v1_3hop/adaptive/test_3hop.jsonl",
+      "method": {"no_paths": true},
+      "no_paths": true
+    },
+    {
+      "id": "shortest_path",
+      "label": "最短路径",
+      "input": "data/output/kgqa/ch3_retrieval/metaqa/transfernet/shortest_path_baselines/transfernet_v1_3hop/top20_hop_available/test_3hop.jsonl",
+      "method": {"method": "shortest_path_postprocess"}
+    },
+    {
+      "id": "score_beam",
+      "label": "得分引导候选路径",
+      "input": "data/output/kgqa/ch3_retrieval/metaqa/transfernet/penalty_ablations/transfernet_v1_3hop/none/test_3hop.jsonl",
+      "method": {"beam_size": 20, "lambda_val": 0.0, "eta": 1.0, "penalty_mode": "none"}
+    },
+    {
+      "id": "fixed",
+      "label": "固定加性冗余惩罚",
+      "input": "data/output/kgqa/ch3_retrieval/metaqa/transfernet/penalty_ablations/transfernet_v1_3hop/fixed/test_3hop.jsonl",
+      "method": {"beam_size": 20, "lambda_val": 0.2, "eta": 1.0, "penalty_mode": "fixed"}
+    },
+    {
+      "id": "tarrs",
+      "label": "TARRS",
+      "input": "data/output/kgqa/ch3_retrieval/metaqa/transfernet/penalty_ablations/transfernet_v1_3hop/adaptive/test_3hop.jsonl",
+      "method": {"beam_size": 20, "lambda_val": 0.2, "eta": 1.0, "penalty_mode": "adaptive"}
+    }
+  ],
+  "fixed_pfit_adapter": null
+}
