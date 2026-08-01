@@ -14,6 +14,7 @@ from kgqa.retrieve.graph.base import KGEdgeSource
 EPS = 1e-9
 STEP_SCORE_MODES = {"joint", "relation_only", "entity_only"}
 PENALTY_MODES = {"none", "fixed", "adaptive"}
+RELATION_NORMALIZATION_MODES = {"global", "local"}
 
 
 def validate_score_scheme(step_score_mode: str, eta: float) -> None:
@@ -35,6 +36,12 @@ def validate_penalty_mode(penalty_mode: str) -> None:
     if penalty_mode not in PENALTY_MODES:
         choices = "、".join(sorted(PENALTY_MODES))
         raise ValueError(f"未知冗余惩罚模式: {penalty_mode}；可选值: {choices}")
+
+
+def validate_relation_normalization(relation_normalization: str) -> None:
+    if relation_normalization not in RELATION_NORMALIZATION_MODES:
+        choices = "、".join(sorted(RELATION_NORMALIZATION_MODES))
+        raise ValueError(f"未知关系归一化模式: {relation_normalization}；可选值: {choices}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -169,13 +176,15 @@ def compute_step_score(
     rel_id: int,
     tail_id: int,
     step_score_mode: str = "joint",
+    relation_sum: Optional[float] = None,
 ) -> float:
     """计算固定交集候选空间内的单跳排序分数。"""
     rel_score = rel_dict.get(rel_id, 0.0)
     ent_score = ent_dict.get(tail_id, 0.0)
     if rel_score <= 0 or ent_score <= 0:
         return -float("inf")
-    sum_rel = sum(rel_dict.values()) or 1.0
+    sum_rel = relation_sum if relation_sum is not None else sum(rel_dict.values())
+    sum_rel = sum_rel or 1.0
     sum_ent = sum(ent_dict.values()) or 1.0
     relation_term = math.log(rel_score / sum_rel + EPS)
     entity_term = math.log(ent_score / sum_ent + EPS)
@@ -199,9 +208,11 @@ def search_path_candidates(
     final_ent_scores: Optional[dict[int, float]] = None,
     order_start: int = 0,
     step_score_mode: str = "joint",
+    relation_normalization: str = "global",
     diagnostics: Optional[RetrievalDiagnostics] = None,
 ) -> list[PathCandidate]:
     """Beam-expand candidate paths and attach cached features for reranking."""
+    validate_relation_normalization(relation_normalization)
     beam: list[tuple[list[int], list[int], float]] = [([t_id], [], 0.0) for t_id in topic_ids]
     order = order_start
 
@@ -214,11 +225,19 @@ def search_path_candidates(
                 diagnostics.expanded_states += 1
             head = nodes[-1]
             edges = valid_edges_dict.get(head, [])
+            relation_sum = None
+            if relation_normalization == "local":
+                candidate_relations = {
+                    rel_id for rel_id, tail_id in edges
+                    if rel_id in rel_dict and tail_id in ent_dict
+                }
+                relation_sum = sum(rel_dict[rel_id] for rel_id in candidate_relations)
             for rel_id, tail_id in edges:
                 if rel_id not in rel_dict or tail_id not in ent_dict:
                     continue
                 step = compute_step_score(
                     rel_dict, ent_dict, rel_id, tail_id, step_score_mode=step_score_mode,
+                    relation_sum=relation_sum,
                 )
                 if step == -float("inf"):
                     continue
@@ -266,6 +285,14 @@ def candidate_hop_numbers(num_steps: int) -> list[int]:
 # ─────────────────────────────────────────────────────────────────────────────
 # 新增编排（SampleScoreLike 属性访问口径）
 # ─────────────────────────────────────────────────────────────────────────────
+
+def drop_loopback_candidates(candidates: list[PathCandidate]) -> list[PathCandidate]:
+    """在最终选择前剔除尾实体返回起始实体的候选路径。"""
+    return [
+        candidate for candidate in candidates
+        if not candidate.nodes or candidate.nodes[-1] != candidate.nodes[0]
+    ]
+
 
 def drop_loopback_paths(paths):
     """剔除尾==topic 的自指路径（迁移自 path_retrieve_server/service.py）。"""
@@ -322,11 +349,13 @@ def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, 
                  lambda_val: float = 0.2, drop_loopback: bool = True,
                  step_score_mode: str = "joint",
                  penalty_mode: str = "adaptive",
+                 relation_normalization: str = "global",
                  diagnostics: Optional[RetrievalDiagnostics] = None) -> RetrieveResult:
     """单样本检索：稀疏重建 → 逐跳 beam 展开 → MMR 选择 → 序列化。
 
     与 offline_path_search.run_experiment 的单样本分支逻辑等价（Task 11 回归锁定）。"""
     validate_score_scheme(step_score_mode, eta)
+    validate_relation_normalization(relation_normalization)
     t0 = time.perf_counter()
     valid_edges_dict = getattr(edge_source, "valid_edges_dict", None)
 
@@ -346,19 +375,20 @@ def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, 
             valid_edges_dict, beam_size,
             final_ent_scores=final_scores, order_start=len(path_candidates),
             step_score_mode=step_score_mode,
+            relation_normalization=relation_normalization,
             diagnostics=diagnostics,
         ))
 
     if diagnostics is not None:
         diagnostics.candidate_paths += len(path_candidates)
 
+    if drop_loopback:
+        path_candidates = drop_loopback_candidates(path_candidates)
     selected = select_path_candidates(
         path_candidates, beam_size, eta=eta, lambda_val=lambda_val,
         penalty_mode=penalty_mode,
     )
     candidates = [candidate_to_tuple(c) for c in selected]
-    if drop_loopback:
-        candidates = drop_loopback_paths(candidates)
     if diagnostics is not None:
         diagnostics.final_paths += len(candidates)
 

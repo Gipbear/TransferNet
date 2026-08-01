@@ -21,7 +21,7 @@ from typing import Any, Optional
 from kgqa.retrieve.engine import (
     candidate_hop_numbers,
     candidate_to_tuple,
-    drop_loopback_paths,
+    drop_loopback_candidates,
     final_ent_score_dict,
     path_to_triples,
     reconstruct_ent_dict,
@@ -193,6 +193,8 @@ class PathRetrieveService:
                 step_score_mode=step_score_mode,
             ))
 
+        if drop_loopback:
+            path_candidates = drop_loopback_candidates(path_candidates)
         selected = select_path_candidates(
             path_candidates,
             beam_size,
@@ -201,7 +203,7 @@ class PathRetrieveService:
             penalty_mode=penalty_mode,
         )
         candidates = [candidate_to_tuple(candidate) for candidate in selected]
-        paths = drop_loopback_paths(candidates) if drop_loopback else candidates
+        paths = candidates
         prediction_ids = {
             int(ent_idx)
             for ent_idx, val in zip(

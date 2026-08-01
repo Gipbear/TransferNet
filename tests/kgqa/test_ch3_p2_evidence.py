@@ -27,6 +27,25 @@ class TestCh3P2Evidence(unittest.TestCase):
         self.assertEqual(comparison["metrics"], ["macro_f1", "hit1"])
         self.assertEqual(statistics.get("pending_comparisons", []), [])
 
+    def test_v2_p2_config_uses_global_normalization_and_v2_outputs(self):
+        root = Path(__file__).resolve().parents[2]
+        config = json.loads(
+            (root / "experiments/configs/ch3/webqsp_transfernet_v2_p2.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        self.assertEqual(config["config_id"], "transfernet_v2")
+        for method in config["efficiency"]["methods"]:
+            if method["kind"] == "score_beam":
+                self.assertEqual(method["params"]["relation_normalization"], "global")
+        for name, path in config["statistics"]["path_inputs"].items():
+            if name != "shortest_path":
+                self.assertIn("transfernet_v2", path)
+        for name, path in config["statistics"]["qa_inputs"].items():
+            if name != "no_path":
+                self.assertIn("transfernet_v2", path)
+
     def test_paired_bootstrap_is_deterministic_and_keeps_pairing(self):
         from experiments.ch3.p2_evidence import paired_bootstrap_interval
 

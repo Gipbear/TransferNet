@@ -18,9 +18,17 @@ class TestCLI(unittest.TestCase):
         self.assertNotIn("--method", retrieve_parser.format_help())
         self.assertIn("--backbone", retrieve_parser.format_help())
         self.assertIn("--eta", retrieve_parser.format_help())
+        self.assertIn("--relation_normalization", retrieve_parser.format_help())
         self.assertNotIn("--alpha_final", retrieve_parser.format_help())
         self.assertIn("--run_dir", retrieve_parser.format_help())
         self.assertEqual(retrieve_parser.parse_args(["--dataset", "webqsp", "--input_dir", "x", "--eta", "0.7"]).eta, 0.7)
+        self.assertEqual(
+            retrieve_parser.parse_args([
+                "--dataset", "webqsp", "--input_dir", "x",
+                "--relation_normalization", "local",
+            ]).relation_normalization,
+            "local",
+        )
         with self.assertRaises(SystemExit):
             retrieve_parser.parse_args(["--dataset", "webqsp", "--input_dir", "x", "--alpha_final", "0.7"])
         self.assertIsNotNone(eval_cli.build_parser())

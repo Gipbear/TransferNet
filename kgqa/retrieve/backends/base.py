@@ -15,6 +15,7 @@ class RetrieveParams:
     beam_size: int = 50
     lambda_val: float = 0.2
     penalty_mode: str = "adaptive"
+    relation_normalization: str = "global"
     drop_loopback: bool = True
 
     def as_kwargs(self) -> dict:
@@ -25,6 +26,7 @@ class RetrieveParams:
             "beam_size": self.beam_size,
             "lambda_val": self.lambda_val,
             "penalty_mode": self.penalty_mode,
+            "relation_normalization": self.relation_normalization,
             "drop_loopback": self.drop_loopback,
         }
 

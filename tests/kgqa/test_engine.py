@@ -1,5 +1,6 @@
 import math
 import unittest
+from unittest import mock
 import torch
 
 from kgqa.retrieve.graph.global_kg import GlobalKG
@@ -55,6 +56,29 @@ class TestEngine(unittest.TestCase):
             if expected is None:
                 expected = paths
             self.assertEqual(paths, expected)
+
+    def test_local_relation_normalization_uses_candidate_relations_only(self):
+        kg = GlobalKG.from_triples([[0, 1, 3], [0, 2, 4]])
+        rel_dicts = [{1: 0.6, 2: 0.3, 5: 0.1}]
+        ent_dicts = [{3: 0.75, 9: 0.25}]
+
+        global_candidates = engine.search_path_candidates(
+            [0], rel_dicts, ent_dicts, 1, kg.valid_edges_dict, 10,
+            relation_normalization="global",
+        )
+        local_candidates = engine.search_path_candidates(
+            [0], rel_dicts, ent_dicts, 1, kg.valid_edges_dict, 10,
+            relation_normalization="local",
+        )
+
+        global_by_rel = {candidate.rels[0]: candidate.base_score for candidate in global_candidates}
+        local_by_rel = {candidate.rels[0]: candidate.base_score for candidate in local_candidates}
+        self.assertAlmostEqual(global_by_rel[1], math.log(0.6) + math.log(0.75))
+        self.assertAlmostEqual(local_by_rel[1], math.log(1.0) + math.log(0.75))
+        self.assertEqual(
+            {(tuple(candidate.nodes), tuple(candidate.rels)) for candidate in global_candidates},
+            {(tuple(candidate.nodes), tuple(candidate.rels)) for candidate in local_candidates},
+        )
 
     def test_single_score_mode_rejects_terminal_entity_fusion(self):
         with self.assertRaisesRegex(ValueError, "必须设置 eta=0"):
@@ -183,6 +207,24 @@ class TestEngine(unittest.TestCase):
         paths = [([0, 1], [1], -0.1), ([0, 0], [1], -0.2)]
         kept = engine.drop_loopback_paths(paths)
         self.assertEqual(kept, [([0, 1], [1], -0.1)])
+
+    def test_loopback_filter_runs_before_selection_and_backfills_budget(self):
+        candidates = [
+            engine.PathCandidate([0, 0], [1], 1, -0.1, order=0),
+            engine.PathCandidate([0, 1], [1], 1, -1.0, order=1),
+        ]
+        with (
+            mock.patch.object(engine, "candidate_hop_numbers", return_value=[1]),
+            mock.patch.object(engine, "search_path_candidates", return_value=candidates),
+        ):
+            result = engine.retrieve_one(
+                _Sample(), self.kg, self.id2ent, self.id2rel,
+                beam_size=1, threshold=0.01, lambda_val=0.2, eta=0.0,
+                drop_loopback=True,
+            )
+
+        self.assertEqual(len(result.paths), 1)
+        self.assertEqual(result.paths[0]["path"][-1][2], "m.gold")
 
 
 if __name__ == "__main__":

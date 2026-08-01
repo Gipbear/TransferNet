@@ -13,7 +13,11 @@ from tqdm import tqdm
 from experiments.common import ROOT, require_fields, resolve_path, run_command
 from kgqa.experiments import ExperimentPaths, load_confirmed_config, load_json_config
 from kgqa.retrieve.cli.dump_scores import materialize_truncated_score_cache
-from kgqa.retrieve.engine import validate_penalty_mode, validate_score_scheme
+from kgqa.retrieve.engine import (
+    validate_penalty_mode,
+    validate_relation_normalization,
+    validate_score_scheme,
+)
 from kgqa.runtime import configure_runtime, emit_event, update_progress
 
 
@@ -53,17 +57,23 @@ def _retrieve_params(config: dict[str, Any], override: dict[str, Any]) -> dict[s
     params = {**config["retrieve"], **override}
     params.setdefault("step_score_mode", "joint")
     params.setdefault("penalty_mode", "adaptive")
+    params.setdefault("relation_normalization", "global")
     unsupported = set(params) - {
         "beam_size", "lambda_val", "threshold", "eta", "step_score_mode", "penalty_mode",
+        "relation_normalization",
     }
     if unsupported:
         raise ValueError(f"检索配置不接受字段: {', '.join(sorted(unsupported))}")
-    required = {"beam_size", "lambda_val", "threshold", "eta", "step_score_mode", "penalty_mode"}
+    required = {
+        "beam_size", "lambda_val", "threshold", "eta", "step_score_mode", "penalty_mode",
+        "relation_normalization",
+    }
     missing = sorted(required - set(params))
     if missing:
         raise ValueError(f"检索配置缺少字段: {', '.join(missing)}")
     validate_score_scheme(params["step_score_mode"], params["eta"])
     validate_penalty_mode(params["penalty_mode"])
+    validate_relation_normalization(params["relation_normalization"])
     return params
 
 
@@ -76,6 +86,7 @@ def _retrieve_args(config: dict[str, Any], override: dict[str, Any]) -> list[str
         "--eta", str(params["eta"]),
         "--step_score_mode", params["step_score_mode"],
         "--penalty_mode", params["penalty_mode"],
+        "--relation_normalization", params["relation_normalization"],
     ]
 
 
@@ -127,13 +138,53 @@ def _write_console_note_for_run(args: argparse.Namespace, run_dir: Path, message
 
 
 def _parameter_scan_items(config: dict[str, Any]) -> list[dict[str, Any]]:
-    """将 beam、λ、eta 三维网格展开为稳定的候选编号。"""
+    """读取显式参数组，或将 beam、λ、eta 三维网格展开为稳定候选编号。"""
     scan = config.get("parameter_scan")
     if not isinstance(scan, dict):
         raise ValueError("parameter_scan 必须是包含 beam_size、lambda_val 与 eta 列表的对象")
-    unsupported = set(scan) - {"beam_size", "lambda_val", "eta"}
+    unsupported = set(scan) - {"beam_size", "lambda_val", "eta", "items"}
     if unsupported:
         raise ValueError(f"parameter_scan 不接受字段: {', '.join(sorted(unsupported))}")
+
+    def normalize(beam_size: Any, lambda_val: Any, eta: Any, *, source: str) -> dict[str, Any]:
+        if not isinstance(beam_size, int) or beam_size <= 0:
+            raise ValueError(f"{source}.beam_size 必须是正整数")
+        if not isinstance(lambda_val, (int, float)) or lambda_val < 0:
+            raise ValueError(f"{source}.lambda_val 必须是非负数")
+        if not isinstance(eta, (int, float)) or eta < 0:
+            raise ValueError(f"{source}.eta 必须是非负数")
+        return {
+            "id": (
+                f"beam{beam_size}_lambda{float(lambda_val):g}_eta{float(eta):g}"
+                .replace(".", "")
+            ),
+            "label": f"beam={beam_size}，λ={lambda_val}，η={eta}",
+            "retrieve": {"beam_size": beam_size, "lambda_val": lambda_val, "eta": eta},
+        }
+
+    if "items" in scan:
+        if set(scan) != {"items"}:
+            raise ValueError("parameter_scan.items 不能与 beam_size、lambda_val 或 eta 列表混用")
+        raw_items = scan["items"]
+        if not isinstance(raw_items, list) or not raw_items:
+            raise ValueError("parameter_scan.items 必须是非空列表")
+        items = []
+        for index, raw in enumerate(raw_items):
+            if not isinstance(raw, dict):
+                raise ValueError(f"parameter_scan.items[{index}] 必须是对象")
+            if set(raw) != {"beam_size", "lambda_val", "eta"}:
+                raise ValueError(
+                    f"parameter_scan.items[{index}] 必须且只能包含 beam_size、lambda_val 与 eta"
+                )
+            items.append(normalize(
+                raw["beam_size"], raw["lambda_val"], raw["eta"],
+                source=f"parameter_scan.items[{index}]",
+            ))
+        ids = [item["id"] for item in items]
+        if len(ids) != len(set(ids)):
+            raise ValueError("parameter_scan.items 存在重复参数组")
+        return items
+
     beam_sizes = scan.get("beam_size")
     lambda_values = scan.get("lambda_val")
     eta_values = scan.get("eta")
@@ -150,14 +201,7 @@ def _parameter_scan_items(config: dict[str, Any]) -> list[dict[str, Any]]:
     if any(not isinstance(value, (int, float)) or value < 0 for value in eta_values):
         raise ValueError("parameter_scan.eta 必须是非负数列表")
     return [
-        {
-            "id": (
-                f"beam{beam_size}_lambda{float(lambda_val):g}_eta{float(eta):g}"
-                .replace(".", "")
-            ),
-            "label": f"beam={beam_size}，λ={lambda_val}，η={eta}",
-            "retrieve": {"beam_size": beam_size, "lambda_val": lambda_val, "eta": eta},
-        }
+        normalize(beam_size, lambda_val, eta, source="parameter_scan")
         for beam_size in beam_sizes
         for lambda_val in lambda_values
         for eta in eta_values

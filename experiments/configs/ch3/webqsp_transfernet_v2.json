@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "kind": "ch3_retrieval_profile",
+  "status": "confirmed",
+  "confirmation_reason": "沿用已冻结的 beam=20、λ=0.2、η=1.0 正式配置；v2 仅修正关系归一化记录与回环候选过滤顺序。参数敏感性采用单因素控制变量法，不据测试集结果重新选参。",
+  "selected_candidate": "beam20_lambda02_eta1",
+  "config_id": "transfernet_v2",
+  "dataset": "webqsp",
+  "backbone": "transfernet",
+  "topk": 500,
+  "selection_split": "test",
+  "topk_candidates": [100, 250, 500, 1000],
+  "score_source": {
+    "ckpt": "data/ckpt/WebQSP/model-49-0.7154.pt",
+    "input_dir": "data/input/WebQSP",
+    "splits": {
+      "train": {"qa_file": "data/input/WebQSP/QA_data/WebQuestionsSP/qa_train_webqsp_fixed.txt"},
+      "test": {"qa_file": "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"}
+    }
+  },
+  "retrieve": {"beam_size": 20, "lambda_val": 0.2, "threshold": 0.01, "eta": 1.0, "step_score_mode": "joint", "penalty_mode": "adaptive", "relation_normalization": "global"},
+  "parameter_scan": {
+    "items": [
+      {"beam_size": 3, "lambda_val": 0.2, "eta": 1.0},
+      {"beam_size": 5, "lambda_val": 0.2, "eta": 1.0},
+      {"beam_size": 10, "lambda_val": 0.2, "eta": 1.0},
+      {"beam_size": 20, "lambda_val": 0.2, "eta": 1.0},
+      {"beam_size": 50, "lambda_val": 0.2, "eta": 1.0},
+      {"beam_size": 100, "lambda_val": 0.2, "eta": 1.0},
+      {"beam_size": 20, "lambda_val": 0.0, "eta": 1.0},
+      {"beam_size": 20, "lambda_val": 0.1, "eta": 1.0},
+      {"beam_size": 20, "lambda_val": 0.3, "eta": 1.0},
+      {"beam_size": 20, "lambda_val": 0.5, "eta": 1.0},
+      {"beam_size": 20, "lambda_val": 0.7, "eta": 1.0},
+      {"beam_size": 20, "lambda_val": 1.0, "eta": 1.0},
+      {"beam_size": 20, "lambda_val": 0.2, "eta": 0.0},
+      {"beam_size": 20, "lambda_val": 0.2, "eta": 0.5},
+      {"beam_size": 20, "lambda_val": 0.2, "eta": 1.5},
+      {"beam_size": 20, "lambda_val": 0.2, "eta": 2.0}
+    ]
+  },
+  "score_component_ablation": [
+    {
+      "id": "joint_eta1",
+      "label": "联合逐跳分数与终点实体融合（正式基线）",
+      "retrieve": {"step_score_mode": "joint", "eta": 1.0}
+    },
+    {
+      "id": "joint_eta0",
+      "label": "联合逐跳分数，移除终点融合",
+      "retrieve": {"step_score_mode": "joint", "eta": 0.0}
+    },
+    {
+      "id": "relation_only",
+      "label": "仅关系逐跳排序分数",
+      "retrieve": {"step_score_mode": "relation_only", "eta": 0.0}
+    },
+    {
+      "id": "entity_only",
+      "label": "仅实体逐跳排序分数",
+      "retrieve": {"step_score_mode": "entity_only", "eta": 0.0}
+    }
+  ],
+  "penalty_ablation": [
+    {"id": "none", "label": "无关系冗余惩罚", "retrieve": {"penalty_mode": "none"}},
+    {"id": "fixed", "label": "固定加性关系冗余惩罚", "retrieve": {"penalty_mode": "fixed"}},
+    {"id": "adaptive", "label": "路径得分自适应关系冗余惩罚", "retrieve": {"penalty_mode": "adaptive"}}
+  ],
+  "shortest_path_baseline": {
+    "id": "top20_hop_available",
+    "label": "TransferNet 候选答案最短路径后处理",
+    "candidate_topk": 20,
+    "max_paths_per_pair": 20,
+    "path_budget": 20,
+    "max_hop_source": "available_steps",
+    "drop_loopback": true
+  }
+}

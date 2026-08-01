@@ -177,25 +177,36 @@ class TestExperimentRunners(unittest.TestCase):
             self.assertIn("data/output/kgqa/ch3_retrieval/webqsp/transfernet", stream.getvalue())
             self.assertIn("topk100_test/evaluation", stream.getvalue())
             self.assertIn('"--eta" "1.0"', stream.getvalue())
+            self.assertIn('"--relation_normalization" "global"', stream.getvalue())
             self.assertIn('"--no_progress"', stream.getvalue())
             self.assertIn('"--progress_interval" "7"', stream.getvalue())
 
-    def test_ch3_webqsp_config_defines_complete_beam_lambda_eta_scan(self):
+    def test_ch3_webqsp_config_defines_one_factor_parameter_scan(self):
         root = Path(__file__).resolve().parents[2]
-        config = json.loads((root / "experiments/configs/ch3/webqsp_transfernet_v1.json").read_text(encoding="utf-8"))
+        config = json.loads((root / "experiments/configs/ch3/webqsp_transfernet_v2.json").read_text(encoding="utf-8"))
         scan = config["parameter_scan"]
         triples = {
-            (beam_size, lambda_val, eta)
-            for beam_size in scan["beam_size"]
-            for lambda_val in scan["lambda_val"]
-            for eta in scan["eta"]
+            (item["beam_size"], item["lambda_val"], item["eta"])
+            for item in scan["items"]
         }
-        self.assertEqual(len(triples), len(scan["beam_size"]) * len(scan["lambda_val"]) * len(scan["eta"]))
+        self.assertEqual(len(triples), 16)
+        self.assertEqual(
+            {beam for beam, lambda_val, eta in triples if lambda_val == 0.2 and eta == 1.0},
+            {3, 5, 10, 20, 50, 100},
+        )
+        self.assertEqual(
+            {lambda_val for beam, lambda_val, eta in triples if beam == 20 and eta == 1.0},
+            {0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0},
+        )
+        self.assertEqual(
+            {eta for beam, lambda_val, eta in triples if beam == 20 and lambda_val == 0.2},
+            {0.0, 0.5, 1.0, 1.5, 2.0},
+        )
         self.assertIn((50, 0.2, 1.0), triples)
-        self.assertEqual(scan["eta"], [0, 0.5, 1.0, 1.5, 2])
         self.assertEqual(config["retrieve"]["eta"], 1.0)
         self.assertEqual(config["retrieve"]["step_score_mode"], "joint")
         self.assertEqual(config["retrieve"]["penalty_mode"], "adaptive")
+        self.assertEqual(config["retrieve"]["relation_normalization"], "global")
         self.assertEqual(
             [item["id"] for item in config["score_component_ablation"]],
             ["joint_eta1", "joint_eta0", "relation_only", "entity_only"],
@@ -321,6 +332,27 @@ class TestExperimentRunners(unittest.TestCase):
                 "beam20_lambda02_eta05", "beam20_lambda02_eta1",
                 "beam50_lambda0_eta05", "beam50_lambda0_eta1",
                 "beam50_lambda02_eta05", "beam50_lambda02_eta1",
+            ],
+        )
+
+    def test_ch3_parameter_scan_accepts_explicit_one_factor_items(self):
+        items = run_ch3._parameter_scan_items({
+            "parameter_scan": {"items": [
+                {"beam_size": 3, "lambda_val": 0.2, "eta": 1.0},
+                {"beam_size": 20, "lambda_val": 0.0, "eta": 1.0},
+                {"beam_size": 20, "lambda_val": 0.2, "eta": 0.0},
+            ]},
+        })
+        self.assertEqual(
+            [item["id"] for item in items],
+            ["beam3_lambda02_eta1", "beam20_lambda0_eta1", "beam20_lambda02_eta0"],
+        )
+        self.assertEqual(
+            [item["retrieve"] for item in items],
+            [
+                {"beam_size": 3, "lambda_val": 0.2, "eta": 1.0},
+                {"beam_size": 20, "lambda_val": 0.0, "eta": 1.0},
+                {"beam_size": 20, "lambda_val": 0.2, "eta": 0.0},
             ],
         )
 

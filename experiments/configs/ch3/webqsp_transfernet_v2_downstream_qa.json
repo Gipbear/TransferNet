@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "kind": "ch3_downstream_qa",
+  "dataset": "webqsp",
+  "backbone": "transfernet",
+  "config_id": "transfernet_v2",
+  "profile": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/confirmed_profiles/transfernet_v2/confirmed_config.json",
+  "evaluation": {
+    "model": "unsloth/meta-llama-3.1-8b-instruct-bnb-4bit",
+    "format": "v2",
+    "path_format": "chain",
+    "entity_repr": "name",
+    "max_new_tokens": 256,
+    "batch_size": 4,
+    "path_budget": 20
+  },
+  "conditions": [
+    {
+      "id": "no_path",
+      "label": "无路径",
+      "input": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/confirmed_profiles/transfernet_v2/test.jsonl",
+      "method": {"no_paths": true},
+      "no_paths": true
+    },
+    {
+      "id": "shortest_path",
+      "label": "最短路径",
+      "input": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/shortest_path_baselines/transfernet_v1/top20_hop_available/test.jsonl",
+      "method": {"method": "shortest_path_postprocess"}
+    },
+    {
+      "id": "score_beam",
+      "label": "普通 Score-Beam",
+      "input": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/confirmed_profiles/transfernet_v2/candidates/beam20_lambda0_eta0/test.jsonl",
+      "method": {"beam_size": 20, "lambda_val": 0.0, "eta": 0.0, "penalty_mode": "none"}
+    },
+    {
+      "id": "terminal_score_beam",
+      "label": "终点感知 Score-Beam",
+      "input": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/penalty_ablations/transfernet_v2/none/test.jsonl",
+      "method": {"beam_size": 20, "lambda_val": 0.0, "eta": 1.0, "penalty_mode": "none"}
+    },
+    {
+      "id": "fixed",
+      "label": "固定加性冗余惩罚",
+      "input": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/penalty_ablations/transfernet_v2/fixed/test.jsonl",
+      "method": {"beam_size": 20, "lambda_val": 0.2, "eta": 1.0, "penalty_mode": "fixed"}
+    },
+    {
+      "id": "tarrs",
+      "label": "TARRS",
+      "input": "data/output/kgqa/ch3_retrieval/webqsp/transfernet/confirmed_profiles/transfernet_v2/test.jsonl",
+      "method": {"beam_size": 20, "lambda_val": 0.2, "eta": 1.0, "penalty_mode": "adaptive"}
+    }
+  ],
+  "fixed_pfit_adapter": null
+}
