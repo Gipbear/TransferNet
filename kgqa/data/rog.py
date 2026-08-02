@@ -1,6 +1,8 @@
-"""把 HuggingFace ``rmanluo/RoG-cwq`` 转成本项目的 NSM 格式（CWQ *_simple.json）。
+"""把 HuggingFace ``rmanluo/RoG-*`` 系列转成本项目的 NSM 格式（*_simple.json）。
 
-转换后的目录可直接喂给 ``CompWebQ.train`` 和 ``kgqa`` 全链路，无需改动下游代码。
+RoG-cwq 与 RoG-webqsp 的 schema 完全相同（同为「每样本自带子图」），故共用一套转换。
+转换后的目录直接喂给 ``CompWebQ.train``——该模块本就是按每样本子图写的；注意 WebQSP
+不要走 ``WebQSP.train``，那一套面向的是 fbwq_full 那种全局共享 KG。
 
 与现有 ``data/input/CWQ`` 的关键差别是**实体口径**：这里以实体名（name）建全局词表，
 而原始 NSM 数据以 Freebase MID 建表。两者互为补充：
@@ -10,8 +12,9 @@
 
 RoG / GNN-RAG 等工作按 name 评测，采用本转换结果才能与它们同口径对比。
 
-直接读 parquet 而不走 ``datasets.load_dataset``：后者会在 HF_DATASETS_CACHE
-下解包出约 37GB 的 arrow 缓存，在小盘机器上会写爆磁盘。
+直接读 parquet 而不走 ``datasets.load_dataset``：后者会在 HF_DATASETS_CACHE 下把
+压缩的 parquet 解包成未压缩 arrow（cwq 3.3G -> 37G，webqsp 495M -> 12G——子图里
+实体名高度重复，parquet 的字典编码压得极狠），在小盘机器上会写爆磁盘。
 """
 from __future__ import annotations
 
@@ -22,7 +25,7 @@ from typing import Iterator
 
 # HF 上的 split 名 -> 本项目文件名前缀（NSM 用 dev 而非 validation）
 SPLITS = {"train": "train", "validation": "dev", "test": "test"}
-REPO_ID = "rmanluo/RoG-cwq"
+REPOS = {"cwq": "rmanluo/RoG-cwq", "webqsp": "rmanluo/RoG-webqsp"}
 
 
 def _norm(name: str) -> str:
@@ -118,16 +121,18 @@ def convert_split(repo_dir: str, split: str, out_path: str,
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="RoG-cwq -> NSM 格式转换")
+    parser = argparse.ArgumentParser(description="RoG-* -> NSM 格式转换")
+    parser.add_argument("--dataset", default="cwq", choices=sorted(REPOS),
+                        help="要转换的 RoG 数据集")
     parser.add_argument("--output_dir", required=True, help="输出目录，如 data/input/RoG-CWQ")
     parser.add_argument("--repo_dir", default="",
-                        help="RoG-cwq 快照目录；留空则自动 snapshot_download")
+                        help="数据集快照目录；留空则自动 snapshot_download")
     args = parser.parse_args()
 
     repo_dir = args.repo_dir
     if not repo_dir:
         from huggingface_hub import snapshot_download
-        repo_dir = snapshot_download(repo_id=REPO_ID, repo_type="dataset")
+        repo_dir = snapshot_download(repo_id=REPOS[args.dataset], repo_type="dataset")
     print(f"[INFO] 数据快照: {repo_dir}", flush=True)
 
     os.makedirs(args.output_dir, exist_ok=True)

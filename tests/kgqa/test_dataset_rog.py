@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-from kgqa.data.rog_cwq import build_vocab, convert_split, iter_split
+from kgqa.data.rog import build_vocab, convert_split, iter_split
 
 
 def _write_parquet(data_dir, split, rows):
