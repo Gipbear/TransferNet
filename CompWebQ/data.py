@@ -194,9 +194,25 @@ def _cached_datasets(payload):
     raise ValueError('Unsupported CompWebQ cache format; delete the cache and rebuild it')
 
 
+def cache_path(input_dir, bert_name, add_rev=False):
+    """缓存文件名带上 bert_name。
+
+    缓存里存的是 tokenization 结果，换 encoder 就必须重建。此前所有 encoder 共用
+    一个 'cache.pt'，换 encoder 时会静默读到上一个 tokenizer 的结果——不报错，
+    只让指标莫名变差，很难联想到是缓存的问题。
+    """
+    slug = bert_name.replace('/', '_')
+    return os.path.join(input_dir, 'cache_{}{}.pt'.format(slug, '_rev' if add_rev else ''))
+
+
 def load_data(input_dir, bert_name, batch_size, add_rev=False, num_workers=0,
               pin_memory=False, persistent_workers=False):
-    cache_fn = os.path.join(input_dir, 'cache{}.pt'.format('_rev' if add_rev else ''))
+    cache_fn = cache_path(input_dir, bert_name, add_rev)
+    legacy_fn = os.path.join(input_dir, 'cache{}.pt'.format('_rev' if add_rev else ''))
+    if not os.path.exists(cache_fn) and os.path.exists(legacy_fn):
+        print('Found legacy cache {} with no tokenizer recorded; cannot confirm it '
+              'matches {}, rebuilding. Delete it once you no longer need it.'.format(
+                  legacy_fn, bert_name))
     if os.path.exists(cache_fn):
         print('Read from cache file: {}'.format(cache_fn))
         with open(cache_fn, 'rb') as fp:

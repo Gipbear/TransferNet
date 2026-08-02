@@ -3,7 +3,7 @@ import unittest
 import torch
 
 from CompWebQ.data import (
-    Dataset, SparseOneHot, _cached_datasets, collate, make_data_loader,
+    Dataset, SparseOneHot, _cached_datasets, cache_path, collate, make_data_loader,
 )
 from utils.path_utils import filter_tensor
 
@@ -68,6 +68,26 @@ class TestCompWebQDataLoading(unittest.TestCase):
         self.assertTrue(torch.equal(batch[0].dense(), torch.tensor([[1.0, 0.0], [0.0, 1.0]])))
         self.assertTrue(torch.equal(batch[2].dense(), torch.tensor([[0.0, 1.0], [1.0, 0.0]])))
         self.assertTrue(torch.equal(batch[5], torch.tensor([0, 1, 1])))
+
+
+class TestCachePath(unittest.TestCase):
+    def test_different_encoders_never_share_a_cache_file(self):
+        """换 encoder 必须换缓存文件。
+
+        缓存存的是 tokenization 结果；此前各 encoder 共用 'cache.pt'，换 encoder
+        会静默读到上一个 tokenizer 的结果，不报错、只让指标莫名变差。
+        """
+        names = ['bert-base-cased', 'bert-base-uncased', 'roberta-base',
+                 'BAAI/bge-base-en-v1.5']
+        paths = [cache_path('/d', n) for n in names]
+
+        self.assertEqual(len(set(paths)), len(names))
+        for p in paths:
+            self.assertNotIn('/', p[len('/d/'):])  # repo id 里的斜杠不能变成子目录
+
+    def test_add_rev_still_separates(self):
+        self.assertNotEqual(cache_path('/d', 'bert-base-cased', add_rev=True),
+                            cache_path('/d', 'bert-base-cased', add_rev=False))
 
 
 class TestSparseOneHot(unittest.TestCase):
