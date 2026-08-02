@@ -3,7 +3,12 @@ from unittest.mock import patch
 
 import torch
 
+from CompWebQ.data import SparseOneHot
 from CompWebQ.predict import validate
+
+
+def _one_hot(rows, num_ents=2):
+    return SparseOneHot.from_rows([torch.tensor(r).long() for r in rows], num_ents)
 
 
 class _Top1Model(torch.nn.Module):
@@ -14,10 +19,10 @@ class _Top1Model(torch.nn.Module):
 class TestCompWebQFastValidate(unittest.TestCase):
     def test_fast_mode_only_computes_top1_accuracy(self):
         batch = (
-            torch.zeros(2, 2), {"input_ids": torch.tensor([[1], [2]])},
-            torch.tensor([[0.0, 1.0], [0.0, 1.0]]),
+            _one_hot([[], []]), {"input_ids": torch.tensor([[1], [2]])},
+            _one_hot([[1], [1]]),
             (torch.tensor([[0, 0, 0]]), torch.tensor([[0, 0, 0]])),
-            torch.zeros(2, 2), torch.tensor([0, 1]),
+            _one_hot([[], []]), torch.tensor([0, 1]),
         )
         with patch("CompWebQ.predict.mmr_diversity_beam_search") as mmr, \
                 patch("CompWebQ.predict.open", create=True) as output_file:

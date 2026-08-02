@@ -14,7 +14,6 @@ import torch
 from tqdm import tqdm
 
 from utils.misc import batch_device, invert_dict
-from utils.path_utils import filter_tensor
 from CompWebQ.data import DataLoader
 from CompWebQ.model import TransferNet
 from kgqa.backbone.base import ScoreProducer
@@ -99,8 +98,8 @@ class CWQScoreProducer(ScoreProducer):
                 ent_probs = [t.cpu() for t in outputs["ent_probs"]]
                 num_steps = len(rel_probs)
                 for i in range(e_score.shape[0]):
-                    topic_ids = [int(x) for (x, _) in filter_tensor(batch[0][i], 1)]
-                    gold_ids = [int(x) for (x, _) in filter_tensor(batch[2][i], 0.5)]
+                    topic_ids = [int(x) for x in batch[0][i].tolist()]
+                    gold_ids = [int(x) for x in batch[2][i].tolist()]
                     ent_idx_hop, ent_sc_hop = [], []
                     for t in range(num_steps):
                         vec = ent_probs[t][i]

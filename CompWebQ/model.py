@@ -4,6 +4,7 @@ import math
 from transformers import AutoModel
 from utils.BiGRU import GRU, BiGRU
 from utils.huggingface import from_pretrained_local_first
+from .data import SparseOneHot
 
 
 def propagate_triples(last_e, rel_dist, triples, triple_batch, num_ents):
@@ -52,6 +53,9 @@ class TransferNet(nn.Module):
 
     def forward(self, heads, questions, answers=None, triples=None, entity_range=None,
                 triple_batch=None):
+        # one-hot 在这里才展开，稠密矩阵直接落在 GPU 上，省掉 CPU 构建和 H2D 搬运
+        if isinstance(heads, SparseOneHot):
+            heads = heads.dense()
         q = self.bert_encoder(**questions)
         q_embeddings, q_word_h = q.pooler_output, q.last_hidden_state # (bsz, dim_h), (bsz, len, dim_h)
         if triple_batch is None:
@@ -114,6 +118,11 @@ class TransferNet(nn.Module):
                 'hop_attn': hop_attn.squeeze(2)
             }
         else:
+            # 推理路径不碰 answers/entity_range，这两份稠密矩阵只在算 loss 时才需要
+            if isinstance(answers, SparseOneHot):
+                answers = answers.dense()
+            if isinstance(entity_range, SparseOneHot):
+                entity_range = entity_range.dense()
             weight = answers * 9 + 1
             loss = torch.sum(entity_range * weight * torch.pow(last_e - answers, 2)) / torch.sum(entity_range * weight)
 

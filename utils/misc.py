@@ -24,6 +24,8 @@ def batch_device(batch, device):
                     x[k] = x[k].to(device, non_blocking=True)
         elif isinstance(x, (list, tuple)) and isinstance(x[0], torch.Tensor):
             x = list(map(lambda i: i.to(device, non_blocking=True), x))
+        elif hasattr(x, 'to') and callable(x.to):
+            x = x.to(device, non_blocking=True)  # 如 CompWebQ 的 SparseOneHot
         res.append(x)
     return res
 

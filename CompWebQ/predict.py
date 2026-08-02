@@ -41,7 +41,7 @@ def validate(args, model, data, device, verbose=False,
             outputs = model(*batch_device(batch, device))  # [bsz, Esize]
             e_score = outputs['e_score'].cpu()
             scores, idx = torch.max(e_score, dim=1)
-            match_score = torch.gather(batch[2], 1, idx.unsqueeze(-1)).squeeze(1)
+            match_score = batch[2].gather_rows(idx)
             count += match_score.numel()
             correct += match_score.sum().item()
             if fast:
@@ -59,9 +59,10 @@ def validate(args, model, data, device, verbose=False,
                 h = hop_attn_cpu[i].argmax().item()
                 hop_count[h].append(match_score[i])
 
-                topic_scores = filter_tensor(batch[0][i], 1)
-                gold_pairs   = filter_tensor(batch[2][i], 0.5)
-                gold_ids     = {x for (x, _) in gold_pairs}
+                topic_ids    = batch[0][i].tolist()
+                topic_scores = [(x, 1.0) for x in topic_ids]
+                gold_id_list = batch[2][i].tolist()
+                gold_ids     = set(gold_id_list)
 
                 # CWQ: triples 是逐样本的，从 batch[3][i] 动态构建
                 sample_triples = batch[3][i].tolist()
@@ -111,7 +112,7 @@ def validate(args, model, data, device, verbose=False,
                 question_tokens = data.tokenizer.convert_ids_to_tokens(question_ids)
                 question_str = ' '.join(question_tokens).replace(' [PAD]', '').strip()
 
-                gold_ans = [data.id2ent[x] for (x, _) in gold_pairs]
+                gold_ans = [data.id2ent[x] for x in gold_id_list]
                 pred_ans = {data.id2ent[x]: float(f"{y:.3f}")
                             for (x, y) in filter_tensor(e_score[i], 0.9)}
 
@@ -133,8 +134,8 @@ def validate(args, model, data, device, verbose=False,
                 if verbose and match_score[i] == 0:
                     print('================================================================')
                     print(' '.join(question_tokens))
-                    topic_id = batch[0][i].argmax(0).item()
-                    print('> topic entity: {}'.format(data.id2ent[topic_id]))
+                    print('> topic entity: {}'.format(
+                        '; '.join(data.id2ent[x] for x in topic_ids)))
                     for t in range(2):
                         print('>>>>>>> step {}'.format(t))
                         tmp = ' '.join(['{}: {:.3f}'.format(x, y) for x, y in
@@ -148,8 +149,7 @@ def validate(args, model, data, device, verbose=False,
                             ent_probs_cpu[t][i].gt(0.8).nonzero().squeeze(1).tolist()])))
                     print('----')
                     print('> max is {}'.format(data.id2ent[idx[i].item()]))
-                    print('> golden: {}'.format('; '.join([data.id2ent[_] for _ in
-                        batch[2][i].gt(0.9).nonzero().squeeze(1).tolist()])))
+                    print('> golden: {}'.format('; '.join(gold_ans)))
                     print('> prediction: {}'.format('; '.join([data.id2ent[_] for _ in
                         e_score[i].gt(0.9).nonzero().squeeze(1).tolist()])))
                     print(' '.join(question_tokens))
@@ -176,7 +176,7 @@ def main():
     parser.add_argument('--input_dir', default='./input')
     parser.add_argument('--ckpt', required=True)
     parser.add_argument('--mode', default='val', choices=['val', 'vis', 'test'])
-    parser.add_argument('--bert_name', default='bert-base-cased', choices=['roberta-base', 'bert-base-cased', 'bert-base-uncased'])
+    parser.add_argument('--bert_name', default='BAAI/bge-base-en-v1.5', choices=['roberta-base', 'bert-base-cased', 'bert-base-uncased', 'BAAI/bge-base-en-v1.5'])
     parser.add_argument('--num_steps', default=2, type=int)
     parser.add_argument('--num_ways', default=1, type=int)
     parser.add_argument('--beam_size', default=3, type=int)

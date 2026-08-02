@@ -127,7 +127,7 @@ def main():
     parser.add_argument('--rev', action='store_true', help='whether add reversed relations')
     parser.add_argument('--num_ways', default=1, type=int)
     parser.add_argument('--num_steps', default=2, type=int)
-    parser.add_argument('--bert_name', default='bert-base-cased', choices=['roberta-base', 'bert-base-cased', 'bert-base-uncased'])
+    parser.add_argument('--bert_name', default='BAAI/bge-base-en-v1.5', choices=['roberta-base', 'bert-base-cased', 'bert-base-uncased', 'BAAI/bge-base-en-v1.5'])
     args = parser.parse_args()
 
     if args.num_threads < 0:

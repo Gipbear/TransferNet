@@ -12,7 +12,6 @@ import torch
 from tqdm import tqdm
 
 from utils.misc import batch_device
-from utils.path_utils import filter_tensor
 from .data import load_data
 from .model import TransferNet
 
@@ -41,8 +40,8 @@ def dump_scores(model, data, device, output_path, topk=500, mode="val", input_di
 
             bsz = e_score_cpu.shape[0]
             for i in range(bsz):
-                topic_ids = [x for (x, _) in filter_tensor(batch[0][i].cpu(), 1)]
-                gold_ids = [x for (x, _) in filter_tensor(batch[2][i].cpu(), 0.5)]
+                topic_ids = batch[0][i].tolist()
+                gold_ids = batch[2][i].tolist()
                 triples = batch[3][i].detach().cpu().long().tolist()
                 question = _decode_question(data.tokenizer, batch[1], i)
                 sample_counter += 1
@@ -107,8 +106,9 @@ def main():
     parser.add_argument("--ckpt", required=True, help="模型 checkpoint 路径")
     parser.add_argument("--mode", default="val", choices=["train", "val", "dev", "test"],
                         help="使用哪个数据集分割（默认: val/dev）")
-    parser.add_argument("--bert_name", default="bert-base-cased",
-                        choices=["roberta-base", "bert-base-cased", "bert-base-uncased"])
+    parser.add_argument("--bert_name", default="BAAI/bge-base-en-v1.5",
+                        choices=["roberta-base", "bert-base-cased", "bert-base-uncased",
+                                 "BAAI/bge-base-en-v1.5"])
     parser.add_argument("--output", default="output/score_cache/cwq_scores.pt",
                         help="缓存输出路径（.pt 文件）")
     parser.add_argument("--topk", type=int, default=500,

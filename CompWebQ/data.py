@@ -8,21 +8,62 @@ from transformers import AutoTokenizer
 from utils.huggingface import from_pretrained_local_first
 from utils.misc import invert_dict
 
-def _batch_one_hot(indices, num_ents):
-    sizes = torch.tensor([index.shape[0] for index in indices])
-    batch_idx = torch.repeat_interleave(torch.arange(len(indices)), sizes)
-    one_hot = torch.zeros(len(indices), num_ents)
-    one_hot[batch_idx, torch.cat(indices)] = 1
-    return one_hot
+class SparseOneHot:
+    """以行内列下标表示的 one-hot 矩阵，展开成稠密张量的动作推迟到目标设备上做。
+
+    CWQ 实体表有 240 万项，稠密 [bsz, num_ents] one-hot 每批约 622 MB；在 collate
+    里造三份再逐份拷进显存会让 GPU 长时间空等，这里只搬索引，由使用方在 GPU 上展开。
+    """
+
+    __slots__ = ('indices', 'batch_idx', 'batch_size', 'num_ents')
+
+    def __init__(self, indices, batch_idx, batch_size, num_ents):
+        self.indices = indices
+        self.batch_idx = batch_idx
+        self.batch_size = batch_size
+        self.num_ents = num_ents
+
+    @classmethod
+    def from_rows(cls, rows, num_ents):
+        sizes = torch.tensor([row.shape[0] for row in rows])
+        batch_idx = torch.repeat_interleave(torch.arange(len(rows)), sizes)
+        return cls(torch.cat(rows), batch_idx, len(rows), num_ents)
+
+    def to(self, device, non_blocking=False):
+        return SparseOneHot(
+            self.indices.to(device, non_blocking=non_blocking),
+            self.batch_idx.to(device, non_blocking=non_blocking),
+            self.batch_size, self.num_ents,
+        )
+
+    def dense(self):
+        one_hot = torch.zeros(self.batch_size, self.num_ents, device=self.indices.device)
+        one_hot[self.batch_idx, self.indices] = 1
+        return one_hot
+
+    def gather_rows(self, cols):
+        """取每行在 cols[row] 这一列上的取值，等价于 dense().gather(1, cols[:, None])。"""
+        cols = cols.to(self.indices.device)
+        hit = torch.zeros(self.batch_size, device=self.indices.device)
+        matched = self.indices == cols[self.batch_idx]
+        hit[self.batch_idx[matched]] = 1
+        return hit
+
+    def __getitem__(self, row):
+        """第 row 个样本的列下标，升序返回以对齐稠密 one-hot 上 torch.where 的顺序。"""
+        return torch.sort(self.indices[self.batch_idx == row]).values
+
+    def __len__(self):
+        return self.batch_size
 
 
 def collate(batch, num_ents):
     batch = list(zip(*batch))
     topic_entity, question, answer, triples, entity_range = batch
-    topic_entity = _batch_one_hot(topic_entity, num_ents)
+    topic_entity = SparseOneHot.from_rows(topic_entity, num_ents)
     question = {k:torch.cat([q[k] for q in question], dim=0) for k in question[0]}
-    answer = _batch_one_hot(answer, num_ents)
-    entity_range = _batch_one_hot(entity_range, num_ents)
+    answer = SparseOneHot.from_rows(answer, num_ents)
+    entity_range = SparseOneHot.from_rows(entity_range, num_ents)
     triple_sizes = torch.tensor([triple.shape[0] for triple in triples])
     triple_batch = torch.repeat_interleave(torch.arange(len(triples)), triple_sizes)
     return topic_entity, question, answer, triples, entity_range, triple_batch
