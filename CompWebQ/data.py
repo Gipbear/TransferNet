@@ -2,6 +2,7 @@ import torch
 import os
 import json
 import pickle
+import numpy as np
 from functools import partial
 from collections import defaultdict
 from transformers import AutoTokenizer
@@ -69,6 +70,17 @@ def collate(batch, num_ents):
     return topic_entity, question, answer, triples, entity_range, triple_batch
 
 
+def as_int32(values):
+    """把一串实体/关系 id 收成 int32 数组，取代 Python 的 list[int]。
+
+    CWQ 全量 1.48 亿条三元组按 list[list[int]] 存要 187 B/条：每条是一个 list 对象
+    (56 B) + 3 个指针 (24 B) + 3 个 int 对象 (各 28 B，实体 id 到 226 万，全都超出
+    CPython 的小整数缓存)。换成 int32 后是 14 B/条，25.8 GB 降到 1.9 GB。
+    id 上界 226 万，离 int32 的 21 亿很远，不会溢出。
+    """
+    return np.asarray(values, dtype=np.int32)
+
+
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, questions, ent2id):
         self.questions = questions
@@ -76,12 +88,14 @@ class Dataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         topic_entity, question, answer, triples, entity_range = self.questions[index]
-        topic_entity = torch.LongTensor(topic_entity)
-        answer = torch.LongTensor(answer)
-        triples = torch.LongTensor(triples)
+        # as_tensor 对 int32 数组和旧缓存里的 list[int] 都成立，取出来一律是 long，
+        # 下游拿到的东西跟以前逐位相同。
+        topic_entity = torch.as_tensor(topic_entity, dtype=torch.long)
+        answer = torch.as_tensor(answer, dtype=torch.long)
+        triples = torch.as_tensor(triples, dtype=torch.long)
         if triples.dim() == 1:
             triples = triples.unsqueeze(0)
-        entity_range = torch.LongTensor(entity_range)
+        entity_range = torch.as_tensor(entity_range, dtype=torch.long)
         return topic_entity, question, answer, triples, entity_range
 
     def __len__(self):
@@ -167,7 +181,10 @@ class DataLoader(torch.utils.data.DataLoader):
                     supply_triples.append([o, rev_r, s])
                 triples += supply_triples
 
-            data.append([head, question, ans, triples, entity_range])
+            # 就地收成 int32，好让本轮的 Python list 立刻可回收；留到最后统一转换
+            # 等于要同时扛住两份，峰值反而更高。
+            data.append([as_int32(head), question, as_int32(ans),
+                         as_int32(triples), as_int32(entity_range)])
 
         print('data number: {}, bad number: {} (exluded in training)'.format(len(data), cnt_bad))
         
@@ -194,25 +211,40 @@ def _cached_datasets(payload):
     raise ValueError('Unsupported CompWebQ cache format; delete the cache and rebuild it')
 
 
+# 样本字段的存储布局版本。v2 起三元组等 id 序列按 int32 数组存（见 as_int32）。
+# 布局进文件名而不是文件内容：v1 缓存里躺着的就是那份 25.8 GB 的 list[list[int]]，
+# 想「读进来再判断版本」的话，判断之前内存就已经炸了。
+CACHE_LAYOUT = 'v2'
+
+
 def cache_path(input_dir, bert_name, add_rev=False):
-    """缓存文件名带上 bert_name。
+    """缓存文件名带上 bert_name 和存储布局版本。
 
     缓存里存的是 tokenization 结果，换 encoder 就必须重建。此前所有 encoder 共用
     一个 'cache.pt'，换 encoder 时会静默读到上一个 tokenizer 的结果——不报错，
     只让指标莫名变差，很难联想到是缓存的问题。
     """
     slug = bert_name.replace('/', '_')
-    return os.path.join(input_dir, 'cache_{}{}.pt'.format(slug, '_rev' if add_rev else ''))
+    return os.path.join(input_dir, 'cache_{}{}_{}.pt'.format(
+        slug, '_rev' if add_rev else '', CACHE_LAYOUT))
 
 
 def load_data(input_dir, bert_name, batch_size, add_rev=False, num_workers=0,
               pin_memory=False, persistent_workers=False):
     cache_fn = cache_path(input_dir, bert_name, add_rev)
-    legacy_fn = os.path.join(input_dir, 'cache{}.pt'.format('_rev' if add_rev else ''))
-    if not os.path.exists(cache_fn) and os.path.exists(legacy_fn):
-        print('Found legacy cache {} with no tokenizer recorded; cannot confirm it '
-              'matches {}, rebuilding. Delete it once you no longer need it.'.format(
-                  legacy_fn, bert_name))
+    rev_tag = '_rev' if add_rev else ''
+    slug = bert_name.replace('/', '_')
+    legacy_fns = [
+        # 没记 tokenizer 的远古缓存
+        os.path.join(input_dir, 'cache{}.pt'.format(rev_tag)),
+        # 记了 tokenizer 但还是 v1 布局（list[int]）的缓存
+        os.path.join(input_dir, 'cache_{}{}.pt'.format(slug, rev_tag)),
+    ]
+    if not os.path.exists(cache_fn):
+        for fn in legacy_fns:
+            if os.path.exists(fn):
+                print('Found stale cache {} (old storage layout); rebuilding as {}. '
+                      'Delete it once you no longer need it.'.format(fn, cache_fn))
     if os.path.exists(cache_fn):
         print('Read from cache file: {}'.format(cache_fn))
         with open(cache_fn, 'rb') as fp:

@@ -1,9 +1,12 @@
+import os
 import unittest
 
+import numpy as np
 import torch
 
 from CompWebQ.data import (
-    Dataset, SparseOneHot, _cached_datasets, cache_path, collate, make_data_loader,
+    CACHE_LAYOUT, Dataset, SparseOneHot, _cached_datasets, as_int32, cache_path,
+    collate, make_data_loader,
 )
 from utils.path_utils import filter_tensor
 
@@ -88,6 +91,44 @@ class TestCachePath(unittest.TestCase):
     def test_add_rev_still_separates(self):
         self.assertNotEqual(cache_path('/d', 'bert-base-cased', add_rev=True),
                             cache_path('/d', 'bert-base-cased', add_rev=False))
+
+    def test_layout_version_is_in_the_filename(self):
+        """存储布局变了必须换文件名，不能靠读进来再判断。
+
+        v1 缓存里躺着的是 list[list[int]] 版的三元组，CWQ 全量 25.8 GB；等加载完
+        再发现版本不对，内存早就炸了。文件名带版本才能拦在 pickle.load 之前。
+        """
+        p = cache_path('/d', 'bert-base-cased')
+        self.assertIn(CACHE_LAYOUT, os.path.basename(p))
+        self.assertNotEqual(p, '/d/cache_bert-base-cased.pt')  # v1 的名字
+
+
+class TestInt32Storage(unittest.TestCase):
+    """id 序列改用 int32 数组存，取出来的东西必须跟 list 存法逐位相同。"""
+
+    def _questions(self, wrap):
+        return [(
+            wrap([0, 1]), {"input_ids": torch.tensor([[1]])}, wrap([1]),
+            wrap([[0, 0, 1], [1, 0, 0]]), wrap([0, 1]),
+        )]
+
+    def test_int32_storage_yields_identical_samples(self):
+        as_list = Dataset(self._questions(list), {"a": 0, "b": 1})[0]
+        as_arr = Dataset(self._questions(as_int32), {"a": 0, "b": 1})[0]
+
+        for i in (0, 2, 3, 4):
+            self.assertEqual(as_arr[i].dtype, torch.long)  # 下游还是按 long 用
+            self.assertTrue(torch.equal(as_list[i], as_arr[i]))
+
+    def test_int32_storage_is_much_smaller(self):
+        triples = [[i, 0, i + 1] for i in range(2000)]
+
+        packed = as_int32(triples)
+
+        self.assertEqual(packed.dtype, np.int32)
+        self.assertEqual(packed.shape, (2000, 3))
+        # list[list[int]] 每条约 187 B；int32 是 12 B，一个数量级以上的差
+        self.assertLess(packed.nbytes / len(triples), 20)
 
 
 class TestSparseOneHot(unittest.TestCase):
