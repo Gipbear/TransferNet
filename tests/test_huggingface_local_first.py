@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 
 from utils.huggingface import from_pretrained_local_first
 
@@ -35,3 +36,42 @@ class TestLocalFirstLoading(unittest.TestCase):
             ("repo/model", {"local_files_only": True}),
             ("repo/model", {"local_files_only": False}),
         ])
+
+
+class _VocabLoader:
+    """按调用顺序返回预置词表大小的 tokenizer 桩。"""
+
+    def __init__(self, *vocab_sizes):
+        self.vocab_sizes = list(vocab_sizes)
+        self.calls = []
+
+    def from_pretrained(self, model_id, **kwargs):
+        self.calls.append(kwargs["local_files_only"])
+        return SimpleNamespace(vocab_size=self.vocab_sizes.pop(0))
+
+
+class TestDegradedVocabGuard(unittest.TestCase):
+    """transformers 5.x 缺 vocab 文件时不再抛 OSError，而是静默返回空壳 tokenizer。"""
+
+    def test_healthy_vocab_skips_redownload(self):
+        loader = _VocabLoader(28996)
+
+        from_pretrained_local_first(loader, "bert-base-cased")
+
+        self.assertEqual(loader.calls, [True])
+
+    def test_degraded_vocab_triggers_redownload(self):
+        loader = _VocabLoader(5, 28996)
+
+        result = from_pretrained_local_first(loader, "bert-base-cased")
+
+        self.assertEqual(result.vocab_size, 28996)
+        self.assertEqual(loader.calls, [True, False])
+
+    def test_still_degraded_after_redownload_raises(self):
+        loader = _VocabLoader(5, 5)
+
+        with self.assertRaises(RuntimeError) as ctx:
+            from_pretrained_local_first(loader, "bert-base-cased")
+
+        self.assertIn("词表仍然异常", str(ctx.exception))
