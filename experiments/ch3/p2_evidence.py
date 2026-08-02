@@ -89,6 +89,7 @@ def load_qa_outcomes(path: Path) -> dict[int, dict[str, Any]]:
         outcomes[sample_index] = {
             "question": str(row.get("question", "")),
             "hit1": float(row["hit1"]),
+            "hit_any": float(row["hit_any"]),
             "macro_f1": float(row["f1"]),
         }
     return outcomes

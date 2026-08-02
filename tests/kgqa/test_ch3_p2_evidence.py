@@ -27,6 +27,23 @@ class TestCh3P2Evidence(unittest.TestCase):
         self.assertEqual(comparison["metrics"], ["macro_f1", "hit1"])
         self.assertEqual(statistics.get("pending_comparisons", []), [])
 
+    def test_qa_outcomes_expose_hit_any(self):
+        from experiments.ch3.p2_evidence import load_qa_outcomes
+
+        rows = [
+            {"sample_index": 0, "question": "q0", "hit1": 1, "hit_any": 1, "f1": 0.5},
+            {"sample_index": 1, "question": "q1", "hit1": 0, "hit_any": 1, "f1": 0.25},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "predictions.jsonl"
+            path.write_text(
+                "".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8"
+            )
+            outcomes = load_qa_outcomes(path)
+
+        self.assertEqual([outcomes[i]["hit_any"] for i in (0, 1)], [1.0, 1.0])
+        self.assertEqual([outcomes[i]["hit1"] for i in (0, 1)], [1.0, 0.0])
+
     def test_v2_p2_config_uses_global_normalization_and_v2_outputs(self):
         root = Path(__file__).resolve().parents[2]
         config = json.loads(
@@ -43,8 +60,11 @@ class TestCh3P2Evidence(unittest.TestCase):
             if name != "shortest_path":
                 self.assertIn("transfernet_v2", path)
         for name, path in config["statistics"]["qa_inputs"].items():
-            if name != "no_path":
+            if name not in ("no_path", "shortest_path"):
                 self.assertIn("transfernet_v2", path)
+        # 最短路径基线不依赖 v2 的全局归一化检索配置，其检索与下游 QA 产物均只有 v1 一份
+        self.assertIn("transfernet_v1", config["statistics"]["path_inputs"]["shortest_path"])
+        self.assertIn("transfernet_v1", config["statistics"]["qa_inputs"]["shortest_path"])
 
     def test_paired_bootstrap_is_deterministic_and_keeps_pairing(self):
         from experiments.ch3.p2_evidence import paired_bootstrap_interval
@@ -99,27 +119,43 @@ class TestCh3P2Evidence(unittest.TestCase):
         self.assertEqual(outcomes[9]["answer_hit"], 1.0)
         self.assertEqual(outcomes[9]["top1_hit"], 0.0)
 
-    def test_path_outcomes_use_reverse_edge_sink_as_answer(self):
+    def test_path_outcomes_use_tail_as_answer_regardless_of_reverse_edge(self):
+        """含反向边的路径同样以终点判定，与 pfit/agent 的 Golden 标注口径一致。"""
         from experiments.ch3.p2_evidence import load_path_outcomes
 
-        row = {
-            "sample_index": 0,
-            "question": "sink",
-            "golden": ["gold"],
-            "mmr_reason_paths": [{
-                "path": [
-                    ["topic", "forward_relation", "gold"],
-                    ["gold", "incoming_relation_reverse", "other"],
-                ],
-            }],
-        }
+        rows = [
+            {   # 终点是 golden：命中
+                "sample_index": 0,
+                "question": "tail is gold",
+                "golden": ["gold"],
+                "mmr_reason_paths": [{
+                    "path": [
+                        ["topic", "forward_relation", "cvt"],
+                        ["cvt", "incoming_relation_reverse", "gold"],
+                    ],
+                }],
+            },
+            {   # golden 出现在中间节点：不再命中
+                "sample_index": 1,
+                "question": "middle is gold",
+                "golden": ["gold"],
+                "mmr_reason_paths": [{
+                    "path": [
+                        ["topic", "forward_relation", "gold"],
+                        ["gold", "incoming_relation_reverse", "other"],
+                    ],
+                }],
+            },
+        ]
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "paths.jsonl"
-            path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+            path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
             outcomes = load_path_outcomes(path)
 
         self.assertEqual(outcomes[0]["answer_hit"], 1.0)
         self.assertEqual(outcomes[0]["top1_hit"], 1.0)
+        self.assertEqual(outcomes[1]["answer_hit"], 0.0)
+        self.assertEqual(outcomes[1]["top1_hit"], 0.0)
 
     def test_alignment_rejects_question_mismatch(self):
         from experiments.ch3.p2_evidence import paired_metric_arrays

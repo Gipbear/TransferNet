@@ -63,20 +63,20 @@ def is_reverse_relation(rel, id2rel=None):
 
 
 def path_answer_ids(nodes, rels, id2rel=None):
-    """提取一条路径对答案实体的候选节点。
+    """提取一条路径对答案实体的候选节点：取路径终点。
 
-    常规路径使用最后一个节点；若内部节点形成 ``-> node <-`` 的汇合结构，
-    则该中间节点才是这条路径指向的候选答案。
+    与 ``kgqa/pfit`` 的 Golden Path 标注（``build.py:label_paths``）和
+    ``kgqa/agent`` 的 ``mmr_top1_hit`` 保持同一口径，三者均以终点判定路径是否指向答案。
+
+    历史实现曾对 ``-> node <-``（正向关系接反向关系）的汇合结构改取中间节点。
+    WebQSP 实测该规则在 ``主题实体 -> CVT 中介 -> 答案`` 模式上系统性判错：
+    最短路径基线触发 4,663 条路径中判错 1,697 条、判对 321 条（5.3:1），
+    且对不同检索方法的影响相差 16 倍，故已移除。核查记录见
+    ``data/analysis/20260802_1702__ch3_path_answer_ids_cvt_audit/``。
     """
     if len(nodes) <= 1:
         return set()
-    sinks = []
-    for idx in range(1, len(nodes) - 1):
-        prev_is_forward = not is_reverse_relation(rels[idx - 1], id2rel)
-        next_is_reverse = is_reverse_relation(rels[idx], id2rel)
-        if prev_is_forward and next_is_reverse:
-            sinks.append(nodes[idx])
-    return set(sinks) if sinks else {nodes[-1]}
+    return {nodes[-1]}
 
 
 def compute_path_metrics(paths, gold_ids, id2rel=None):
