@@ -3,6 +3,10 @@
 *.sublime-project
 *.pyc
 data/
+!kgqa/data/
+!kgqa/data/**
+kgqa/data/**/__pycache__/
+kgqa/data/**/*.pyc
 .vscode/
 unsloth_compiled_cache
 models
