@@ -19,32 +19,36 @@ from IPython import embed
 
 def validate(args, model, data, device, verbose=False,
              beam_size=3, lambda_val=0.5, output_path=None,
-             acc_thresholds=None, compare_standard=True):
-    if acc_thresholds is None:
-        acc_thresholds = [0.7, 0.8, 0.9]
-
-    thresh_stats = create_thresh_stats(acc_thresholds)
-    run_std = compare_standard and (lambda_val != 0.0)
-    std_stats = create_std_stats()
+             acc_thresholds=None, compare_standard=True, fast=False):
+    if not fast:
+        if acc_thresholds is None:
+            acc_thresholds = [0.7, 0.8, 0.9]
+        thresh_stats = create_thresh_stats(acc_thresholds)
+        run_std = compare_standard and (lambda_val != 0.0)
+        std_stats = create_std_stats()
+        hop_count = defaultdict(list)
+        mmr_stats = create_mmr_stats()
+        out_path = output_path or "CompWebQ/predict_result_cwq_path_info.jsonl"
+        os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+        open(out_path, 'w').close()
 
     model.eval()
     count = 0
     correct = 0
-    hop_count = defaultdict(list)
-    mmr_stats = create_mmr_stats()
-
-    out_path = output_path or "CompWebQ/predict_result_cwq_path_info.jsonl"
-    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
-    open(out_path, 'w').close()
 
     with torch.no_grad():
         for batch in tqdm(data, total=len(data)):
             outputs = model(*batch_device(batch, device))  # [bsz, Esize]
             e_score = outputs['e_score'].cpu()
             scores, idx = torch.max(e_score, dim=1)
-            match_score = torch.gather(batch[2], 1, idx.unsqueeze(-1)).squeeze().tolist()
-            count += len(match_score)
-            correct += sum(match_score)
+            match_score = torch.gather(batch[2], 1, idx.unsqueeze(-1)).squeeze(1)
+            count += match_score.numel()
+            correct += match_score.sum().item()
+            if fast:
+                continue
+            match_score = match_score.tolist()
+            if not isinstance(match_score, list):
+                match_score = [match_score]
 
             hop_attn_cpu  = outputs['hop_attn'].cpu()
             rel_probs_cpu = [t.cpu() for t in outputs['rel_probs']]
@@ -160,6 +164,8 @@ def validate(args, model, data, device, verbose=False,
             del outputs, hop_attn_cpu, e_score, scores, idx, rel_probs_cpu, ent_probs_cpu
 
     acc = correct / count
+    if fast:
+        return acc
     print_validate_results(acc, hop_count, mmr_stats, thresh_stats, std_stats,
                            run_std, beam_size, lambda_val, acc_thresholds)
     return acc
@@ -181,7 +187,7 @@ def main():
     args = parser.parse_args()
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    ent2id, rel2id, triples, train_loader, val_loader = load_data(
+    ent2id, rel2id, train_loader, val_loader, test_loader = load_data(
         args.input_dir, args.bert_name, 16)
 
     model = TransferNet(args, ent2id, rel2id)
@@ -192,7 +198,7 @@ def main():
         print("Unexpected keys: {}".format("; ".join(unexpected)))
     model = model.to(device)
 
-    loader = val_loader if args.mode in ('val', 'vis') else val_loader
+    loader = val_loader if args.mode in ('val', 'vis') else test_loader
     acc_thresholds = [float(t) for t in args.acc_thresholds.split(',')]
     verbose = args.mode == 'vis'
 

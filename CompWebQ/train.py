@@ -50,7 +50,7 @@ def train(args):
     args.warmup_steps = int(t_total * args.warmup_proportion)
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=t_total)
     meters = MetricLogger(delimiter="  ")
-    validate(args, model, val_loader, device)
+    validate(args, model, val_loader, device, fast=True)
     logging.info("Start training........")
 
     for epoch in range(args.num_epoch):
@@ -91,8 +91,8 @@ def train(args):
                     )
                 )
         if (epoch+1)%5 == 0:
-            val_acc = validate(args, model, val_loader, device)
-            test_acc = validate(args, model, test_loader, device)
+            val_acc = validate(args, model, val_loader, device, fast=True)
+            test_acc = validate(args, model, test_loader, device, fast=True)
             logging.info('val acc: {:.4f}, test acc: {:.4f}'.format(val_acc, test_acc))
             torch.save(model.state_dict(), os.path.join(args.save_dir, 'model-{}-{:.4f}.pt'.format(epoch, test_acc)))
 
