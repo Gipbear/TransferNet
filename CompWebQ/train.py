@@ -9,19 +9,22 @@ from utils.misc import MetricLogger, batch_device
 from .data import load_data
 from .model import TransferNet
 from .predict import validate
-from transformers import AdamW, get_linear_schedule_with_warmup
+from torch.optim import AdamW
+from transformers import get_linear_schedule_with_warmup
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)-8s %(message)s')
 logFormatter = logging.Formatter('%(asctime)s %(levelname)-8s %(message)s')
 rootLogger = logging.getLogger()
 
-torch.set_num_threads(1) # avoid using multiple cpus
-
 
 def train(args):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    ent2id, rel2id, train_loader, val_loader, test_loader = load_data(args.input_dir, args.bert_name, args.batch_size, args.rev)
+    ent2id, rel2id, train_loader, val_loader, test_loader = load_data(
+        args.input_dir, args.bert_name, args.batch_size, args.rev,
+        num_workers=args.num_workers, pin_memory=args.pin_memory,
+        persistent_workers=args.persistent_workers,
+    )
     logging.info("Create model.........")
     model = TransferNet(args, ent2id, rel2id)
     if not args.ckpt == None:
@@ -46,7 +49,9 @@ def train(args):
         'weight_decay': 0.0, 'lr': args.lr},
         ]
 
-    optimizer = AdamW(optimizer_grouped_parameters)
+    # eps 显式取 1e-6:与已移除的 transformers.AdamW 默认值保持一致,
+    # 否则会退化为 torch 默认 1e-8,与历史 CWQ 基线不可比
+    optimizer = AdamW(optimizer_grouped_parameters, eps=1e-6)
     args.warmup_steps = int(t_total * args.warmup_proportion)
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=t_total)
     meters = MetricLogger(delimiter="  ")
@@ -108,6 +113,14 @@ def main():
     parser.add_argument('--weight_decay', default=1e-5, type=float)
     parser.add_argument('--num_epoch', default=30, type=int)
     parser.add_argument('--batch_size', default=64, type=int)
+    parser.add_argument('--num_threads', default=1, type=int,
+                        help='PyTorch CPU intra-op threads; 0 keeps the PyTorch default')
+    parser.add_argument('--num_workers', default=0, type=int,
+                        help='DataLoader worker processes; increase only when host memory permits')
+    parser.add_argument('--pin_memory', action='store_true',
+                        help='pin batches for asynchronous CUDA transfers')
+    parser.add_argument('--persistent_workers', action='store_true',
+                        help='keep training DataLoader workers alive between epochs (requires workers)')
     parser.add_argument('--seed', type=int, default=666, help='random seed')
     parser.add_argument('--warmup_proportion', default=0.1, type = float)
     # model parameters
@@ -116,6 +129,15 @@ def main():
     parser.add_argument('--num_steps', default=2, type=int)
     parser.add_argument('--bert_name', default='bert-base-cased', choices=['roberta-base', 'bert-base-cased', 'bert-base-uncased'])
     args = parser.parse_args()
+
+    if args.num_threads < 0:
+        parser.error('--num_threads must be non-negative')
+    if args.num_workers < 0:
+        parser.error('--num_workers must be non-negative')
+    if args.persistent_workers and args.num_workers == 0:
+        parser.error('--persistent_workers requires --num_workers > 0')
+    if args.num_threads:
+        torch.set_num_threads(args.num_threads)
 
     # make logging.info display into both shell and file
     if not os.path.exists(args.save_dir):

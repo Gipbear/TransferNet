@@ -5,6 +5,15 @@ from transformers import AutoModel
 from utils.BiGRU import GRU, BiGRU
 from utils.huggingface import from_pretrained_local_first
 
+
+def propagate_triples(last_e, rel_dist, triples, triple_batch, num_ents):
+    sub, rel, obj = triples[:, 0], triples[:, 1], triples[:, 2]
+    contributions = last_e[triple_batch, sub] * rel_dist[triple_batch, rel]
+    target = triple_batch * num_ents + obj
+    return last_e.new_zeros(last_e.shape[0] * num_ents).index_add_(
+        0, target, contributions).view(last_e.shape[0], num_ents)
+
+
 class TransferNet(nn.Module):
     def __init__(self, args, ent2id, rel2id):
         super().__init__()
@@ -41,11 +50,16 @@ class TransferNet(nn.Module):
         
 
 
-    def forward(self, heads, questions, answers=None, triples=None, entity_range=None):
+    def forward(self, heads, questions, answers=None, triples=None, entity_range=None,
+                triple_batch=None):
         q = self.bert_encoder(**questions)
         q_embeddings, q_word_h = q.pooler_output, q.last_hidden_state # (bsz, dim_h), (bsz, len, dim_h)
-        bsz = len(heads)
-        device = heads.device
+        if triple_batch is None:
+            triple_sizes = torch.tensor([triple.shape[0] for triple in triples],
+                                        device=heads.device)
+            triple_batch = torch.repeat_interleave(
+                torch.arange(len(triples), device=heads.device), triple_sizes)
+        triples = torch.cat(triples, dim=0)
 
         e_score = []
         last_h = torch.zeros_like(q_embeddings)
@@ -72,15 +86,8 @@ class TransferNet(nn.Module):
                 rel_dist = torch.sigmoid(rel_logit)
                 rel_probs.append(rel_dist)
 
-                new_e = []
-                for b in range(bsz):
-                    sub, rel, obj = triples[b][:,0], triples[b][:,1], triples[b][:,2]
-                    sub_p = last_e[b:b+1, sub] # [1, #tri]
-                    rel_p = rel_dist[b:b+1, rel] # [1, #tri]
-                    obj_p = sub_p * rel_p
-                    new_e.append(
-                        torch.index_add(torch.zeros(1, self.num_ents).to(device), 1, obj, obj_p))
-                last_e = torch.cat(new_e, dim=0)
+                last_e = propagate_triples(
+                    last_e, rel_dist, triples, triple_batch, self.num_ents)
 
                 # reshape >1 scores to 1 in a differentiable way
                 m = last_e.gt(1).float()
