@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "kind": "ch3_retrieval_profile",
+  "status": "draft",
+  "confirmation_reason": "泛化性验证用途：直接迁移 WebQSP 已冻结的 beam=20、λ=0.2、η=1.0，不在 CWQ 上重新选参。待完成 test 主对照后由人工确认。",
+  "selected_candidate": "beam20_lambda02_eta1",
+  "config_id": "rog_transfernet_v1",
+  "dataset": "cwq",
+  "backbone": "transfernet",
+  "topk": 500,
+  "selection_split": "test",
+  "topk_candidates": [500],
+  "score_source": {
+    "ckpt": "data/ckpt/RoG_CWQ_20260805_bge_rev_ep50_lr3e4/model-37-0.4803.pt",
+    "input_dir": "data/input/RoG-CWQ",
+    "bert_name": "BAAI/bge-base-en-v1.5",
+    "rev": true,
+    "splits": {
+      "test": {"qa_file": "data/input/RoG-CWQ/test_simple.json"}
+    }
+  },
+  "retrieve": {"beam_size": 20, "lambda_val": 0.2, "threshold": 0.01, "eta": 1.0, "step_score_mode": "joint", "penalty_mode": "adaptive", "relation_normalization": "global"},
+  "downstream_support": "第四章和第五章当前不支持 CWQ。"
+}

@@ -43,13 +43,18 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _score_source(config: dict[str, Any], split: str) -> dict[str, str]:
+def _score_source(config: dict[str, Any], split: str) -> dict[str, Any]:
     source = config.get("score_source", {})
     split_source = source.get("splits", {}).get(split, {})
     required = {"ckpt": source.get("ckpt", ""), "input_dir": source.get("input_dir", ""), "qa_file": split_source.get("qa_file", "")}
     missing = [name for name, value in required.items() if not value]
     if missing:
         raise ValueError(f"得分缓存配置缺少 {split} 的字段: {', '.join(missing)}")
+    # 骨干编码器与反向关系必须跟 ckpt 的训练设置一致，缺省时沿用各数据集的默认值
+    if source.get("bert_name"):
+        required["bert_name"] = source["bert_name"]
+    if source.get("rev"):
+        required["rev"] = True
     return required
 
 
@@ -372,6 +377,10 @@ def main(argv: list[str] | None = None) -> int:
                 "--split", split, "--topk", str(max_topk), "--output", str(cache_paths[max_topk]),
                 "--run_dir", str(max_score_run_dir), *_runtime_args(args),
             ]
+            if source.get("bert_name"):
+                command += ["--bert_name", source["bert_name"]]
+            if source.get("rev"):
+                command.append("--rev")
             run_command(command, max_score_run_dir, dry_run=args.dry_run)
             _finish_run(args, max_score_run_dir, "得分缓存")
             task_progress.update(1)

@@ -28,6 +28,19 @@ def _read_vocab(path: str) -> dict[str, int]:
     return vocab
 
 
+def _read_rel_vocab(path: str, add_rev: bool = False) -> dict[str, int]:
+    """关系词表；add_rev 时按原文件顺序追加 ``_rev`` 项。
+
+    与 CompWebQ/data.py load_data 的扩展方式逐位一致（正向 0..n-1，反向 n..2n-1），
+    训练用 --rev 得到的 ckpt 只有在同样扩展后关系分类器的输出维度才对得上。
+    """
+    rel2id = _read_vocab(path)
+    if add_rev:
+        for rel in list(rel2id):
+            rel2id[rel + "_rev"] = len(rel2id)
+    return rel2id
+
+
 def _valid_lines(qa_file: str, limit: int = 0) -> list[str]:
     """取非空子图样本的原始行（与 CompWebQ DataLoader 跳过空子图的规则对齐）。"""
     lines: list[str] = []
@@ -43,13 +56,32 @@ def _valid_lines(qa_file: str, limit: int = 0) -> list[str]:
     return lines
 
 
+def _assert_relation_vocab(state: dict, rel2id: dict[str, int], rev: bool) -> None:
+    """核对 ckpt 的关系分类器输出维度与当前关系词表一致。
+
+    load_state_dict(strict=False) 会静默跳过 shape 不匹配的参数：用 --rev 训练的
+    ckpt 配上未扩展的词表时，关系分类器保持随机初始化而不报错，得分全是噪声。
+    """
+    key = "rel-way_0.weight"
+    if key not in state:
+        return
+    ckpt_num_rel = state[key].shape[0]
+    if ckpt_num_rel == len(rel2id):
+        return
+    hint = "去掉 --rev" if rev else "加上 --rev"
+    raise ValueError(
+        f"ckpt 关系数 {ckpt_num_rel} 与词表 {len(rel2id)} 不一致"
+        f"（当前 rev={rev}）；该 ckpt 多半需要{hint}")
+
+
 class CWQScoreProducer(ScoreProducer):
     def __init__(self, bert_name: str = "bert-base-cased", num_steps: int = 2,
-                 num_ways: int = 1, limit: int = 0):
+                 num_ways: int = 1, limit: int = 0, rev: bool = False):
         self.bert_name = bert_name
         self.num_steps = num_steps
         self.num_ways = num_ways
         self.limit = limit
+        self.rev = rev
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self._ckpt_path: str | None = None
 
@@ -61,7 +93,7 @@ class CWQScoreProducer(ScoreProducer):
                 show_progress: bool = True, progress_callback=None) -> ScoreBundle:
         assert self._ckpt_path, "先调用 load_checkpoint()"
         ent2id = _read_vocab(os.path.join(input_dir, "entities.txt"))
-        rel2id = _read_vocab(os.path.join(input_dir, "relations.txt"))
+        rel2id = _read_rel_vocab(os.path.join(input_dir, "relations.txt"), self.rev)
 
         lines = _valid_lines(qa_file, self.limit)
         raw_questions = [json.loads(l)["question"].strip() for l in lines]
@@ -73,7 +105,8 @@ class CWQScoreProducer(ScoreProducer):
         else:
             qa_path = qa_file
         try:
-            loader = DataLoader(qa_path, self.bert_name, ent2id, rel2id, batch_size)
+            loader = DataLoader(qa_path, self.bert_name, ent2id, rel2id, batch_size,
+                                add_rev=self.rev)
         finally:
             if self.limit:
                 os.unlink(qa_path)
@@ -81,8 +114,9 @@ class CWQScoreProducer(ScoreProducer):
         args = SimpleNamespace(bert_name=self.bert_name, num_steps=self.num_steps,
                                num_ways=self.num_ways)
         model = TransferNet(args, ent2id, rel2id)
-        model.load_state_dict(
-            torch.load(self._ckpt_path, map_location="cpu", weights_only=True), strict=False)
+        state = torch.load(self._ckpt_path, map_location="cpu", weights_only=True)
+        _assert_relation_vocab(state, rel2id, self.rev)
+        model.load_state_dict(state, strict=False)
         model = model.to(self.device)
         model.eval()
 

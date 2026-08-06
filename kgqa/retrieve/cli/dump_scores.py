@@ -31,6 +31,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="MetaQA 每跳保留前 N 条（分层小子集），0=全量")
     p.add_argument("--limit", type=int, default=0,
                    help="CWQ 取前 N 条非空子图样本（小子集），0=全量")
+    p.add_argument("--rev", action="store_true",
+                   help="CWQ 补反向关系（关系词表翻倍）；须与 ckpt 的训练设置一致。"
+                        "WebQSP 的反向边已烘焙进 relations.dict，无需该开关")
     add_runtime_arguments(p)
     return p
 
@@ -110,6 +113,7 @@ def main(argv=None):
             bert_name=args.bert_name,
             per_hop_limit=args.per_hop_limit,
             limit=args.limit,
+            rev=args.rev,
         )
     except KeyError as exc:
         raise SystemExit(str(exc)) from exc

@@ -10,6 +10,7 @@ def make_score_producer(
     bert_name: str | None = None,
     per_hop_limit: int = 0,
     limit: int = 0,
+    rev: bool = False,
 ) -> ScoreProducer:
     if dataset == "webqsp":
         from kgqa.backbone.webqsp import WebQSPScoreProducer
@@ -19,7 +20,8 @@ def make_score_producer(
         return MetaQAScoreProducer(per_hop_limit=per_hop_limit)
     if dataset == "cwq":
         from kgqa.backbone.cwq import CWQScoreProducer
-        return CWQScoreProducer(bert_name=bert_name or "bert-base-cased", limit=limit)
+        return CWQScoreProducer(bert_name=bert_name or "bert-base-cased", limit=limit,
+                                rev=rev)
     raise KeyError(f"未支持的 score producer: {dataset}")
 
 
