@@ -13,7 +13,7 @@ from kgqa.runtime import configure_runtime, emit_event, update_progress
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="第四章路径监督微调实验编排")
-    parser.add_argument("--dataset", choices=["webqsp", "metaqa"], required=True)
+    parser.add_argument("--dataset", choices=["webqsp", "metaqa", "cwq"], required=True)
     parser.add_argument("--config", required=True, help="第四章实验矩阵 JSON")
     parser.add_argument("--profile", required=True, help="已人工确认的第三章检索配置 JSON")
     parser.add_argument("--experiment", default="all", help="实验编号；all 表示矩阵中的全部实验")

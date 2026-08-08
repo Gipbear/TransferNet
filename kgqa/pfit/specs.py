@@ -20,7 +20,11 @@ _WORDPIECE_MARKER_RE = re.compile(r"\s*##\s*")
 _ES_PLACEHOLDER_RE = re.compile(r"\bE_S\b", re.IGNORECASE)
 
 
-def _clean_question_webqsp(question: str, topics: list[str]) -> str:
+def _clean_question_bert_tokens(question: str, topics: list[str]) -> str:
+    """移除 BERT 特殊 token 与 wordpiece 标记(与 llm_infer.kg_format 行为一致)。
+
+    问题文本已是原文时(如 RoG-CWQ)退化为空白规整,不改变内容。
+    """
     question = _QUESTION_BOUNDARY_TOKEN_RE.sub(" ", question or "")
     question = _WORDPIECE_MARKER_RE.sub("", question)
     return " ".join(question.split()).strip()
@@ -60,7 +64,7 @@ _SPECS: dict[str, PfitDatasetSpec] = {
         name="webqsp",
         entity_reprs=("mid", "name"),
         default_entity_repr="name",
-        clean_question=_clean_question_webqsp,
+        clean_question=_clean_question_bert_tokens,
         supports_rejection=True,
         group_by_hop=False,
         hops=(1, 2),
@@ -74,6 +78,17 @@ _SPECS: dict[str, PfitDatasetSpec] = {
         supports_rejection=False,
         group_by_hop=True,
         hops=(1, 2, 3),
+    ),
+    # RoG-CWQ 的实体在数据文件里已是表面名,不存在 MID→Name 映射;hop 取检索步数(1/2),
+    # 与 CWQ 官方的 composition/conjunction 等问题类型无关,故不按 hop 分层。
+    "cwq": PfitDatasetSpec(
+        name="cwq",
+        entity_reprs=("name",),
+        default_entity_repr="name",
+        clean_question=_clean_question_bert_tokens,
+        supports_rejection=True,
+        group_by_hop=False,
+        hops=(1, 2),
     ),
 }
 

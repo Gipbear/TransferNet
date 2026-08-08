@@ -56,11 +56,35 @@ class TestMetaQASpec(unittest.TestCase):
         self.assertEqual(self.spec.hops, (1, 2, 3))
 
 
+class TestCWQSpec(unittest.TestCase):
+    def setUp(self):
+        from kgqa.pfit.specs import get_pfit_spec
+        self.spec = get_pfit_spec("cwq")
+
+    def test_entity_reprs_name_only(self):
+        # RoG-CWQ 数据文件里的实体已是表面名,不存在 MID→Name 映射
+        self.assertEqual(self.spec.entity_reprs, ("name",))
+        self.assertIsNone(self.spec.entity_map_path)
+        self.assertEqual(self.spec.load_entity_map(), {})
+
+    def test_clean_question_keeps_plain_text(self):
+        q = "Lou Seal is the mascot for the team that last won the World Series when?"
+        self.assertEqual(self.spec.clean_question(q, ["Lou Seal"]), q)
+
+    def test_rejection_supported(self):
+        self.assertTrue(self.spec.supports_rejection)
+
+    def test_no_hop_grouping(self):
+        # hop 是检索步数(1/2),不是 CWQ 的 composition/conjunction 等问题类型
+        self.assertFalse(self.spec.group_by_hop)
+        self.assertEqual(self.spec.hops, (1, 2))
+
+
 class TestRegistry(unittest.TestCase):
     def test_unknown_dataset_raises(self):
         from kgqa.pfit.specs import get_pfit_spec
         with self.assertRaises(KeyError):
-            get_pfit_spec("cwq")  # CWQ 暂缓,stage2 不注册
+            get_pfit_spec("freebaseqa")
 
 
 if __name__ == "__main__":
