@@ -125,6 +125,8 @@ def expand_pred_answers_with_path_constraint(
 
 # ─── 输出解析(与 legacy 行为一致) ─────────────────────────────────────────────
 
+# 推理型模型的思考段;未闭合(被 max_new_tokens 截断)时丢弃其后全部内容
+_THINK_RE       = re.compile(r"<think>.*?(?:</think>|\Z)", re.IGNORECASE | re.DOTALL)
 _ANSWER_RE      = re.compile(r"Answer\s*[:：]\s*(.+)", re.IGNORECASE)
 _CITE_RE        = re.compile(r"Supporting\s*Paths?\s*[:：]\s*([\d,\s]+)", re.IGNORECASE)
 _JSON_RE        = re.compile(r"\{.*\}", re.DOTALL)
@@ -142,8 +144,12 @@ def is_rejection_response(parsed: dict) -> bool:
 
 
 def parse_output(raw: str, fmt: str) -> dict:
-    """解析模型输出 → answers / cited_indices(1-based)/ format_ok。"""
-    raw = raw.strip()
+    """解析模型输出 → answers / cited_indices(1-based)/ format_ok。
+
+    先剥掉推理型模型(如 R1-Distill)的 <think> 段:_ANSWER_RE 用的是 search,
+    思考过程里出现的 "Answer:" 会被误当成最终答案。
+    """
+    raw = _THINK_RE.sub("", raw).strip()
 
     def _dedup(lst: list) -> list:
         return list(dict.fromkeys(lst))
