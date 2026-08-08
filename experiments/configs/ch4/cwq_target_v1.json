@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "kind": "ch4_pfit_matrix",
+  "dataset": "cwq",
+  "config_id": "target_v1",
+  "note": "RoG-CWQ 冲指标矩阵，目标：Hit > 66.8、Hit@1 > 61.7、Macro-F1 > 59.4。不做消融，只跑主实验。上游为 rog_transfernet_beam30（beam=30，PathHit@20=74.48 即端到端天花板）。训练集用满 6000 条检索结果（WebQSP 只有 2996 条；CWQ 更难，且零样本诊断显示可达样本答对率仅 71.0%，需要更多监督信号）。评测直接全量 3531 条：实测训练 41.6 s/step × 276 步 ≈ 3h11m、评测约 3.4 s/条，先跑 1000 条探路再全量会多花近 1 小时且更晚出结果，而全量结果本身包含前 1000 条，可直接切片与零样本/迁移基线对齐比较。不开 --include_rejection：不可达样本（26.4%）无论拒答还是编造，Hit/Hit@1/Macro-F1 均为 0，拒答训练在这三个目标上无收益，却有对可达样本误拒的风险；它改善的 hallucination_rate 属于可信性叙事，不在本矩阵目标内。",
+  "experiments": [
+    {
+      "id": "冲指标主实验",
+      "group": "主线",
+      "mode": "train",
+      "seeds": [17],
+      "build_args": [
+        "--format", "v2", "--path_format", "chain", "--entity_repr", "name"
+      ],
+      "eval_args": [
+        "--format", "v2", "--path_format", "chain", "--entity_repr", "name"
+      ]
+    }
+  ]
+}

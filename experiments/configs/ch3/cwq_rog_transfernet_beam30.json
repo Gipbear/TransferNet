@@ -2,9 +2,9 @@
   "schema_version": 1,
   "kind": "ch3_retrieval_profile",
   "status": "confirmed",
-  "confirmation_reason": "λ 与 η 已在 CWQ 上独立扫描确认：λ=0.2 是拐点（0→0.2 关系多样性 +5.98pt 而 PathHit 仅 −0.05pt，越过后转为纯代价，λ=1.0 时 PathHit −3.45pt）；η=1.0 是 PathHit 峰值（η 对路径精确率的调节幅度仅 +3pt，不足以追平最短路径基线）。两者独立选参均落回 WebQSP 的取值。beam=20 为第四章配置：PathHit@20=73.61 是端到端天花板，路径块约 558 token 与 WebQSP 的 504 相当；beam30 只多 0.87pt 天花板却多付 40% 上下文，beam50/100 超 max_seq_len 会被截断。若第三章收 CWQ 则改用 beam=10（路径 P=24.89 ≈ 最短路径基线 24.56，满足 §3.3.4 选参准则）。扫描明细见 data/analysis/20260807_2050__cwq_param_scan/。",
-  "selected_candidate": "beam20_lambda02_eta1",
-  "config_id": "rog_transfernet_v1",
+  "confirmation_reason": "第四章冲指标专用配置：beam=30。λ=0.2 与 η=1.0 沿用 rog_transfernet_v1 的 18 组扫描结论（均为 CWQ 上独立验证的最优点）。beam 由 20 提到 30 的依据：PathHit@20 由 73.61 升至 74.48（+0.87pt，即 LLM 端到端天花板提高），路径块约 782 token 仍在 max_seq_len=1280 预算内不会被截断；beam50 的 1153 token 会超预算触发路径截断，涨的天花板拿不到。本配置不用于与 WebQSP 的可比性对照——那仍以 rog_transfernet_v1（beam=20）为准。",
+  "selected_candidate": "beam30_lambda02_eta1",
+  "config_id": "rog_transfernet_beam30",
   "dataset": "cwq",
   "backbone": "transfernet",
   "topk": 500,
@@ -27,7 +27,7 @@
     }
   },
   "retrieve": {
-    "beam_size": 20,
+    "beam_size": 30,
     "lambda_val": 0.2,
     "threshold": 0.01,
     "eta": 1.0,

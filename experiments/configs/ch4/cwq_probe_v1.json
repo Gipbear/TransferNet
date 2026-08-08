@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "kind": "ch4_pfit_matrix",
+  "dataset": "cwq",
+  "config_id": "probe_v1",
+  "note": "RoG-CWQ 可行性探路：只跑主实验与零样本基线各一个种子，训练集抽 3000 条（与 WebQSP 的 2996 条同规模，保证跨数据集可比），评测限 1000 条（约 1.2~1.5h，SE≈1.5pt，足以判断 Hit@1 是否落在外推的 67 附近）。达标后再排全量矩阵，届时用不带 _probe1000 后缀的实验编号，避免与本配置的产物目录冲突。上游为第三章 rog_transfernet_v1（beam20/λ0.2/η1.0，经 CWQ 独立扫描确认 λ 与 η 均为最优点）。",
+  "experiments": [
+    {
+      "id": "主实验_probe1000",
+      "group": "主线",
+      "mode": "train",
+      "seeds": [17],
+      "build_args": [
+        "--format", "v2", "--path_format", "chain", "--entity_repr", "name",
+        "--sample", "3000"
+      ],
+      "eval_args": [
+        "--format", "v2", "--path_format", "chain", "--entity_repr", "name",
+        "--limit", "1000"
+      ]
+    },
+    {
+      "id": "零样本基线_probe1000",
+      "group": "主线",
+      "mode": "eval_only",
+      "seeds": [17],
+      "eval_args": [
+        "--format", "v2", "--path_format", "chain", "--entity_repr", "name",
+        "--limit", "1000"
+      ]
+    }
+  ]
+}
