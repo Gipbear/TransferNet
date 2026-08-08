@@ -423,7 +423,9 @@ def run_single(samples: list, model, tokenizer, cfg: dict, spec,
     path_format = cfg["path_format"]
     show_score = cfg["show_score"]
 
-    if cfg["no_paths"]:
+    if cfg.get("system_prompt"):
+        system_prompt = cfg["system_prompt"]
+    elif cfg["no_paths"]:
         system_prompt = FORMAT_PROMPTS["no_paths"]
     elif cfg["reject_prompt"]:
         system_prompt = select_format_prompt("v2", use_entity_names, reject_prompt=True)
@@ -625,6 +627,7 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
              dedupe_tail_paths: bool = False, shuffle_paths: bool = False,
              num_runs: int = 1, reject_prompt: bool = False,
              no_paths: bool = False, limit: int = 0,
+             system_prompt_file: str | None = None,
              model: str = "unsloth/meta-llama-3.1-8b-instruct-bnb-4bit",
              max_seq_length: int = 2048, max_new_tokens: int = 256,
              batch_size: int = 4, show_progress: bool = True,
@@ -640,6 +643,14 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
     if entity_repr == "name":
         resolved_map_path = entity_map_path or spec.entity_map_path
 
+    # 自定义 system prompt:内容进配置指纹，换提示词重跑不会被“同配置跳过”误判。
+    system_prompt = None
+    if system_prompt_file:
+        with open(system_prompt_file, encoding="utf-8") as f:
+            system_prompt = f.read().strip()
+        if not system_prompt:
+            raise ValueError(f"system prompt 文件为空: {system_prompt_file}")
+
     eval_dir = os.path.join(exp_dir, "eval")
     predictions_path = os.path.join(eval_dir, "predictions.jsonl")
     summary_path = os.path.join(eval_dir, "summary.json")
@@ -654,6 +665,7 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
         "reject_prompt": reject_prompt, "no_paths": no_paths, "limit": limit,
         "model": model, "max_seq_length": max_seq_length,
         "max_new_tokens": max_new_tokens,
+        "system_prompt": system_prompt,
     }
     inputs = {"retrieve": input_path}
     if adapter:
@@ -717,6 +729,7 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
         "run_dir": run_dir,
         "entity_map_dict": entity_map_dict, "rev_entity_map": rev_entity_map,
         "use_entity_names": entity_repr == "name",
+        "system_prompt": system_prompt,
     }
 
     os.makedirs(eval_dir, exist_ok=True)
@@ -764,6 +777,8 @@ def build_parser():
     p.add_argument("--shuffle_paths", action="store_true")
     p.add_argument("--num_runs", type=int, default=1)
     p.add_argument("--reject_prompt", action="store_true")
+    p.add_argument("--system_prompt_file", default=None,
+                   help="用文件内容覆盖 system prompt(优先级最高;内容进配置指纹)")
     p.add_argument("--no_paths", action="store_true")
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--model", default="unsloth/meta-llama-3.1-8b-instruct-bnb-4bit")
@@ -785,6 +800,7 @@ def main(argv=None):
         show_score=a.show_score, noise_paths=a.noise_paths,
         dedupe_tail_paths=a.dedupe_tail_paths, shuffle_paths=a.shuffle_paths,
         num_runs=a.num_runs, reject_prompt=a.reject_prompt, no_paths=a.no_paths,
+        system_prompt_file=a.system_prompt_file,
         limit=a.limit, model=a.model, max_seq_length=a.max_seq_length,
         max_new_tokens=a.max_new_tokens, batch_size=a.batch_size,
         show_progress=not a.no_progress, progress_interval=a.progress_interval,
