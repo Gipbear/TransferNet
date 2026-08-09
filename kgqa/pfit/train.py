@@ -17,6 +17,8 @@ import os
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 os.environ.setdefault("UNSLOTH_DISABLE_STATS", "1")
+# 显存紧张时(16G 卡跑 8B QLoRA)缓解 allocator 碎片,必须在 torch 导入前生效
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 import random
 import re
 import sys
@@ -209,6 +211,59 @@ def make_metrics_callback(metrics_path: str):
     return MetricsJsonlCallback()
 
 
+def make_memory_cleanup_callback():
+    """eval 结束后归还 CUDA 缓存。
+
+    eval 的 logits 峰值会把 16G 卡顶满,残留碎片会让后续训练落到 sysmem
+    fallback(表现为利用率 100% 但功耗仅三分之一、速度掉一个数量级)。
+    """
+    import torch
+    from transformers import TrainerCallback
+
+    class MemoryCleanupCallback(TrainerCallback):
+        def on_evaluate(self, args, state, control, **kwargs):
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+    return MemoryCleanupCallback()
+
+
+# ─── 训练配置 ──────────────────────────────────────────────────────────────────
+
+def build_training_args(*, adapter_dir: str, epochs: int, batch_size: int, grad_accum: int,
+                        lr: float, warmup_ratio: float, max_seq_len: int, seed: int,
+                        bf16: bool, has_eval: bool):
+    """构造 SFTConfig(纯配置,免 GPU 可测)。
+
+    eval batch 固定为 1 而非跟随 train batch:eval 的 logits 张量是
+    [bs, seq_len, vocab],8B 模型词表 128k 时单批就是 GB 级峰值。
+    checkpoint 按 epoch 落盘,避免长训练中断后颗粒无收。
+    """
+    from trl import SFTConfig
+
+    return SFTConfig(
+        output_dir=adapter_dir,
+        num_train_epochs=epochs,
+        per_device_train_batch_size=batch_size,
+        gradient_accumulation_steps=grad_accum,
+        learning_rate=lr,
+        lr_scheduler_type="cosine",
+        warmup_ratio=warmup_ratio,
+        fp16=not bf16,
+        bf16=bf16,
+        logging_steps=10,
+        save_strategy="epoch",
+        save_total_limit=1,
+        eval_strategy="epoch" if has_eval else "no",
+        per_device_eval_batch_size=1,
+        seed=seed,
+        report_to="none",
+        dataloader_num_workers=0,
+        max_length=max_seq_len,
+        dataset_kwargs={"skip_prepare_dataset": True},
+    )
+
+
 # ─── 主训练流程(GPU) ──────────────────────────────────────────────────────────
 
 def run_train(*, exp_dir: str, train_file: str = None,
@@ -253,7 +308,7 @@ def run_train(*, exp_dir: str, train_file: str = None,
         sys.exit("[Error] unsloth 未安装。请运行: pip install unsloth")
 
     import torch
-    from trl import SFTConfig, SFTTrainer
+    from trl import SFTTrainer
 
     model_obj, tokenizer = FastLanguageModel.from_pretrained(
         model_name=model,
@@ -286,28 +341,12 @@ def run_train(*, exp_dir: str, train_file: str = None,
     else:
         train_dataset = full_dataset
 
-    # 按序列长度升序排列,使同批次内长度相近,减少 padding 浪费
-    train_dataset = train_dataset.sort("length")
-
-    training_args = SFTConfig(
-        output_dir=adapter_dir,
-        num_train_epochs=epochs,
-        per_device_train_batch_size=batch_size,
-        gradient_accumulation_steps=grad_accum,
-        learning_rate=lr,
-        lr_scheduler_type="cosine",
-        warmup_ratio=warmup_ratio,
-        fp16=not torch.cuda.is_bf16_supported(),
-        bf16=torch.cuda.is_bf16_supported(),
-        logging_steps=10,
-        save_strategy="no",
-        eval_strategy="epoch" if eval_dataset is not None else "no",
-        per_device_eval_batch_size=batch_size,
-        seed=seed,
-        report_to="none",
-        dataloader_num_workers=0,
-        max_length=max_seq_len,
-        dataset_kwargs={"skip_prepare_dataset": True},
+    # 不按长度排序:unsloth 已启用 padding-free batching,排长会把最长样本聚成一批,
+    # 反而抬高单批 token 总数与显存峰值(Trainer 默认 RandomSampler 也会打乱排序结果)。
+    training_args = build_training_args(
+        adapter_dir=adapter_dir, epochs=epochs, batch_size=batch_size, grad_accum=grad_accum,
+        lr=lr, warmup_ratio=warmup_ratio, max_seq_len=max_seq_len, seed=seed,
+        bf16=torch.cuda.is_bf16_supported(), has_eval=eval_dataset is not None,
     )
     trainer = SFTTrainer(
         model=model_obj,
@@ -317,6 +356,7 @@ def run_train(*, exp_dir: str, train_file: str = None,
         args=training_args,
     )
     trainer.add_callback(make_metrics_callback(metrics_path))
+    trainer.add_callback(make_memory_cleanup_callback())
 
     log.info("开始训练...指标写入 %s", metrics_path)
     trainer_stats = trainer.train()
