@@ -21,7 +21,7 @@
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10z" fill="#475569"/></marker>
   </defs>
   <rect width="1800" height="1040" fill="#ffffff"/>
-  <text class="t title" x="900" y="56">图3-2  WebQSP 路径检索成功与失败案例</text>
+  <text class="t title" x="900" y="56">图3-6  WebQSP 路径检索成功与失败案例</text>
   <text class="t sub" x="900" y="88">案例用于解释全量统计中的机制与边界，不替代整体比较或置信区间</text>
 
   <!-- S1 -->
@@ -43,7 +43,7 @@
   <text class="t label" x="105" y="636">终点感知 Score-Beam</text>
   <text class="t body" x="105" y="666">Cars ← performance → Chick Hicks</text>
   <text class="t small" x="105" y="694">正确尾实体排名：1, 2；关系多样性：0.6667</text>
-  <text class="t body" x="105" y="721">QA：Chick Hicks　Hit@1=1，F1=1.00</text>
+  <text class="t body" x="105" y="721">QA：Chick Hicks　Hit@1=1</text>
   <rect x="83" y="790" width="448" height="101" rx="12" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
   <text class="t label" x="105" y="822">说明</text>
   <text class="t small" x="105" y="852">终点实体得分将问题需要的角色尾实体</text>
@@ -73,16 +73,16 @@
   <text class="t small" x="698" y="789">这是覆盖收益案例，不代表 TARRS 在最终 QA</text>
   <text class="t small" x="698" y="816">上相对固定惩罚具有稳定优势。</text>
 
-  <!-- F1 -->
+  <!-- S3 -->
   <rect class="panel" x="1225" y="125" width="535" height="820" fill="#f8fafc"/>
   <rect x="1225" y="125" width="535" height="78" rx="18" fill="#fee2e2"/>
-  <text class="t head" x="1492" y="174">F1 多样性：替代演员噪声</text>
+  <text class="t head" x="1492" y="174">S3 多样性：替代演员噪声</text>
   <text class="t sub" x="1492" y="231">Q: who voiced darth vader in the original star wars movies</text>
   <rect class="box good" x="1268" y="265" width="448" height="134"/>
   <text class="t label" x="1290" y="295">固定惩罚</text>
   <text class="t body" x="1290" y="325">Anakin → performance → James Earl Jones</text>
   <text class="t small" x="1290" y="353">关系多样性：0.4070；正确尾实体多次出现</text>
-  <text class="t body" x="1290" y="380">QA：James Earl Jones　Hit@1=1，F1=1.00</text>
+  <text class="t body" x="1290" y="380">QA：James Earl Jones　Hit@1=1</text>
   <path class="path" d="M1492 430 V466" stroke="#dc2626" marker-end="url(#arrow)"/>
   <text class="t body" x="1492" y="453" text-anchor="middle">增加关系模式与替代尾实体</text>
   <rect class="box bad" x="1268" y="490" width="448" height="163"/>
@@ -100,3 +100,4 @@
   <rect x="110" y="974" width="1580" height="43" rx="12" fill="#f1f5f9" stroke="#94a3b8" stroke-width="1.5"/>
   <text class="t small" x="900" y="1002" text-anchor="middle">数据：WebQSP 完整测试集；路径预算 K=20；固定 Llama 3.1 8B 零样本 QA。全量结论以表4-1、表5-1、表7-1、表9-3为准。</text>
 </svg>
+
