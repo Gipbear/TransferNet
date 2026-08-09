@@ -152,7 +152,8 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
                 entity_map: dict = None,
                 include_rejection: bool = False,
                 synthetic_rejection: bool = False,
-                dedupe_tail_paths: bool = False) -> Optional[dict]:
+                dedupe_tail_paths: bool = False,
+                system_prompt: Optional[str] = None) -> Optional[dict]:
     """从一条 retrieve JSONL 记录构造训练样本;None 表示无效或 Hit@K=0 且未启拒答。
 
     与 legacy 的差异:问题清洗与 name 措辞由调用方显式传入
@@ -181,7 +182,8 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
             show_score=show_score, path_format=path_format,
             entity_map=entity_map,
         )
-        system_prompt = select_format_prompt("v2", use_entity_names, reject_prompt=True)
+        prompt = system_prompt or select_format_prompt(
+            "v2", use_entity_names, reject_prompt=True)
         meta = {
             "question":            question,
             "golden":              golden,
@@ -200,7 +202,7 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
             meta["synthetic_rejection"] = True
         return {
             "messages": [
-                {"role": "system",    "content": system_prompt},
+                {"role": "system",    "content": prompt},
                 {"role": "user",      "content": user_content},
                 {"role": "assistant", "content": output_v2_reject()},
             ],
@@ -248,10 +250,11 @@ def make_sample(record: dict, fmt: str, shuffle: bool,
         entity_map=entity_map,
     )
 
-    if include_rejection:
-        system_prompt = select_format_prompt("v2", use_entity_names, reject_prompt=True)
-    else:
-        system_prompt = select_format_prompt(fmt, use_entity_names)
+    if system_prompt is None:
+        if include_rejection:
+            system_prompt = select_format_prompt("v2", use_entity_names, reject_prompt=True)
+        else:
+            system_prompt = select_format_prompt(fmt, use_entity_names)
 
     if fmt == "v1":
         asst = output_v1(answer_entities)
@@ -320,11 +323,12 @@ def _build_samples(records: list, fmt: str, shuffle: bool,
                    path_format: str, entity_map: Optional[dict],
                    include_rejection: bool, rejection_oversample: int,
                    synthetic_rejection_ratio: float,
-                   dedupe_tail_paths: bool) -> tuple[list, dict]:
+                   dedupe_tail_paths: bool,
+                   system_prompt: Optional[str] = None) -> tuple[list, dict]:
     """逐条构样 + 拒答上采样/合成(RNG 调用序列与 legacy build 一致)。"""
     common = dict(clean_question=clean_question, use_entity_names=use_entity_names,
                   path_format=path_format, entity_map=entity_map,
-                  dedupe_tail_paths=dedupe_tail_paths)
+                  dedupe_tail_paths=dedupe_tail_paths, system_prompt=system_prompt)
 
     samples, skipped, n_rejection = [], 0, 0
     rejection_records, synthetic_candidates = [], []
@@ -430,7 +434,8 @@ def run_build(*, dataset: str, input_path: str, exp_dir: str, fmt: str,
               rejection_oversample: int = 1,
               synthetic_rejection_ratio: float = 0.0,
               seed: int = 42,
-              output_name: str = "sft_train.jsonl") -> str:
+              output_name: str = "sft_train.jsonl",
+              system_prompt_file: str | None = None) -> str:
     """建集主入口。返回产物路径;同配置重跑直接跳过(断点续跑)。"""
     spec = get_pfit_spec(dataset)
 
@@ -439,6 +444,13 @@ def run_build(*, dataset: str, input_path: str, exp_dir: str, fmt: str,
         raise ValueError(f"{dataset} 不支持 entity_repr={entity_repr!r},可用:{spec.entity_reprs}")
     if include_rejection and not spec.supports_rejection:
         raise ValueError(f"{dataset} 不支持拒答样本构造(检索天花板过高,构造不出有效拒答)")
+
+    system_prompt = None
+    if system_prompt_file:
+        with open(system_prompt_file, encoding="utf-8") as f:
+            system_prompt = f.read().strip()
+        if not system_prompt:
+            raise ValueError(f"system prompt 文件为空: {system_prompt_file}")
 
     resolved_map_path = None
     if entity_repr == "name":
@@ -458,6 +470,7 @@ def run_build(*, dataset: str, input_path: str, exp_dir: str, fmt: str,
         "rejection_oversample": rejection_oversample,
         "synthetic_rejection_ratio": synthetic_rejection_ratio,
         "seed": seed, "output_name": output_name,
+        "system_prompt": system_prompt,
     }
     inputs = {"retrieve": input_path}
     if resolved_map_path:
@@ -505,6 +518,7 @@ def run_build(*, dataset: str, input_path: str, exp_dir: str, fmt: str,
         rejection_oversample=rejection_oversample,
         synthetic_rejection_ratio=synthetic_rejection_ratio,
         dedupe_tail_paths=dedupe_tail_paths,
+        system_prompt=system_prompt,
     )
 
     os.makedirs(exp_dir, exist_ok=True)
@@ -545,6 +559,8 @@ def build_parser():
     p.add_argument("--synthetic_rejection_ratio", type=float, default=0.0)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--output_name", default="sft_train.jsonl")
+    p.add_argument("--system_prompt_file", default=None,
+                   help="用文件内容覆盖 system prompt(推理与建集同文,内容进配置指纹)")
     add_runtime_arguments(p)
     return p
 
@@ -563,7 +579,8 @@ def main(argv=None):
                        include_rejection=a.include_rejection,
                        rejection_oversample=a.rejection_oversample,
                        synthetic_rejection_ratio=a.synthetic_rejection_ratio,
-                       seed=a.seed, output_name=a.output_name)
+                       seed=a.seed, output_name=a.output_name,
+                       system_prompt_file=a.system_prompt_file)
     update_progress(run_dir, completed=1, total=1, status="completed", phase="构建训练集")
     emit_event(run_dir, "phase_end", phase="构建训练集", output=output)
 

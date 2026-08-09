@@ -96,6 +96,18 @@ def dedupe_paths_by_tail(mmr_paths: list) -> list:
     return result
 
 
+def truncate_paths_by_score(mmr_paths: list, max_paths: int) -> list:
+    """按 log_score 降序截断到前 max_paths 条(≤0 表示不截断)。
+
+    检索产物本身已按分数降序,这里显式重排使语义独立于输入顺序;
+    用于"少路径高专注"验证:只保留检索得分最高的前 K 条路径。
+    """
+    if not max_paths or max_paths <= 0:
+        return list(mmr_paths)
+    ranked = sorted(mmr_paths, key=lambda p: p.get("log_score", 0.0), reverse=True)
+    return ranked[:max_paths]
+
+
 def expand_pred_answers_with_path_constraint(
     pred_answers: list,
     rev_entity_map: dict | None,
@@ -441,7 +453,8 @@ def run_single(samples: list, model, tokenizer, cfg: dict, spec,
     def prepare_sample(sample):
         question = spec.clean_question(sample.get("question", ""),
                                        sample.get("topics", []))
-        mmr_paths = list(sample.get("mmr_reason_paths", []))
+        mmr_paths = truncate_paths_by_score(
+            sample.get("mmr_reason_paths", []), cfg["max_paths"])
         golden = sample.get("golden", [])
 
         if cfg["no_paths"]:
@@ -631,6 +644,7 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
              entity_repr: str = None, entity_map_path: str = None,
              show_score: bool = False, noise_paths: int = 0,
              dedupe_tail_paths: bool = False, shuffle_paths: bool = False,
+             max_paths: int = 0,
              num_runs: int = 1, reject_prompt: bool = False,
              no_paths: bool = False, limit: int = 0,
              system_prompt_file: str | None = None,
@@ -667,7 +681,8 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
         "fmt": fmt, "path_format": path_format, "entity_repr": entity_repr,
         "entity_map_path": resolved_map_path, "show_score": show_score,
         "noise_paths": noise_paths, "dedupe_tail_paths": dedupe_tail_paths,
-        "shuffle_paths": shuffle_paths, "num_runs": num_runs,
+        "shuffle_paths": shuffle_paths, "max_paths": max_paths,
+        "num_runs": num_runs,
         "reject_prompt": reject_prompt, "no_paths": no_paths, "limit": limit,
         "model": model, "max_seq_length": max_seq_length,
         "max_new_tokens": max_new_tokens,
@@ -727,7 +742,8 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
     cfg = {
         "fmt": fmt, "path_format": path_format, "show_score": show_score,
         "noise_paths": noise_paths, "dedupe_tail_paths": dedupe_tail_paths,
-        "shuffle_paths": shuffle_paths, "reject_prompt": reject_prompt,
+        "shuffle_paths": shuffle_paths, "max_paths": max_paths,
+        "reject_prompt": reject_prompt,
         "no_paths": no_paths, "batch_size": batch_size,
         "max_new_tokens": max_new_tokens,
         "show_progress": show_progress,
@@ -781,6 +797,8 @@ def build_parser():
     p.add_argument("--noise_paths", type=int, default=0)
     p.add_argument("--dedupe_tail_paths", action="store_true")
     p.add_argument("--shuffle_paths", action="store_true")
+    p.add_argument("--max_paths", type=int, default=0,
+                   help="按检索得分保留前 N 条路径(≤0=不截断)")
     p.add_argument("--num_runs", type=int, default=1)
     p.add_argument("--reject_prompt", action="store_true")
     p.add_argument("--system_prompt_file", default=None,
@@ -805,6 +823,7 @@ def main(argv=None):
         entity_repr=a.entity_repr, entity_map_path=a.entity_map_path,
         show_score=a.show_score, noise_paths=a.noise_paths,
         dedupe_tail_paths=a.dedupe_tail_paths, shuffle_paths=a.shuffle_paths,
+        max_paths=a.max_paths,
         num_runs=a.num_runs, reject_prompt=a.reject_prompt, no_paths=a.no_paths,
         system_prompt_file=a.system_prompt_file,
         limit=a.limit, model=a.model, max_seq_length=a.max_seq_length,

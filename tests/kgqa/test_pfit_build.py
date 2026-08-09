@@ -68,6 +68,46 @@ class TestInputContract(unittest.TestCase):
             self.assertIn("retrieve", str(ctx.exception))
 
 
+class TestCustomSystemPrompt(unittest.TestCase):
+    def test_system_prompt_file_overrides_builtin_prompts(self):
+        from kgqa.pfit import build as pfit_build
+        with tempfile.TemporaryDirectory() as d:
+            inp = os.path.join(d, "in.jsonl")
+            _write_jsonl(inp, _fake_records(5))
+            prompt = os.path.join(d, "prompt.txt")
+            text = ("You are a knowledge-graph QA assistant. "
+                    "Select supporting paths, then answer.")
+            with open(prompt, "w", encoding="utf-8") as f:
+                f.write(text)
+            exp_dir = os.path.join(d, "exp")
+            out = pfit_build.run_build(
+                dataset="cwq", input_path=inp, exp_dir=exp_dir, fmt="v2",
+                path_format="chain", entity_repr="name",
+                system_prompt_file=prompt, seed=7)
+            with open(out, encoding="utf-8") as f:
+                samples = [json.loads(l) for l in f]
+            self.assertGreater(len(samples), 0)
+            for s in samples:
+                self.assertEqual(s["messages"][0]["role"], "system")
+                self.assertEqual(s["messages"][0]["content"], text)
+            with open(os.path.join(exp_dir, "manifest.json"), encoding="utf-8") as f:
+                manifest = json.load(f)
+            self.assertEqual(manifest["build"]["config"]["system_prompt"], text)
+
+    def test_empty_prompt_file_raises(self):
+        from kgqa.pfit import build as pfit_build
+        with tempfile.TemporaryDirectory() as d:
+            inp = os.path.join(d, "in.jsonl")
+            _write_jsonl(inp, _fake_records(2))
+            prompt = os.path.join(d, "prompt.txt")
+            open(prompt, "w").close()
+            with self.assertRaises(ValueError) as ctx:
+                pfit_build.run_build(
+                    dataset="cwq", input_path=inp, exp_dir=os.path.join(d, "exp"),
+                    fmt="v2", entity_repr="name", system_prompt_file=prompt)
+            self.assertIn("为空", str(ctx.exception))
+
+
 class TestLegacyParity(unittest.TestCase):
     """同输入 + 同配置 + 同 seed:pfit 与 legacy 产物 messages 逐条一致。"""
 
