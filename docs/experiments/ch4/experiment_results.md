@@ -563,6 +563,8 @@ composition / conjunction 问题结构上够不着；且训练集受 OOM 限制�
    而此时仅采样了全部 micro-batch 的 2.5%，尚未遇到最长序列的批次，后续 OOM 风险很高；
    开启 expandable_segments 后同步数只占 **9.8 GB**，速度不变（约 36 s/step）。
    这是本项目第一次本地 QLoRA 训练（10 个 WebQSP adapter 全在云端训）。
+   （2026-08-09 起该变量已由 `kgqa/pfit/train.py` 在导入 torch 前 setdefault，无需再手动设置；
+   仅设它并不足以避免 eval 阶段的显存峰值，完整修复见 6.2 末节。）
 2. **C4 结论不可平移**。4.3 节"不应裁剪干扰路径"是在 WebQSP 路径精确率 33.52 下得出的，
    CWQ 只有 16.57，噪声比翻倍。要在 CWQ 声称该结论，必须重跑干扰比例消融。
 3. **拒答样本占比 26.4%**（= 1 − PathHit@20），是 WebQSP 5.6% 的近 5 倍。
@@ -598,6 +600,72 @@ transformers 的 `AutoModel.from_pretrained` 路径不触发，所以**评测能
 
 **口径提醒**：零样本与迁移探路为 test 前 1000 条，非随机抽样。该子集可达率 72.70%
 对比全量 73.61%，基本无偏，但正式数值须以全量 3531 条为准——冲指标主实验因此直接跑全量。
+
+### 6.2 提示词策略 × 路径监督（2026-08-09，进行中）
+
+在 `rog_transfernet_beam30` 上游之上，比较三类提示词策略（`select` 选择式、
+`reject` 拒答式、`dont` 禁令式，各 v1/v2 两版）在**零样本**与**路径监督微调**两种条件下的表现。
+提示词文件在 `experiments/prompts/cwq_*.txt`，由 `kgqa.pfit.build --system_prompt_file`
+写入训练集并进配置指纹，评测用 `kgqa.pfit.eval --system_prompt_file` 加载同一文件，
+保证建集与推理同文。
+
+| 目录 | 内容 | 状态 |
+|---|---|---|
+| `ch4_pfit/cwq/base_prompt_probe/*_{100,300}` | 6 组提示词 × base 零样本 | 已完成 |
+| `ch4_pfit/cwq/prompt_sft/dont_v2` | 禁令式 v2 + QLoRA SFT | **已完成** |
+| `ch4_pfit/cwq/prompt_sft/{dont_v1,reject_v1,reject_v2,select_v1,select_v2}` | 其余 5 组 SFT | 仅建集，待训练 |
+
+**dont_v2：SFT vs base 零样本（同提示词、同 test 前 300 条，唯一变量是 adapter）**
+
+| 指标 | base 零样本 | SFT | Δ |
+|---|---|---|---|
+| Hit@1 | 54.67 | **62.33** | **+7.66** |
+| Hit@Any | 65.00 | 64.33 | −0.67 |
+| Macro-P | 47.06 | **59.39** | **+12.33** |
+| Macro-R | 58.42 | 60.00 | +1.58 |
+| Macro-F1 | 47.81 | **57.74** | **+9.93** |
+| Micro-P | 36.26 | **56.17** | **+19.91** |
+| Micro-F1 | 40.53 | **55.82** | **+15.29** |
+| EM | 25.33 | **48.00** | **+22.67** |
+| 引用准确率 | 44.19 | **59.64** | **+15.45** |
+| 引用召回 | 46.29 | **62.11** | **+15.82** |
+| 幻觉率 | 3.18 | **1.68** | −1.50 |
+| 格式合规 | 98.33 | **100.0** | +1.67 |
+| **拒答召回** | 2.47 | **0.00** | **−2.47** |
+
+训练：4638 条建集（读入 6000、丢弃 1362），4406 训练 / 232 验证，2 epoch / 276 步，
+train_loss 0.0617，eval_loss epoch1 0.0576 → epoch2 0.0543（无过拟合迹象）。
+
+**增益机制与 6.1 主实验一致：精确率而非召回。** Hit@Any 几乎不动（−0.67）而
+Micro-P +19.91、EM +22.67，说明微调压缩的是过度枚举，不是提升了答案定位。
+这与 6.1「微调改变的是"少说废话"，不是"多找对答案"」互为印证，两条独立实验线得到同一结论。
+
+**拒答能力被训练分布彻底覆盖（本轮最重要的负结果）**：`dont_v2` 建集配置为
+`include_rejection: false` / `synthetic_rejection_ratio: 0.0`，4638 条训练样本中
+**拒答样本为 0**。结果是 300 条测试样本里 81 条不可答样本的正确拒答数从 base 的
+2 条降到 **0 条**。`cwq_dont_v1.txt` 中 "Do NOT output (none) when a plausible tail exists"
+一类的禁令，在零样本时尚能触发 2 次弃权，SFT 后被训练分布完全压过——
+**提示词约束打不过训练数据分布**。这为 6.1 待解决事项第 3 条（拒答属独立消融组）
+补上了直接证据：不开 `--include_rejection` 不仅是"对三项目标无增益"，
+而是会把零样本残存的弃权能力也一并抹掉，可信性叙事因此必须靠单独的拒答训练组承载。
+
+**工程侧：eval 显存峰值导致的训练降速（已修复，会复发故记录）**
+
+首轮 `dont_v2` 训练在 epoch 1 的 eval 之后速度掉到十分之一（7 分钟/10 步 → 70 分钟/10 步），
+跑满 4h35m 才到 150/276 步。现象特征是**显存 16013 MiB / 16380 MiB 打满、
+GPU 利用率 100%、SM 时钟满速 2775 MHz，但功耗只有 52 W / 165 W（31%）**——
+时钟满而功耗低即 SM 在等 PCIe 数据，是 WSL 下显存溢出回退主机内存（sysmem fallback）的指纹。
+
+根因是 eval 阶段 `per_device_eval_batch_size` 跟随训练 batch 取 4，
+8B 模型 logits 张量 `[4, 1280, 128256]` 单批即 GB 级峰值，把显存顶满后
+allocator 碎片未归还，后续训练一直在慢速路径上爬。`kgqa/pfit/train.py` 已做四项修复：
+eval batch 固定为 1、eval 后 `empty_cache()`、导入 torch 前 setdefault
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`、`save_strategy` 由 `no` 改为 `epoch`
+（原先中断即颗粒无收）。修复后显存降至 11.4 GB、功耗回到 147~153 W，
+**整轮 276 步耗时 3h16m（42.7 s/step），eval 前后速度无差异**。
+
+**待办**：其余 5 组 SFT 尚未训练；拒答对照组（`dont_v3`，开
+`--include_rejection`）待跑，用于回答"路径监督是否必然牺牲弃权能力"。
 
 ## 7. 与第五章的衔接
 
