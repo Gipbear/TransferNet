@@ -145,10 +145,11 @@ def run_experiment(
                     final_ent_scores=final_scores,
                     order_start=len(path_candidates),
                 ))
+            # legacy CLI 沿用 --alpha_final;canonical 侧同一参数已更名为 eta
             selected_candidates = select_path_candidates(
                 path_candidates,
                 beam_size,
-                alpha_final=alpha_final,
+                eta=alpha_final,
                 lambda_val=lambda_val,
             )
             candidates = [candidate_to_tuple(c) for c in selected_candidates]

@@ -30,7 +30,7 @@ class OfflinePathMethodTest(unittest.TestCase):
             order=0,
         )
 
-        score = compute_candidate_score(candidate, alpha_final=2.0)
+        score = compute_candidate_score(candidate, eta=2.0)
 
         expected = (-8.0 + 2.0 * math.log(0.25 + 1e-9)) / 2
         self.assertAlmostEqual(score, expected)
@@ -43,10 +43,10 @@ class OfflinePathMethodTest(unittest.TestCase):
         ]
 
         no_penalty = select_path_candidates(
-            candidates, k=2, alpha_final=0.0, lambda_val=0.0
+            candidates, k=2, eta=0.0, lambda_val=0.0
         )
         penalized = select_path_candidates(
-            candidates, k=2, alpha_final=0.0, lambda_val=1.0
+            candidates, k=2, eta=0.0, lambda_val=1.0
         )
 
         self.assertEqual([c.order for c in no_penalty], [0, 1])

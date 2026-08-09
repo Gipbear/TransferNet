@@ -172,6 +172,11 @@ class TestServiceLegacyParity(unittest.TestCase):
         cls.old = CachedPathRetriever(cache_path=CACHE, input_dir=INPUT_DIR)
 
     def test_responses_match(self):
+        """核心结果逐字段相等;路径列表上 legacy 是 kgqa 的前缀。
+
+        自指路径的剔除时机不同:legacy 先按 beam_size 选满再剔除(名额被浪费,
+        结果短于 beam),kgqa 在源头剔除后继续补位选满。共同部分必须逐条一致。
+        """
         new_params = dict(beam_size=20, lambda_val=0.2, threshold=0.01, eta=1.0)
         legacy_params = dict(beam_size=20, lambda_val=0.2, threshold=0.01, alpha_final=1.0)
         for i in range(self.N_SAMPLES):
@@ -183,7 +188,8 @@ class TestServiceLegacyParity(unittest.TestCase):
                 self.assertEqual(rn["hop"], ro["hop"])
                 self.assertEqual(rn["prediction"], ro["prediction"])
                 self.assertEqual(rn["group_tails"], ro["group_tails"])
-                self.assertEqual(len(rn["mmr_reason_paths"]), len(ro["mmr_reason_paths"]))
+                self.assertTrue(rn["mmr_reason_paths"])
+                self.assertLessEqual(len(ro["mmr_reason_paths"]), len(rn["mmr_reason_paths"]))
                 for pn, po in zip(rn["mmr_reason_paths"], ro["mmr_reason_paths"]):
                     self.assertEqual(pn["path"], po["path"])
                     self.assertAlmostEqual(pn["log_score"], po["log_score"], places=5)

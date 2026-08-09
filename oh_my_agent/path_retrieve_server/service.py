@@ -177,10 +177,11 @@ class CachedPathRetriever:
                 order_start=len(path_candidates),
             ))
 
+        # legacy 对外沿用 alpha_final 之名;canonical 侧同一参数已更名为 eta
         selected = select_path_candidates(
             path_candidates,
             beam_size,
-            alpha_final=alpha_final,
+            eta=alpha_final,
             lambda_val=lambda_val,
         )
         candidates = [candidate_to_tuple(candidate) for candidate in selected]

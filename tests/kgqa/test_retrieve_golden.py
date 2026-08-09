@@ -60,8 +60,11 @@ class TestCliWritesGolden(unittest.TestCase):
         )
 
         class _FakeBackend:
-            def retrieve_all(self, *, limit=0, **params):
-                return [result]
+            """CLI 现按 bundle.samples 逐样本调 retrieve,不再走 retrieve_all。"""
+            bundle = type("_FakeBundle", (), {"samples": [object()]})()
+
+            def retrieve(self, sample_index, **params):
+                return result
 
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "out.jsonl")
