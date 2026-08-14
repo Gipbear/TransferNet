@@ -12,7 +12,6 @@ import eval_faithfulness as legacy  # noqa: E402
 _RAW_OUTPUTS = {
     "v1": ["Answer: m.01 | m.02", "garbage no answer line", "Answer: entity1"],
     "v2": ["Supporting Paths: 1, 3\nAnswer: Foo | Bar",
-           "Supporting Paths: (none)\nAnswer: (none)",
            "Answer: Foo"],
     "v3": ['{"reasoning": ["Path 1", "Path 3"], "answer": ["Foo", "Foo", "Bar"]}',
            "not json at all\nAnswer: Baz"],
@@ -54,6 +53,17 @@ class TestParseOutputParity(unittest.TestCase):
         for parsed in ({"answers": ["(none)"]}, {"answers": ["Foo"]}, {"answers": []}):
             self.assertEqual(legacy.is_rejection_response(parsed),
                              pfit_eval.is_rejection_response(parsed))
+
+    def test_v2_rejection_normalizes_to_none(self):
+        """拒答规范形式改为 None;旧 (none) 仍识别并归一化到 None。"""
+        from kgqa.pfit import eval as pfit_eval
+        for raw in ("Supporting Paths: None\nAnswer: None",
+                    "Supporting Paths: (none)\nAnswer: (none)"):
+            with self.subTest(raw=raw):
+                parsed = pfit_eval.parse_output(raw, "v2")
+                self.assertEqual(parsed["answers"], ["None"])
+                self.assertTrue(parsed["format_ok"])
+                self.assertTrue(pfit_eval.is_rejection_response(parsed))
 
 
 class TestMetricsParity(unittest.TestCase):

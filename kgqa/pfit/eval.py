@@ -142,17 +142,37 @@ _THINK_RE       = re.compile(r"<think>.*?(?:</think>|\Z)", re.IGNORECASE | re.DO
 _ANSWER_RE      = re.compile(r"Answer\s*[:：]\s*(.+)", re.IGNORECASE)
 _CITE_RE        = re.compile(r"Supporting\s*Paths?\s*[:：]\s*([\d,\s]+)", re.IGNORECASE)
 _JSON_RE        = re.compile(r"\{.*\}", re.DOTALL)
-_REJECT_CITE_RE = re.compile(r"Supporting\s*Paths?\s*[:：]\s*\(none\)", re.IGNORECASE)
+_REJECT_CITE_RE = re.compile(r"Supporting\s*Paths?\s*[:：]\s*([^\n\r]*)", re.IGNORECASE)
 
-REJECTION_SENTINEL = "(none)"
+REJECTION_SENTINEL = "None"
+
+# 模型实际写出的拒答表达。RoG-CWQ 拒答组实测:None 231 / (no answer) 70 /
+# (no answer provided) 6 / (none) 4。必须完整匹配——前缀匹配会把 Navy Blue、
+# Nanny and the Professor 这类实体名一并误判。
+_REJECTION_FORMS = frozenset({
+    "none", "no answer", "no answer provided", "no answer found",
+    "no answer available", "not available", "not found", "null", "nil",
+    "n/a", "na", "unknown", "unanswerable", "empty",
+    "cannot answer", "can't answer", "cant answer", "unable to answer",
+})
+
+_REJECT_STRIP_RE = re.compile(r"^[\s\"'(\[]+|[\s\"')\].!。]+$")
+
+
+def is_rejection_text(text: str) -> bool:
+    """判断单条答案是否为拒答表达(完整匹配,容忍外层括号/引号/句末标点)。"""
+    stripped = _REJECT_STRIP_RE.sub("", (text or "").strip())
+    if not stripped:
+        return False
+    return stripped.lower() in _REJECTION_FORMS
 
 
 def is_rejection_response(parsed: dict) -> bool:
-    """所有答案为 (none) 视为主动拒答;空答案视为格式错误。"""
+    """所有答案均为拒答表达时视为主动拒答;空答案视为格式错误。"""
     answers = parsed.get("answers", [])
     if not answers:
         return False
-    return all(a.strip().lower() == REJECTION_SENTINEL.lower() for a in answers)
+    return all(is_rejection_text(a) for a in answers)
 
 
 def parse_output(raw: str, fmt: str) -> dict:
@@ -185,7 +205,8 @@ def parse_output(raw: str, fmt: str) -> dict:
 
     elif fmt == "v2":
         cite_m = _CITE_RE.search(raw)
-        reject_cite = bool(_REJECT_CITE_RE.search(raw))
+        reject_m = _REJECT_CITE_RE.search(raw)
+        reject_cite = bool(reject_m and is_rejection_text(reject_m.group(1)))
         answer_m = _ANSWER_RE.search(raw)
         format_ok = bool((cite_m or reject_cite) and answer_m)
 
@@ -196,10 +217,12 @@ def parse_output(raw: str, fmt: str) -> dict:
                 if tok.isdigit():
                     cited_indices.add(int(tok))
 
-        if reject_cite and answer_m and REJECTION_SENTINEL in answer_m.group(1).lower():
+        answer_line = answer_m.group(1).strip().splitlines()[0] if answer_m else ""
+        if reject_cite and is_rejection_text(answer_line):
+            # 各种拒答写法统一规范化成 sentinel,下游统计口径不变
             answers = [REJECTION_SENTINEL]
         else:
-            answers = _parse_answers(answer_m.group(1).strip().splitlines()[0]) if answer_m else []
+            answers = _parse_answers(answer_line)
         return {"answers": answers, "cited_indices": cited_indices, "format_ok": format_ok}
 
     elif fmt == "v3":
@@ -299,10 +322,7 @@ def compute_faithfulness(cited_indices: set, golden_indices: set,
     else:
         cit_rec = 0.0
 
-    effective_pred_answers = [
-        e for e in pred_answers
-        if norm_entity(e) != norm_entity(REJECTION_SENTINEL)
-    ]
+    effective_pred_answers = [e for e in pred_answers if not is_rejection_text(e)]
     if effective_pred_answers:
         hallu_entities = [e for e in effective_pred_answers
                           if norm_entity(e) not in path_entities]

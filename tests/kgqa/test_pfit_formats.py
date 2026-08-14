@@ -48,13 +48,14 @@ class TestFormatParity(unittest.TestCase):
                         pfit.select_format_prompt(fmt, use_entity_names=use_names),
                         legacy.select_format_prompt(fmt, use_entity_names=use_names),
                     )
-        # 拒答变体(Group F 功能保留)
+        # 拒答变体(Group F 功能保留)。pfit 拒答规范形式已由 (none) 统一改为 None,
+        # legacy 只读保留旧格式,此处比较「pfit == legacy 的 (none)→None 替换」。
         for use_names in (False, True):
             self.assertEqual(
                 pfit.select_format_prompt("v2", use_entity_names=use_names,
                                           reject_prompt=True),
                 legacy.select_format_prompt("v2", use_entity_names=use_names,
-                                            reject_prompt=True),
+                                            reject_prompt=True).replace("(none)", "None"),
             )
 
     def test_no_paths_parity(self):

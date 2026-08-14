@@ -95,7 +95,7 @@ def output_v2(golden_indices: list, answers: list) -> str:
 
 
 def output_v2_reject() -> str:
-    return "Supporting Paths: (none)\nAnswer: (none)"
+    return "Supporting Paths: None\nAnswer: None"
 
 
 def output_v3(golden_indices: list, answers: list) -> str:
