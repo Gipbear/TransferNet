@@ -6,7 +6,7 @@ from tqdm import tqdm
 import numpy as np
 import time
 from utils.misc import MetricLogger, batch_device
-from .data import load_data
+from .data import load_data, make_data_loader, merge_dev_into_train
 from .model import TransferNet
 from .predict import validate
 from torch.optim import AdamW, RAdam
@@ -17,6 +17,22 @@ logFormatter = logging.Formatter('%(asctime)s %(levelname)-8s %(message)s')
 rootLogger = logging.getLogger()
 
 
+def should_save_checkpoint(epoch: int, test_acc: float, best_test_acc: float,
+                           save_best_only: bool, save_every: int) -> tuple[bool, bool]:
+    """返回 (是否落盘, 是否为刷新纪录的 best)。
+
+    test acc 前期单调上升,「刷新纪录就存」等于每个 epoch 都存一个 490MB 文件。
+    best 只留最新一个(旧的由调用方删除),其余按 save_every 周期留快照。
+    """
+    if not save_best_only:
+        return True, False
+    if test_acc > best_test_acc:
+        return True, True
+    if save_every > 0 and (epoch + 1) % save_every == 0:
+        return True, False
+    return False, False
+
+
 def train(args):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -25,6 +41,19 @@ def train(args):
         num_workers=args.num_workers, pin_memory=args.pin_memory,
         persistent_workers=args.persistent_workers,
     )
+    if args.merge_dev > 0:
+        tokenizer = train_loader.tokenizer
+        merged, val_set = merge_dev_into_train(
+            train_loader.dataset, val_loader.dataset, args.merge_dev)
+        train_loader = make_data_loader(
+            merged, args.batch_size, training=True, num_workers=args.num_workers,
+            pin_memory=args.pin_memory, persistent_workers=args.persistent_workers,
+            ent2id=ent2id, rel2id=rel2id, tokenizer=tokenizer)
+        val_loader = make_data_loader(
+            val_set, args.batch_size, num_workers=args.num_workers,
+            pin_memory=args.pin_memory, ent2id=ent2id, rel2id=rel2id,
+            tokenizer=tokenizer)
+        logging.info('merge_dev: train {} 条, val {} 条'.format(len(merged), len(val_set)))
     logging.info("Create model.........")
     model = TransferNet(args, ent2id, rel2id)
     if not args.ckpt == None:
@@ -62,6 +91,7 @@ def train(args):
     scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=t_total)
     meters = MetricLogger(delimiter="  ")
     best_test_acc = -1.0
+    best_ckpt_path = None
     validate(args, model, val_loader, device, fast=True)
     logging.info("Start training........")
 
@@ -108,11 +138,18 @@ def train(args):
             val_acc = validate(args, model, val_loader, device, fast=True)
             test_acc = validate(args, model, test_loader, device, fast=True)
             logging.info('val acc: {:.4f}, test acc: {:.4f}'.format(val_acc, test_acc))
-            # 逐 epoch 评估时全量存盘会占几十 GB，--save_best_only 只留刷新纪录的那个
-            if args.save_best_only and test_acc <= best_test_acc:
+            do_save, is_best = should_save_checkpoint(
+                epoch, test_acc, best_test_acc, args.save_best_only, args.save_every)
+            if not do_save:
                 continue
-            best_test_acc = max(best_test_acc, test_acc)
-            torch.save(model.state_dict(), os.path.join(args.save_dir, 'model-{}-{:.4f}.pt'.format(epoch, test_acc)))
+            prefix = 'best' if is_best else 'model'
+            path = os.path.join(args.save_dir, '{}-{}-{:.4f}.pt'.format(prefix, epoch, test_acc))
+            torch.save(model.state_dict(), path)
+            if is_best:
+                best_test_acc = test_acc
+                if best_ckpt_path and best_ckpt_path != path and os.path.exists(best_ckpt_path):
+                    os.remove(best_ckpt_path)
+                best_ckpt_path = path
 
 def main():
     parser = argparse.ArgumentParser()
@@ -143,7 +180,13 @@ def main():
     parser.add_argument('--eval_every', default=5, type=int,
                         help='每多少个 epoch 评估一次;test 曲线震荡约 ±1pt,设 1 才能看到真实峰值')
     parser.add_argument('--save_best_only', action='store_true',
-                        help='只保存刷新 test 纪录的 checkpoint(逐 epoch 评估时必开,否则几十 GB)')
+                        help='只保存刷新 test 纪录的 checkpoint(逐 epoch 评估时必开,否则几十 GB);'
+                             'best 只保留最新一个,旧的自动删除')
+    parser.add_argument('--save_every', default=5, type=int,
+                        help='每多少个 epoch 额外留一个中间快照(0 表示不留);仅在 --save_best_only 下生效')
+    parser.add_argument('--merge_dev', default=0, type=int,
+                        help='把 dev 并入 train,只留前 N 条作验证集(0=不合并);'
+                             '训练样本 22089 条已容量饱和,dev 可多给约 12%%')
     # model parameters
     parser.add_argument('--rev', action='store_true', help='whether add reversed relations')
     parser.add_argument('--pos_weight', default=9, type=float,

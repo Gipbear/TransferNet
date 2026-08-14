@@ -17,6 +17,39 @@ from .model import TransferNet
 from IPython import embed
 
 
+def assert_relation_vocab(state: dict, num_relations: int, rev: bool) -> None:
+    """核对 ckpt 的关系头输出维度与当前关系词表一致。
+
+    load_state_dict(strict=False) 会静默跳过 shape 不匹配的参数：用 --rev 训练的
+    ckpt 配上未扩展的词表时，关系分类器保持随机初始化而不报错，得分全是噪声。
+    """
+    key = "rel-way_0.weight"
+    if key not in state:
+        return
+    ckpt_num_rel = state[key].shape[0]
+    if ckpt_num_rel == num_relations:
+        return
+    hint = "去掉 --rev" if rev else "加上 --rev"
+    raise ValueError(f"ckpt 关系数 {ckpt_num_rel} 与词表 {num_relations} 不一致"
+                     f"（当前 rev={rev}）；该 ckpt 多半需要{hint}")
+
+
+def argmax_with_tiebreak(e_score: torch.Tensor, e_score_raw: torch.Tensor | None,
+                         atol: float = 1e-6) -> torch.Tensor:
+    """在 e_score 的最高分并列时,用未钳位的 raw 分数打破并列。
+
+    elem 钳位把 >1 的分数全压成 1.0,torch.max 遇并列返回下标最小者,等价于按实体 id
+    盲选。raw 保留了「汇入路径越多分越高」的序,只在并列集合内部比较,不会把钳位后
+    非最高分的实体顶上来。
+    """
+    if e_score_raw is None:
+        return e_score.argmax(dim=1)
+    top = e_score.max(dim=1, keepdim=True).values
+    is_top = e_score >= top - atol
+    masked = e_score_raw.masked_fill(~is_top, float('-inf'))
+    return masked.argmax(dim=1)
+
+
 def validate(args, model, data, device, verbose=False,
              beam_size=3, lambda_val=0.5, output_path=None,
              acc_thresholds=None, compare_standard=True, fast=False):
@@ -40,7 +73,12 @@ def validate(args, model, data, device, verbose=False,
         for batch in tqdm(data, total=len(data)):
             outputs = model(*batch_device(batch, device))  # [bsz, Esize]
             e_score = outputs['e_score'].cpu()
-            scores, idx = torch.max(e_score, dim=1)
+            e_raw = outputs.get('e_score_raw')
+            if e_raw is not None and getattr(args, 'tiebreak_raw', False):
+                e_raw = e_raw.cpu()
+            else:
+                e_raw = None
+            idx = argmax_with_tiebreak(e_score, e_raw)
             match_score = batch[2].gather_rows(idx)
             count += match_score.numel()
             correct += match_score.sum().item()
@@ -161,7 +199,7 @@ def validate(args, model, data, device, verbose=False,
                     f.write(json.dumps(info, ensure_ascii=False) + '\n')
             del batch_infos
 
-            del outputs, hop_attn_cpu, e_score, scores, idx, rel_probs_cpu, ent_probs_cpu
+            del outputs, hop_attn_cpu, e_score, e_raw, idx, rel_probs_cpu, ent_probs_cpu
 
     acc = correct / count
     if fast:
@@ -184,14 +222,22 @@ def main():
     parser.add_argument('--output_path', default=None)
     parser.add_argument('--acc_thresholds', default='0.7,0.8,0.9')
     parser.add_argument('--no_compare_standard', action='store_true')
+    parser.add_argument('--rev', action='store_true',
+                        help='补反向关系(关系词表翻倍);必须与 ckpt 的训练设置一致,'
+                             '否则关系头权重会被 strict=False 静默跳过')
+    parser.add_argument('--tiebreak_raw', action='store_true',
+                        help='最高分并列时用未钳位的 e_score_raw 打破;不开则退化为按实体 id 取第一个')
     args = parser.parse_args()
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     ent2id, rel2id, train_loader, val_loader, test_loader = load_data(
-        args.input_dir, args.bert_name, 16)
+        args.input_dir, args.bert_name, 16, add_rev=args.rev)
 
     model = TransferNet(args, ent2id, rel2id)
-    missing, unexpected = model.load_state_dict(torch.load(args.ckpt), strict=False)
+    state = torch.load(args.ckpt, map_location='cpu', weights_only=True)
+    # strict=False 会静默跳过 shape 不匹配的关系头，先显式核对词表规模
+    assert_relation_vocab(state, len(rel2id), args.rev)
+    missing, unexpected = model.load_state_dict(state, strict=False)
     if missing:
         print("Missing keys: {}".format("; ".join(missing)))
     if unexpected:

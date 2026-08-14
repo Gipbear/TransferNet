@@ -101,6 +101,23 @@ class Dataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.questions)
 
+def merge_dev_into_train(train_dataset, dev_dataset, holdout):
+    """把 dev 的尾部并入 train，头部 holdout 条留作验证集。
+
+    在已加载的缓存上做纯内存拼接（questions 是普通 list），不重建 3.4 GB 的
+    tokenization 缓存。holdout 必须为正且小于 dev 规模：验证集为空时只能按 test
+    选 epoch，等于把测试集用作模型选择。
+    """
+    if holdout <= 0:
+        raise ValueError('holdout 必须为正数，否则没有验证集可用于选 epoch')
+    if holdout >= len(dev_dataset):
+        raise ValueError('holdout {} 不能小于 dev 规模 {}'.format(holdout, len(dev_dataset)))
+    val_questions = list(dev_dataset.questions[:holdout])
+    merged_questions = list(train_dataset.questions) + list(dev_dataset.questions[holdout:])
+    return (Dataset(merged_questions, train_dataset.ent2id),
+            Dataset(val_questions, train_dataset.ent2id))
+
+
 def make_data_loader(dataset, batch_size, training=False, num_workers=0,
                      pin_memory=False, persistent_workers=False, ent2id=None,
                      rel2id=None, tokenizer=None):
