@@ -108,6 +108,53 @@ def truncate_paths_by_score(mmr_paths: list, max_paths: int) -> list:
     return ranked[:max_paths]
 
 
+def apply_intervention(mmr_paths: list, intervention: str | None, cited: set,
+                       question: str) -> tuple[list, list]:
+    """按 round1 引用编号干预路径集(引用因果验证实验)。
+
+    cited 为 round1 输出的 1-based 引用编号;返回 (筛选后路径列表, 每条路径对应的
+    round1 编号)。intervention 为 None 时原样返回(编号为自然序)。
+
+    - keep_cited: 只保留被引用路径(删除全部未引用)
+    - drop_cited: 删除被引用路径(保留未引用)
+    - drop_uncited_matched: 随机删除与引用条数等量的未引用路径(配对对照,
+      删除对象由 hash(question) 固定种子决定,确定性可复现)
+    """
+    orig_idx = list(range(1, len(mmr_paths) + 1))
+    if not intervention:
+        return list(mmr_paths), orig_idx
+
+    if intervention == "keep_cited":
+        kept = [i for i in orig_idx if i in cited]
+    elif intervention == "drop_cited":
+        kept = [i for i in orig_idx if i not in cited]
+    elif intervention == "drop_uncited_matched":
+        uncited = [i for i in orig_idx if i not in cited]
+        n_drop = min(len(cited), len(uncited))
+        _rng = random.Random(hash(question) % (2 ** 31))
+        drop = set(_rng.sample(uncited, n_drop))
+        kept = [i for i in orig_idx if i not in drop]
+    else:
+        raise ValueError(f"未知干预模式: {intervention!r}")
+    return [mmr_paths[i - 1] for i in kept], kept
+
+
+def load_cite_src(cite_src: str | None) -> dict:
+    """读 round1 predictions.jsonl,返回 {sample_index: set(cited_indices)}。"""
+    if not cite_src:
+        return {}
+    cite_map = {}
+    with open(cite_src, encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            rec = json.loads(line)
+            idx = rec.get("sample_index")
+            if idx is not None:
+                cite_map[idx] = set(rec.get("cited_indices", []))
+    return cite_map
+
+
 def expand_pred_answers_with_path_constraint(
     pred_answers: list,
     rev_entity_map: dict | None,
@@ -470,6 +517,8 @@ def run_single(samples: list, model, tokenizer, cfg: dict, spec,
     else:
         system_prompt = select_format_prompt(fmt, use_entity_names)
 
+    cite_map = cfg.get("cite_map") or {}
+
     def prepare_sample(sample):
         question = spec.clean_question(sample.get("question", ""),
                                        sample.get("topics", []))
@@ -477,8 +526,17 @@ def run_single(samples: list, model, tokenizer, cfg: dict, spec,
             sample.get("mmr_reason_paths", []), cfg["max_paths"])
         golden = sample.get("golden", [])
 
+        intervention = cfg.get("intervention")
+        if intervention:
+            cited = cite_map.get(sample.get("sample_index"), set())
+            mmr_paths, path_orig_idx = apply_intervention(
+                mmr_paths, intervention, cited, question)
+        else:
+            path_orig_idx = list(range(1, len(mmr_paths) + 1))
+
         if cfg["no_paths"]:
             mmr_paths = []
+            path_orig_idx = []
             user_content = build_user_content_no_paths(question)
         else:
             if cfg["noise_paths"] > 0 and mmr_paths:
@@ -488,14 +546,20 @@ def run_single(samples: list, model, tokenizer, cfg: dict, spec,
                     fake = [[f"noise_{i}_{j}", e[1], f"noise_{i}_{j+1}"]
                             for j, e in enumerate(base.get("path", []))]
                     mmr_paths.append({"path": fake, "log_score": -99.0})
+                    path_orig_idx.append(None)
 
             if cfg["dedupe_tail_paths"]:
+                idx_by_id = {id(p): oi for p, oi in zip(mmr_paths, path_orig_idx)}
                 mmr_paths = dedupe_paths_by_tail(mmr_paths)
+                path_orig_idx = [idx_by_id[id(p)] for p in mmr_paths]
 
             if cfg["shuffle_paths"]:
                 _seed = (hash(question) + run_idx) % (2 ** 31)
                 _rng = random.Random(_seed)
-                _rng.shuffle(mmr_paths)
+                order = list(range(len(mmr_paths)))
+                _rng.shuffle(order)
+                mmr_paths = [mmr_paths[i] for i in order]
+                path_orig_idx = [path_orig_idx[i] for i in order]
 
             paths_with_meta = [
                 (p.get("path", []), p.get("log_score", 0.0), i + 1)
@@ -514,7 +578,7 @@ def run_single(samples: list, model, tokenizer, cfg: dict, spec,
             messages, tokenize=True, add_generation_prompt=True
         )
         input_ids = result["input_ids"] if hasattr(result, "__getitem__") and not isinstance(result, list) else result
-        return input_ids, mmr_paths, golden, sample
+        return input_ids, mmr_paths, golden, sample, path_orig_idx
 
     prepared = [prepare_sample(s) for s in samples]
     indexed = sorted(enumerate(prepared), key=lambda x: len(x[1][0]))
@@ -532,6 +596,7 @@ def run_single(samples: list, model, tokenizer, cfg: dict, spec,
         mmr_batch = [b[1][1] for b in batch]
         gold_batch = [b[1][2] for b in batch]
         orig_batch = [b[1][3] for b in batch]
+        orig_idx_batch = [b[1][4] for b in batch]
 
         inputs = tokenizer.pad(
             [{"input_ids": ids} for ids in input_ids_list],
@@ -554,8 +619,9 @@ def run_single(samples: list, model, tokenizer, cfg: dict, spec,
             output_ids[:, prompt_len:], skip_special_tokens=True
         )
 
-        for orig_idx, raw_text, mmr_paths, golden, orig_sample in zip(
-                orig_indices, raw_texts, mmr_batch, gold_batch, orig_batch):
+        for orig_idx, raw_text, mmr_paths, golden, orig_sample, path_orig_idx in zip(
+                orig_indices, raw_texts, mmr_batch, gold_batch, orig_batch,
+                orig_idx_batch):
 
             parsed = parse_output(raw_text, fmt)
             model_rejected = is_rejection_response(parsed)
@@ -598,6 +664,10 @@ def run_single(samples: list, model, tokenizer, cfg: dict, spec,
                 "is_rejection":          model_rejected,
                 "llm_pred_expanded_mids": expanded_pred if entity_map_dict else None,
                 "llm_pred_disambiguated_mids": constrained_pred if entity_map_dict else None,
+                "intervention":          cfg.get("intervention"),
+                "path_orig_indices":     path_orig_idx,
+                "round1_cited_indices":  sorted(
+                    cite_map.get(orig_sample.get("sample_index"), set())),
                 "cited_indices":         sorted(parsed["cited_indices"]),
                 "golden_path_indices":   sorted(golden_indices),
                 "format_ok":             parsed["format_ok"],
@@ -667,6 +737,7 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
              max_paths: int = 0,
              num_runs: int = 1, reject_prompt: bool = False,
              no_paths: bool = False, limit: int = 0,
+             intervention: str | None = None, cite_src: str | None = None,
              system_prompt_file: str | None = None,
              model: str = "unsloth/meta-llama-3.1-8b-instruct-bnb-4bit",
              max_seq_length: int = 2048, max_new_tokens: int = 256,
@@ -678,6 +749,10 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
     entity_repr = entity_repr or spec.default_entity_repr
     if entity_repr not in spec.entity_reprs:
         raise ValueError(f"{dataset} 不支持 entity_repr={entity_repr!r},可用:{spec.entity_reprs}")
+
+    if intervention and not cite_src:
+        raise ValueError("干预模式(--intervention)必须同时提供 --cite_src")
+    cite_map = load_cite_src(cite_src)
 
     resolved_map_path = None
     if entity_repr == "name":
@@ -704,11 +779,15 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
         "shuffle_paths": shuffle_paths, "max_paths": max_paths,
         "num_runs": num_runs,
         "reject_prompt": reject_prompt, "no_paths": no_paths, "limit": limit,
+        "intervention": intervention,
+        "cite_src": os.path.abspath(cite_src) if cite_src else None,
         "model": model, "max_seq_length": max_seq_length,
         "max_new_tokens": max_new_tokens,
         "system_prompt": system_prompt,
     }
     inputs = {"retrieve": input_path}
+    if cite_src:
+        inputs["cite_src"] = cite_src
     if adapter:
         for cand in ("adapter_model.safetensors", "adapter_config.json"):
             p = os.path.join(adapter, cand)
@@ -772,6 +851,7 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
         "entity_map_dict": entity_map_dict, "rev_entity_map": rev_entity_map,
         "use_entity_names": entity_repr == "name",
         "system_prompt": system_prompt,
+        "intervention": intervention, "cite_map": cite_map,
     }
 
     os.makedirs(eval_dir, exist_ok=True)
@@ -824,6 +904,12 @@ def build_parser():
     p.add_argument("--system_prompt_file", default=None,
                    help="用文件内容覆盖 system prompt(优先级最高;内容进配置指纹)")
     p.add_argument("--no_paths", action="store_true")
+    p.add_argument("--intervention", default=None,
+                   choices=["keep_cited", "drop_cited", "drop_uncited_matched"],
+                   help="引用因果干预:keep_cited 只留引用 / drop_cited 删引用 / "
+                        "drop_uncited_matched 删等量未引用(需 --cite_src)")
+    p.add_argument("--cite_src", default=None,
+                   help="round1 predictions.jsonl 路径,按 sample_index 对齐取引用编号")
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--model", default="unsloth/meta-llama-3.1-8b-instruct-bnb-4bit")
     p.add_argument("--max_seq_length", type=int, default=2048)
@@ -845,6 +931,7 @@ def main(argv=None):
         dedupe_tail_paths=a.dedupe_tail_paths, shuffle_paths=a.shuffle_paths,
         max_paths=a.max_paths,
         num_runs=a.num_runs, reject_prompt=a.reject_prompt, no_paths=a.no_paths,
+        intervention=a.intervention, cite_src=a.cite_src,
         system_prompt_file=a.system_prompt_file,
         limit=a.limit, model=a.model, max_seq_length=a.max_seq_length,
         max_new_tokens=a.max_new_tokens, batch_size=a.batch_size,
