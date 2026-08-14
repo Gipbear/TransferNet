@@ -13,6 +13,60 @@ TransferNet(EMNLP 2021)多跳 KGQA 实现,扩展为三章实验:
 - 以上只约束本机执行;生成或修改项目脚本、配置、代码时,不要写入 Conda 环境切换命令,除非用户明确要求。
 - 默认使用中文与用户沟通(需求澄清、plan、进度更新、评审意见、最终总结均适用);代码、命令、日志、报错、配置键名、API 名称、文件路径保持原文,必要时补充中文解释。
 
+## Code Style
+
+- 单行不超过 120 字符（函数签名、函数体、调用均适用）。
+- 函数/方法签名、两三个参数的函数调用不超过 120 字符时不换行。
+- 函数/方法的有效代码实现不超过 50 行；超过则拆分为子函数。
+- if/else/for/while 展开写；仅极简单行（如 `if not x: return`）可写一行。
+- 列表推导式仅用于简单过滤/映射，逻辑复杂时用普通 for 循环。
+- 单个文件长度建议在 500 行左右；若文件内逻辑紧密、拆分会破坏可读性，可不拆分；否则应重构或拆分为多个模块。
+
+### Import 规范
+
+- import 移到文件开头；函数体内的延迟导入仅用于刻意规避循环依赖。
+- 无效导入及时删除；改动后不再使用的导入必须清理。
+- 单条 import 不换行：`from X import (Y,)` → `from X import Y`。
+- 短 import 单行：两个符号且总长 ≤120 字符时 `from X import A, B`，不拆多行。
+- 同组 import 间不留空行：stdlib / third-party / local 三组之间各一个空行，组内不拆空行。
+- 无命名冲突时不重命名：`as Foo` 仅在有同名符号冲突时使用。
+
+## 重构流程
+
+- 不直接动手。用户提供大致重构方向 → 双方讨论确定架构方案 → 才开始实施。
+- 若用户未给方向，主动询问或发起讨论，不要自行假设。
+- 开始前必须先做概况，包括：模块的文件架构、依赖关系、代码量、重构策略。
+
+## 代码组织
+
+- 避免扁平化散落函数，倾向模块化。
+- 不是为复杂而定义复杂类，而是把相关功能聚合到一个类里实现（如坐标转换封装成 `CoordTransform` 类，对外提供方法）。
+- 工具类（坐标转换、IO、配置等）统一封装成类供其他模块调用，提升管理、调用、可读性。
+- 用抽象基类（ABC）定义接口契约，多实现走策略模式或模板方法模式。
+- 数据类用 `@dataclass`：配置类、数据模型都适用。
+- 配置项较多时倾向 YAML 驱动（dataclass schema 对应 YAML 结构），运行时保留配置副本便于复现。
+- 函数签名注解类型，现代风格 `list[dict]`、`str | None`；不强制注解每个局部变量。
+
+## 写文件与注释
+
+- 预期很长的文件不一次性写完；先创建文件搭好骨架（类/函数定义、注解、注释），功能体用 `...` 或简单占位实现，后续逐步填充。
+- 函数/类注释一句话概括即可，除非重要或易混淆才多写；注释写得很复杂往往说明责任边界不清晰，应反思设计而非堆注释。
+- 算法类函数可以复杂说明细节，放在函数、类或 docstring 中。
+- 每个模块文件开头写 docstring，一句话概括职责，必要时列出提供的内容。
+- 业务逻辑注释和 docstring 以中文为主。
+
+## 测试规范
+
+- 修复 bug 或新增功能前，先写失败测试复现问题/定义预期行为（红 → 绿）。
+- 重构时先确保现有测试通过，重构后再次验证。
+- 测试框架用 `unittest`，测试文件放 `tests/` 目录，命名 `test_<module>.py`。
+- 核心库代码强制 TDD；`scripts/` 入口脚本可豁免。
+
+## 交互规则
+
+- 每次开口（无论提问、汇报、总结）都以「报告大王！」开头。
+- 每次任务完成后必须给总结：常规任务简要总结，特别重要的任务详细总结。
+
 ## 协作约束
 
 - 不使用 Codex subagent 或其他子代理;所有分析、实现、测试、评审与验证均由当前主代理直接完成。
@@ -33,7 +87,7 @@ python -m WebQSP.predict --input_dir <DATA_DIR> --ckpt <CKPT_PATH> --mode test
 
 ### kgqa 统一检索框架
 
-`kgqa/` 是 stage1 重构出的统一 KGQA 检索框架,通过 dataset adapter 注册表分发 webqsp / metaqa / cwq:
+`kgqa/` 是统一 KGQA 检索框架,通过 dataset adapter 注册表分发各数据集;具体支持范围以 CLI 帮助和 `experiments/README.md` 为准:
 
 ```bash
 python -m kgqa.retrieve.cli.dump_scores --dataset <DS> ...   # 生成 score 缓存
@@ -41,34 +95,32 @@ python -m kgqa.retrieve.cli.retrieve --dataset <DS> --backend offline|online --i
 python -m kgqa.retrieve.cli.eval ...
 ```
 
-### kgqa/pfit 训练流水(Ch4 现役,stage2)
+### kgqa/pfit 训练流水(Ch4)
 
-数据集无关的 build→train→eval 流水,输出统一 `data/output/kgqa/<ds>/`,三阶段断点续跑基于实验目录 manifest.json:
+`kgqa/pfit/` 提供数据集无关的 build→train→eval 流水;模块级运行可通过实验目录中的 `manifest.json` 断点续跑:
 
 ```bash
 python -m kgqa.pfit.subset_qa --input <QA> --output <SUB> --n 20000  # 按 hop 分层子集(JSON 或 MetaQA 预处理 .pt)
 python -m kgqa.pfit.build --dataset <DS> --input <RETRIEVE_JSONL> --exp_dir <DIR> ...  # 建 SFT 集(输入须含 golden)
 python -m kgqa.pfit.train --exp_dir <DIR>            # QLoRA,adapter 写 <DIR>/adapter/
 python -m kgqa.pfit.eval --dataset <DS> --input <TEST_JSONL> --exp_dir <DIR> [--adapter <DIR>/adapter]
-bash scripts/run_pfit.sh --exp <exp_id> [--phase build|train|eval|all]  # 实验注册表编排(8 实验;LIMIT/FMT/ADAPTER 变体)
 ```
 
-数据集差异集中在 `kgqa/pfit/specs.py`(entity_repr、问题清洗、hop 分层、拒答开关);路径格式只剩 arrow/tuple/chain/nl(schema 系已废弃)。实验清单与目录约定见 `docs/experiments/experiments_kgqa_stage2_pfit_20260711.md`。
+正式第四章实验使用 `python -m experiments.ch4.run`; `scripts/run_pfit.sh` 仅作为历史兼容入口,不得作为新实验的默认编排器。路径格式由 pfit CLI 管理,当前为 `arrow`/`nl`/`tuple`/`chain`,`schema` 系已废弃。现役实验清单与目录约定见 `experiments/README.md` 和 `docs/experiments/experiments_kgqa_reproducible_layout.md`；历史迁移验证记录见 `docs/experiments/experiments_kgqa_stage_history.md`。
 
 ### LLM SFT(Ch4 legacy,只读)
 
-`llm_infer/` 与 `scripts/run_ablation.sh` 为 Ch4 原始实现,只读保留(pfit 建集 parity 的对拍参照);新实验一律走 `kgqa/pfit/`。消融分组:A 输出格式 / B 训练数据 / C 检索参数 / D 路径输入格式;基座 `unsloth/meta-llama-3.1-8b-instruct-bnb-4bit`。
+`llm_infer/` 与 `scripts/run_ablation.sh` 为 Ch4 原始实现,只读保留(pfit 建集 parity 的对拍参照);新实验通过 `experiments.ch4.run` 编排并调用 `kgqa/pfit/`。消融分组和基座模型以实验配置与 `experiments/README.md` 为准。
 
-### 实验脚本
+### 实验入口
 
 ```bash
-bash scripts/run_grid.sh webqsp|metaqa|cwq [ckpt]  # MMR beam/lambda 网格搜索
-bash scripts/run_pfit.sh --exp <exp_id> --phase all # Ch4 pfit 实验编排(smoke 加 LIMIT=100)
-bash scripts/run_checked_batch_agent_eval.sh        # Ch5 checked-batch 评测(自动确保服务在线)
-python scripts/collect_ablation_results.py          # 消融日志汇总为 CSV
+python -m experiments.ch3.run --dataset <DS> --phase <PHASE>  # Ch3 检索实验
+python -m experiments.ch4.run --dataset <DS> --config <CONFIG> --profile <PROFILE>  # Ch4 pfit 实验
+python -m experiments.ch5.run --dataset <DS> --config <CONFIG> --profile <PROFILE>  # Ch5 PV-GAC 实验
 ```
 
-脚本均支持断点续跑(输出已存在则跳过)和环境变量覆盖;默认参数以各脚本头部为准,不要依赖文档里的历史值。
+正式参数、阶段和输出目录以 `experiments/README.md` 及对应配置为准。`scripts/` 下的 `run_grid.sh`、`run_pfit.sh`、`run_checked_batch_agent_eval.sh` 和 `collect_ablation_results.py` 仅用于历史复现、兼容性核对或旧结果整理。
 
 ### 测试
 
@@ -78,7 +130,7 @@ bash tests/run_ablation_lib_test.sh  # ablation 库函数测试
 bash tests/run_pfit_lib_test.sh     # run_pfit.sh 命令拼装 dry-run 测试
 ```
 
-`-t .` 必须带:缺省顶层目录时 `tests/kgqa` 会遮蔽项目 `kgqa` 包,72 个用例报 import error。
+`-t .` 必须带:缺省顶层目录时 `tests/kgqa` 会遮蔽项目 `kgqa` 包,导致测试导入错误。
 默认 discovery 不运行依赖 gitignored checkpoint、score cache 或真实数据的测试；显式执行这些测试时设置 `RUN_KGQA_ARTIFACT_TESTS=1`，并确保模型/tokenizer 已可离线加载。
 
 ## 常驻服务与 Ch5 评测
@@ -95,7 +147,7 @@ PORT_BUSY_ACTION=kill ./scripts/llm_server.sh start  # 端口被旧进程占用�
 ```
 
 - 服务已启动时,一律通过 HTTP client 调用(`kgqa.retrieve.api.client`、`kgqa.serving.llm.client.LLMClient`),不要在测试或对比脚本里重新加载 base model / adapter / 检索器。
-- 做路径检索一致性(parity)检查时,把已有 JSONL 里的 `topics`/`hop`/`beam_size`/`lambda_val` 原样传给服务;`log_score` 允许 `1e-6` 量级浮点差,重点比对三元组序列和 prediction 是否一致。
+- 做路径检索一致性(parity)检查时,应复用已有 JSONL 中的样本与检索参数(包括适用时的 `topics`、`hop`、`beam_size`、`lambda_val`、`eta`、`penalty_mode`);数值容差以对应 schema/测试为准,重点比对三元组序列和 prediction 是否一致。
 
 评测入口是批量 CLI(依赖上述两个服务):
 
@@ -110,46 +162,23 @@ python -m kgqa.agent.cli.eval_checked_batch \
     --llm_server_url http://localhost:8788
 ```
 
-去掉 `--limit` 即全量 1581 条。输出写入 `data/output/kgqa/<ds>/agent/<run_id>/`（`--output` 可显式指定）:`checked_batch_eval.jsonl`(逐样本记录)、`checked_batch_eval_summary.json`(hit1/hit_any/macro_f1/exact_match/citation_accuracy/stop_reason_counts)、`initial_retrieval.jsonl` / `initial_answer.jsonl`(初始检索与首批答题)。同目录重跑会复用已完成样本；旧 `data/output/WebQSP/checked_batch_agent/` 只读保留。
+去掉 `--limit` 即全量运行。直接调用 CLI 时,`--output` 可指定运行目录;正式 Ch5 编排由 `experiments.ch5.run` 负责写入 `data/output/kgqa/ch5_pv_gac/<ds>/<config_id>/`。输出包括 `checked_batch_eval.jsonl`、`checked_batch_eval_summary.json`、`initial_retrieval.jsonl` 和 `initial_answer.jsonl`;同目录重跑会复用已完成样本,旧 `data/output/WebQSP/checked_batch_agent/` 只读保留。
 
-## 架构
+## 代码边界
 
-### 数据集模块(4 套并行实现)
-
-`MetaQA_KB/`、`MetaQA-Text/`、`WebQSP/`、`CompWebQ/` 各自有 `model.py`/`train.py`/`predict.py`/`data.py`,都定义 `TransferNet(nn.Module)`:
-
-| 模块 | 问题编码 | KG 表示 | 关键差异 |
-|------|---------|---------|---------|
-| MetaQA_KB | BiGRU + GloVe | 全局稀疏矩阵(`Knowledge_graph.py`) | 3-hop,防环 |
-| MetaQA-Text | BiGRU + GloVe | 文本关系(`desc_encoder` BiGRU) | 按分数裁剪活跃实体 |
-| WebQSP | BERT/RoBERTa | 内联稀疏矩阵 | 2-hop,sigmoid 关系分布,`entity_range` 掩码 |
-| CompWebQ | BERT | 逐样本三元组(`index_add`) | 多路推理(way 乘积) |
-
-核心推理机制 `follow(e, r) = Mobj^T @ (Msubj @ e^T * Mrel @ r^T)`:可微稀疏矩阵乘做 KG 遍历;每 hop 依次为 step encoder → 问题注意力 → 关系分类 → `follow()`。
-
-### 其他模块
-
-- `kgqa/`:统一检索框架。`cli/` 三个入口、`datasets/`(adapter 注册表)、`scores/`(逐数据集 ScoreProducer)、`retrieve/backends/`(offline score 缓存 / online ckpt 实时)、`eval/`、`server/`(路径检索服务)、`llm_server/`、`agent/`(Ch5 checked-batch、replay、tools、demo_page)、`pfit/`(Ch4 现役 SFT 流水:formats/specs/build/train/eval/manifest/subset_qa)
-- `utils/`:BiGRU 编码器、RAdam(`misc.py`)、MMR beam search 与路径/多样性指标(`path_utils.py`)、多阈值评测统计(`eval_utils.py`)
-- `oh_my_agent/`(Ch5 legacy,只读):原始 checked-batch、服务与 demo_page 实现;仅用于与 `kgqa/agent/`、`kgqa/server/`、`kgqa/llm_server/` 做 WebQSP parity 及历史论文复现
-- `llm_infer/`(Ch4 legacy,只读):`kg_format.py`、`train_sft.py`、`build_kgcot_dataset.py`、`eval_faithfulness.py`;已迁移至 `kgqa/pfit/`,保留作 parity 对拍参照
-
-## 关键约定
-
-- Loss 用加权 MSE,正样本重加权(MetaQA `answers*9+1`,WebQSP `answers*99+1`)
-- 每 hop 后分数 clamp(>1 时可微缩放);默认优化器 RAdam(`utils/misc.py`);梯度裁剪 value=0.5、norm=2
-- `data/` 与 `models/` 已 gitignore;GloVe 需先 `python pickle_glove.py` 预处理为 pickle
-- Docker 使用国内镜像源(清华 PyPI、中科大 APT)
+- `kgqa/` 是当前统一框架;`retrieve/`、`pfit/`、`agent/`、`serving/` 和 `experiments/` 分别承担检索、路径监督微调、checked-batch、服务和实验编排。
+- `oh_my_agent/` 与 `llm_infer/` 是只读 legacy/parity 参考;新功能和新实验不要写入这两个目录。
+- 具体模块关系、模型实现和数据集差异以源代码、测试及 `experiments/README.md` 为准,不要把实现细节复制到本文件。
 
 ## 分析归档
 
 - 探索阶段的最终产物(分析结论、核对报告、阶段性 README、误差分析摘要)归档到 `data/analysis/` 下,不要散落在临时脚本目录或 `data/output/` 根目录。
 - 目录名含时间戳时统一用分钟级格式 `YYYYMMDD_HHMM__slug`,不用秒级。
-- 同一会话产生的分析内容默认收敛到同一个归档目录、单一 README;发现多份高度重叠的归档时合并为单一入口,保留信息更完整的版本,删除重复与空目录。
+- 同一会话产生的分析内容默认收敛到同一个归档目录、单一 README;发现高度重叠的归档时先报告并确认,不要自动删除。
 
 ## Git 提交规范
 
-### 提交前三步(并行执行)
+### 提交前检查
 
 ```bash
 git status             # 不要加 -uall,大仓库会有内存问题
@@ -167,23 +196,20 @@ type(scope): 中文简述(≤50 字)
 - 变更项一(文件/模块:做了什么)
 - ...
 
-Co-Authored-By: <git config user.name> <<git config user.email>>
-Co-Authored-By: 当前协作模型/助手名称 <对应 noreply 邮箱>
 ```
 
-正文用 `-` 列表逐项简述;仅 1 项变更时可省略正文。**Co-Authored-By 的用户信息必须现场执行 `git config user.name` / `git config user.email` 读取,禁止使用记忆、对话历史或硬编码值**;协作模型行按当前会话实际使用的模型填写(如 `Claude Opus 4.8 <noreply@anthropic.com>`、`Codex <noreply@openai.com>`)。
+正文用 `-` 列表逐项简述;仅 1 项变更时可省略正文。
 
 type 精确选词,不混用:`feat` 全新功能或文件 / `fix` 修 bug / `refactor` 重构 / `test` 测试 / `docs` 仅文档 / `chore` 构建、依赖、配置 / `perf` 性能。scope 取模块简称,如 `agent`、`eval`、`llm-server`、`llm-infer`、`kgqa`。
 
 ### 暂存与提交
 
 1. 按文件名暂存,不用 `git add -A` / `git add .`,避免把 `.env`、大二进制文件意外纳入。
-2. 用 HEREDOC 传 commit message(`git commit -m "$(cat <<'EOF' ... EOF)"`),防止引号和换行出错。
-3. 提交后运行 `git status` 确认无残留变更。
+2. 提交后运行 `git status` 确认无残留变更。
 
 ### 安全红线
 
 - 只有用户明确要求时才创建提交,不主动提交。
-- 不跳过 hook(`--no-verify`);hook 报错时定位根因修复,新建 commit 重新提交,不用 `--amend`。
+- 不跳过 hook(`--no-verify`);hook 报错时定位根因修复。
 - 不提交含密钥的文件(`.env`、凭据 JSON 等),发现时主动告知用户。
-- 不对 `main` / `master` 执行 force push;`--amend` 仅在用户明确要求时使用。
+- 不对 `main` / `master` 执行 force push。
