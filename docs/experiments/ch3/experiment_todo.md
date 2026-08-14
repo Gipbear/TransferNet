@@ -12,7 +12,7 @@
 | T3 | 同一环境检索效率基准 | 已完成 SP、普通 Score-Beam、终点感知、固定和自适应五组全量 3 次重复计时。五组平均时间约 66–69ms/题，TARRS 相对普通 Score-Beam 未呈现可分辨的额外开销；产物见 `data/analysis/20260719_1719__ch3_p2_evidence/efficiency.json`。 |
 | T5 | 配对 bootstrap 置信区间 | 已完成路径与下游 QA 的预定比较。自适应相对固定的路径 Answer Hit@20 区间不跨 0；QA Macro-F1 / Hit@1 的差值为 +0.16 / +0.57 个百分点，但 95% CI 均跨 0。结果见 `experiment_results.md` 表9-3及 `data/analysis/20260719_1719__ch3_p2_evidence/paired_bootstrap.json`。 |
 | T8 | WebQSP 固定惩罚下游 QA | 已完成 1,581 条 fixed 全量评测和六组统一报告。fixed 的 Hit@1 / Hit_any / Macro-F1 / Micro-F1 / EM 为 82.16% / 89.31% / 64.71% / 34.20% / 34.47%；结果见 `experiment_results.md` 表7-1及 `downstream_qa/transfernet_v1/reports/base_zeroshot/full/condition_matrix.json`。 |
-| T4 | WebQSP 成功与失败案例分析 | 已完成终点融合收益（S1）、TARRS 关系互补收益（S2）和多样性噪声边界（F1）三个正式对齐样本；归档见 `data/analysis/20260722_2040__ch3_case_analysis/README.md`，图见 `docs/experiments/ch3/images/fig3-2_case_analysis.svg`。 |
+| T4 | WebQSP 成功与失败案例分析 | 已完成终点融合收益（S1）、TARRS 关系互补收益（S2）和多样性噪声边界（F1）三个正式对齐样本；归档见 `data/analysis/20260722_2040__ch3_case_analysis/README.md`，图见 `docs/experiments/ch3/images/fig3-6_case_analysis.svg`。 |
 | T2 | 外部先进方法结果与可比性核对 | 已完成 WebQSP 的 TransferNet、ReaRev、UniKGQA、RoG、ToG、GNN-RAG 论文/年份、表号/页码、KG/子图、实体链接、骨干/LLM、训练差异和逐行可比性说明。结果见 `experiment_results.md` 第3.1、3.2节；CWQ 按决定延期。 |
 
 ## 1. 待决事项
@@ -44,3 +44,4 @@
 - 不将 100 条冒烟结果写入论文数值表；
 - 不把骨干 TransferNet 原始答案指标当作路径方法指标；
 - 不将“自适应在覆盖—关系多样性上优于固定”扩大为“所有路径质量指标都更优”；当前全量结果中自适应的集合 F1 低于固定惩罚。
+

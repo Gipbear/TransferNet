@@ -618,8 +618,8 @@ N=1,581，`format_compliance` 1.0。
 
 | 案例ID | 数据集/样本ID | 问题 | 真实答案 | 对照结果概述 | TARRS/终点感知结果概述 | 说明的机制 | 图表状态 |
 |---|---|---|---|---|---|---|---|
-| S1 | WebQSP / 605 | who does michael keaton play in cars | Chick Hicks | 普通 Score-Beam 首路径不命中，QA F1=0.00 | 终点感知的正确尾实体排第1/2，QA F1=1.00 | 终点实体融合抑制故事贡献者路径，突出角色路径 | 图3-2 左 |
-| S2 | WebQSP / 634 | what is the head judge of the supreme court called | United States Chief Justice | 固定惩罚重复“法院—法官”路径，未覆盖答案，QA F1=0.00 | TARRS 将直接职位边置于第2条，QA F1=1.00 | 关系互补补足低分但直接的职位证据 | 图3-2 中 |
+| S1 | WebQSP / 605 | who does michael keaton play in cars | Chick Hicks | 普通 Score-Beam 首路径不命中，QA F1=0.00 | 终点感知的正确尾实体排第1/2，QA F1=1.00 | 终点实体融合抑制故事贡献者路径，突出角色路径 | 图3-6 左 |
+| S2 | WebQSP / 634 | what is the head judge of the supreme court called | United States Chief Justice | 固定惩罚重复“法院—法官”路径，未覆盖答案，QA F1=0.00 | TARRS 将直接职位边置于第2条，QA F1=1.00 | 关系互补补足低分但直接的职位证据 | 图3-6 中 |
 
 S1 和 S2 的路径、分数、关系相似度及逐条件 LLM 输出见 `data/analysis/20260722_2040__ch3_case_analysis/README.md`。案例说明候选排序和关系互补的可能机制；不替代全量结果或配对 bootstrap。
 
@@ -672,15 +672,18 @@ F1 的两组完整路径、分数和输出见 `data/analysis/20260722_2040__ch3_
 
 | 论文编号 | 图表名称 | 数据来源 | 负责人 | 当前状态 | 输出文件 | 最后核对时间 |
 |---|---|---|---|---|---|---|
-| 图3-1 | 方法整体框架 | 方法定义 | 待纳入版本控制 | 图文件已存在 | `images/fig3-1_overall_framework.{svg,png}` | 2026-07-19 |
-| 图3-2 | 路径检索动机与边界案例 | S1/S2/F1 | 已完成 | SVG 已生成并通过 XML 校验 | `images/fig3-2_case_analysis.svg` | 2026-07-22 |
+| 图3-1 | ToG方法流程 | 外部方法定义 | 已完成 | SVG与PNG已生成 | `images/fig3-1_tog_flow.{svg,png}` | 2026-08-09 |
+| 图3-2 | GNN-RAG方法流程 | 外部方法定义 | 已完成 | SVG与PNG已生成 | `images/fig3-2_gnn_rag_flow.{svg,png}` | 2026-08-09 |
+| 图3-3 | RSDPR引言流程 | 方法定义 | 已完成 | SVG与PNG已生成 | `images/fig3-3_rsdpr_intro_flow.{svg,png}` | 2026-08-09 |
+| 图3-4 | 方法整体框架（a/b/c/d 四格示意） | 方法定义 | 已完成 | drawio.svg 由 `scripts/build_ch3_fig34_drawio.py` 生成；图中不含公式与数值，3.2.1 正文引用的示例数值由 `scripts/export_ch3_fig34_data.py` 导出（WebQSP test #207，存于 `data/analysis/ch3_fig34/`） | `images/fig3-4_overall_framework.drawio.svg` | 2026-08-09 |
+| 图3-6 | 路径检索动机与边界案例 | S1/S2/F1 | 已完成 | SVG与PNG已生成 | `images/fig3-6_case_analysis.{svg,png}` | 2026-08-09 |
 | 表3-1 | 数据集统计 | 第2节 | 本地正式输入与 JSONL 统计 | 数据已齐，待论文排版 | 本文第2.1节 | 2026-07-19 |
 | 表3-2 | 对比方法与可比性 | 第3.1节 | 外部协议已核对 | 已完成 | 本文第3.1节 | 2026-07-19 |
 | 表3-3 | 与先进方法总体对比 | 第3节 | 已形成有边界的背景表 | 已完成 | 本文第3.2节；不作无条件排名 | 2026-07-19 |
 | 表3-4 | 路径检索主对比 | 第4节 | 待补 | 数据已齐，待论文排版 | 本文表4-1 | 2026-07-19 |
 | 表3-5 | 冗余抑制核心消融 | 第5.1节 | 待补 | 数据已齐，待论文排版 | 本文表5-1 | 2026-07-19 |
 | 表3-6 | 路径得分组成分析 | 第5.2节 | 待补 | 数据已齐，待论文排版 | 本文表5-2 | 2026-07-19 |
-| 图3-3 | 参数敏感性 | 第6节 | 待补 | 数据已齐，待制图 | 本文表6-1 至表6-3 | 2026-07-19 |
+| 图3-5 | 参数敏感性 | 第6节 | 已完成 | PNG已生成 | `images/fig3-5_param_sensitivity.png` | 2026-08-05 |
 | 表3-7 | 固定LLM下游问答 | 第7节 | WebQSP 六组全量结果 | 数据已齐，待论文排版 | 本文表7-1、表7-2、表9-3 | 2026-07-22 |
 | 表3-8 | 检索效率与成本 | 第8节 | P2 同环境结果 + 外部方法定性特征 | 数据已齐，待论文排版 | 本文表8-1、表8-2 | 2026-07-19 |
 | 表/图3-9 | 成功与失败案例 | 第10节 | 已完成 | 三个正式样本的路径、QA 与边界解释已归档 | 本节；`data/analysis/20260722_2040__ch3_case_analysis/README.md` | 2026-07-22 |
@@ -718,3 +721,5 @@ F1 的两组完整路径、分数和输出见 `data/analysis/20260722_2040__ch3_
 - [x] 结论没有超过当前实验能够支持的范围；
 - [x] 相关论文图表状态已经更新；
 - [x] 待补实验已同步到 `experiment_todo.md`。
+
+
