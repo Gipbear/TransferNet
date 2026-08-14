@@ -77,6 +77,12 @@ def _assert_relation_vocab(state: dict, rel2id: dict[str, int], rev: bool) -> No
 class CWQScoreProducer(ScoreProducer):
     def __init__(self, bert_name: str = "bert-base-cased", num_steps: int = 2,
                  num_ways: int = 1, limit: int = 0, rev: bool = False):
+        if num_ways != 1:
+            raise ValueError(
+                f"num_ways={num_ways} 不能用于生成得分缓存：TransferNet.forward 在 way 循环内"
+                "重新赋值 rel_probs/ent_probs，返回的只是最后一个 way 的分布"
+                "（只有 e_score 做了跨 way 的 prod）。MMR beam search 吃的正是 ent_probs，"
+                "缓存会静默变成半个模型的结果")
         self.bert_name = bert_name
         self.num_steps = num_steps
         self.num_ways = num_ways
@@ -113,9 +119,9 @@ class CWQScoreProducer(ScoreProducer):
 
         args = SimpleNamespace(bert_name=self.bert_name, num_steps=self.num_steps,
                                num_ways=self.num_ways)
-        model = TransferNet(args, ent2id, rel2id)
         state = torch.load(self._ckpt_path, map_location="cpu", weights_only=True)
         _assert_relation_vocab(state, rel2id, self.rev)
+        model = TransferNet(args, ent2id, rel2id)
         model.load_state_dict(state, strict=False)
         model = model.to(self.device)
         model.eval()
