@@ -156,7 +156,7 @@ MetaQA 3-hop 与 CWQ 不属于第三章正式数据集，故不在本节报告�
 | UniKGQA | Jiang et al., ICLR 2023 | Freebase 预处理；abstract subgraph → reasoning subgraph | 预链接 topic entities | RoBERTa-base PLM + matching information propagation | 是，共享预训练 + 两阶段微调 | [论文](https://arxiv.org/pdf/2212.00959)，Table 3，p.6；Appendix，p.17 | 与本章同为非生成式 KGQA，但采用不同 PLM、子图和训练流程；表中 base 与增强变体需分开记录。 |
 | RoG | Luo et al., ICLR 2024 | Freebase 最大跳数子图；beam search 规划 top-3 relation paths | topic entity + KG relation mapping | LLaMA2-Chat-7B | 是，QA+Freebase 联合微调 3 epochs | [论文](https://arxiv.org/pdf/2310.01061)，Table 1，p.6；Appendix Table 14，p.20 | **口径注（2026-08-15，P8）**：原文所称 "Hits@1" 实现为"任一标准答案出现在生成结果中"，属论文正文 Hit 口径，非首个预测命中的 H@1——单 WebQSP 训练为 81.5 / F1 61.8，主表（WebQSP+CWQ 联合训练）为 85.7 / F1 70.8；首个预测命中口径的 H@1 80.0 转引自 GNN-RAG 方法对照表。单 WebQSP 结果比主表更接近本地，但仍是 LLM 微调与关系路径规划，不能与本章固定 Llama 3.1 8B 零样本结果直接排名。 |
 | ToG | Sun et al., ICLR 2024 | Freebase；LLM 迭代式实体/关系扩展与 beam search | LLM 辅助实体、关系链接 | ChatGPT / GPT-4；另有 Llama2-70B-Chat 对照 | 否，5-shot prompting（非任务微调） | [论文](https://arxiv.org/pdf/2307.07697)，Table 1，p.5；§4.1 | 属于训练免调的大模型图搜索路线；只报告 EM 与 "Hits@1"，**口径注（2026-08-15，P8）**：其 "Hits@1" 实现为"任一标准答案出现在生成结果中"，属论文正文 Hit 口径，非首个预测命中的 H@1——ChatGPT 为 76.2、GPT-4 为 82.6，另有 Llama2-70B-Chat 对照 68.9（后两个数值转引自 GNN-RAG 方法对照表）。模型、提示和指标均与本章不同，只能作路线背景参照。 |
-| GNN-RAG | Mavromatis & Karypis, arXiv 2024 | PageRank dense subgraph + ReaRev；抽取最短路径并 verbalize 给 LLM | linked entities / seed entities | LLaMA2-Chat-7B；SBERT 或 LMSR | 是；下游 LLM 调优，`+RA` 还调用 RoG 路径 | [论文](https://arxiv.org/pdf/2405.20139)，Table 4，p.5 | 论文该表报告 F1 而非统一 H@1，且包含 LLM 微调与可选额外路径调用；不能用单个 F1 数字证明本章方法优于或劣于它。 |
+| GNN-RAG | Mavromatis & Karypis, arXiv 2024 | PageRank dense subgraph + ReaRev；抽取最短路径并 verbalize 给 LLM | linked entities / seed entities | LLaMA2-Chat-7B；SBERT 或 LMSR | 是；下游 LLM 调优，`+RA` 还融合 RoG 路径 | [论文](https://arxiv.org/pdf/2405.20139)，Table 2（Hit/H@1）与 Table 4（F1） | 默认配置为 Hit 85.7 / H@1 80.6 / F1 71.3；`+RA` 为 90.7 / 82.8 / 73.5。后者增加 RoG 路径生成与融合，训练配置、路径来源和推理成本均与本章不同。 |
 | 其他方法 | — | — | — | — | — | — | 本轮不扩展，避免引入未核对来源。 |
 
 ### 3.2 WebQSP总体结果
@@ -167,7 +167,7 @@ MetaQA 3-hop 与 CWQ 不属于第三章正式数据集，故不在本节报告�
 > 口径数值，其中 RoG 80.0、GNN-RAG 80.6 及 ToG 70B 对照 68.9 转引自 GNN-RAG 方法对照表。
 > 论文表 3-2 的外部数值统一转引 GNN-RAG 对照表；不进入论文表格的数值（ToG-ChatGPT 76.2、
 > RoG 单训 81.5 / 61.8）仍保留于 §3.1 备查。F1 因各方法计算方式不一致，论文正文不并列比较
-> （口径约定详见 `thesis_tables_draft.md` §1）。
+> （口径约定及历史错误记录见本文件§3.1与§11问题记录P8）。
 
 | 类型 | 方法 | H@1↑ | F1↑ | 其他指标 | 是否输出显式路径 | 结果来源 | 备注 |
 |---|---|---:|---:|---|---|---|---|
@@ -178,16 +178,17 @@ MetaQA 3-hop 与 CWQ 不属于第三章正式数据集，故不在本节报告�
 | KG+LLM | ToG（ChatGPT） | — | — | Hit 76.2（原文称 Hits@1，任一标准答案出现在生成结果中） | 是 | [论文](https://arxiv.org/pdf/2307.07697)，Table 1 | 5-shot、外部 API、训练免调；该行不进入论文表格，数值见 §3.1 备查。 |
 | KG+LLM | ToG（GPT-4） | — | — | Hit 82.6（口径同上，转引 GNN-RAG 对照表） | 是 | [论文](https://arxiv.org/pdf/2307.07697)，Table 1 | 仅作大模型图搜索背景参照。 |
 | KG+LLM | ToG（LLaMA2-Chat-70B） | — | — | Hit 68.9（转引 GNN-RAG 对照表） | 是 | [论文](https://arxiv.org/pdf/2307.07697)，Table 1；68.9 转引 GNN-RAG 对照表 | 开源模型对照，与 GPT-4 行共同呈现 ToG 对模型规模的依赖。 |
-| GNN+LLM | GNN-RAG | 80.6（转引） | 71.3；`+RA` 73.5 | Hit 85.7（转引 GNN-RAG 方法对照表） | 是 | [论文](https://arxiv.org/pdf/2405.20139)，Table 4；85.7 / 80.6 转引其方法对照表 | 原文 Table 4 仅报告 F1；`+RA` 含额外 RoG 路径调用，不进入论文表格。 |
-| 本章方法 | TARRS + Llama 3.1 8B 零样本 | 82.23 | — | — | 是 | 本文表 7-1 | H@1 判定为归一化后首个预测答案是否命中标准答案集合，与外部 H@1 同为 top-1 命中口径；F1 因外部计算方式不一，暂不并列。 |
+| GNN+LLM | GNN-RAG | 80.6（转引） | 71.3 | Hit 85.7（转引） | 是 | [论文](https://arxiv.org/pdf/2405.20139)，Table 2、Table 4 | 默认配置；训练 GNN 检索器并调优下游 LLM。 |
+| GNN+LLM | GNN-RAG+RA | 82.8（转引） | 73.5 | Hit 90.7（转引） | 是 | [论文](https://arxiv.org/pdf/2405.20139)，Table 2、Table 4 | 在 GNN-RAG 路径之外融合 RoG 路径，增加路径生成与融合成本。 |
+| 本章方法 | TARRS + Llama 3.1 8B 零样本 | 82.23 | — | Hit 90.01 | 是 | 本文表 7-1 | H@1 判定为归一化后首个预测答案是否命中标准答案集合；检索阶段不调用 LLM，F1 因外部计算方式不一暂不并列。 |
 
 **表后分析：**
 
-- 最优和次优方法：在监督式 KGQA 的外部结果中，ReaRev 为 76.4 H@1 / 70.9 F1；UniKGQA 增强变体为 77.2 / 72.2；RoG 的 Hit 85.7 / H@1 80.0 是 WebQSP+CWQ 联合训练结果，不能与单数据集结果并列解释；GNN-RAG 的 Hit 85.7 / H@1 80.6 需训练 GNN 检索器并调优下游 LLM。
-- 本章方法与外部结果的比较：TARRS + Llama 3.1 8B 零样本的 Hit 为 90.01、H@1 为 82.23。H@1 高于 ReaRev（76.4）、UniKGQA 增强变体（77.2）、RoG（80.0，转引）与 GNN-RAG（80.6，转引）；Hit 高于 ToG-ChatGPT（76.2）、ToG-GPT-4（82.6，高 7.4 个百分点）与 RoG / GNN-RAG 主表（85.7，高 4.3 个百分点）。此前"低于 ToG-GPT-4（82.6）"的表述系将 ToG 的 Hit 口径数值误置于 H@1 列作跨口径比较，结论不成立，已随问题记录 P8 修正。
+- 外部结果位置：RoG 的 Hit 85.7 / H@1 80.0 是 WebQSP+CWQ 联合训练结果；GNN-RAG 默认配置为 85.7 / 80.6；进一步融合 RoG 路径的 GNN-RAG+RA 为 90.7 / 82.8。不同方法的训练数据、子图与下游模型均不一致，只作背景参照。
+- 本章方法与外部结果的比较：TARRS + Llama 3.1 8B 零样本的 Hit 为 90.01、H@1 为 82.23，较默认 GNN-RAG 分别高 4.31 和 1.63 个百分点，较 GNN-RAG+RA 分别低 0.69 和 0.57 个百分点。+RA 额外融合经专门训练的 RoG 所生成的路径，增加训练、路径生成和融合成本，因此不能把点差直接归因于单一检索机制。
 - 与需要 LLM 规划的方法相比的效果和成本：ToG、RoG、GNN-RAG 使用 LLM 规划、微调或额外路径调用；本章路径检索阶段不调用 LLM，但尚未完成跨实现、跨硬件的成本基准，因此不写速度优势。
 - 子图或模型配置差异：外部方法分别使用 PRN / dense subgraph / max-hop subgraph、不同 Freebase 预处理和不同 LLM；本地使用固定 score cache 与 TransferNet 路径候选，必须单独报告。
-- 该表能够支持的结论：在 WebQSP 上，本章方法以 Llama 3.1 8B 零样本作答、不微调大语言模型、检索阶段不调用大语言模型的设定，H@1 高于监督式 KGQA 方法（ReaRev、UniKGQA），并在 Hit 与 H@1 两种口径下均高于表中其余 KG+LLM 类方法（ToG、RoG、GNN-RAG）。由于知识图谱预处理、问题子图、训练方式及问答模型均不相同，以上仅作为完整系统的背景参照，不据此作无条件排名。
+- 该表能够支持的结论：在 WebQSP 上，本章方法以 Llama 3.1 8B 零样本作答、不微调大语言模型、检索阶段不调用大语言模型，在不融合外部 RoG 路径的条件下取得具有竞争力的 Hit 与 H@1。由于知识图谱预处理、问题子图、训练方式、路径来源及问答模型均不相同，以上仅作为完整系统的背景参照，不据此作无条件排名。
 - 需要注明的边界：RoG 主表为 WebQSP+CWQ 联合训练；ToG 数值随所用大语言模型变化显著（68.9~82.6）；GNN-RAG 的 Hit / H@1 转引自其方法对照表，原文 Table 4 仅报告 F1；F1 因各方法计算方式不一致，本章暂不并列比较。本章 H@1 取首个预测答案的归一化精确匹配（`kgqa/pfit/eval.py`），判定不宽于生成式外部方法常用的包含匹配。
 
 ### 3.3 MetaQA总体结果（暂缓）
@@ -625,12 +626,12 @@ N=1,581，`format_compliance` 1.0。
 
 ### 10.1 成功案例索引
 
-| 案例ID | 数据集/样本ID | 问题 | 真实答案 | 对照结果概述 | TARRS/终点感知结果概述 | 说明的机制 | 图表状态 |
+| 案例ID | 数据集/样本ID | 问题 | 真实答案 | 对照结果概述 | 最终策略结果概述 | 说明的机制 | 图表状态 |
 |---|---|---|---|---|---|---|---|
-| S1 | WebQSP / 605 | who does michael keaton play in cars | Chick Hicks | 普通 Score-Beam 首路径不命中，QA F1=0.00 | 终点感知的正确尾实体排第1/2，QA F1=1.00 | 终点实体融合抑制故事贡献者路径，突出角色路径 | 图3-6 左 |
+| S1 | WebQSP / 185 | what countries does the panama canal go through | Panama | 仅使用逐跳实体得分时，首路径尾实体为Panama City，正确尾实体最早排第4位 | 融合关系、实体和终点信号后，正确尾实体排第1位 | 模型推理信号融合改善国家答案路径排序 | 图3-6 左 |
 | S2 | WebQSP / 634 | what is the head judge of the supreme court called | United States Chief Justice | 固定惩罚重复“法院—法官”路径，未覆盖答案，QA F1=0.00 | TARRS 将直接职位边置于第2条，QA F1=1.00 | 关系互补补足低分但直接的职位证据 | 图3-6 中 |
 
-S1 和 S2 的路径、分数、关系相似度及逐条件 LLM 输出见 `data/analysis/20260722_2040__ch3_case_analysis/README.md`。案例说明候选排序和关系互补的可能机制；不替代全量结果或配对 bootstrap。
+S1 和 S2 的路径、分数及筛选规则见 `data/analysis/20260722_2040__ch3_case_analysis/README.md`；S2另记录逐条件LLM输出。案例说明候选排序和关系互补的可能机制，不替代全量结果或配对bootstrap，也不单独证明某一得分分量的因果贡献。
 
 ### 10.2 失败案例索引
 
@@ -653,7 +654,7 @@ F1 的两组完整路径、分数和输出见 `data/analysis/20260722_2040__ch3_
 | P5 | 2026-08-02 | 骨干模型结果口径 | 第 3.2 节 TransferNet 的 71.4 为原论文值，本地复现为 71.73，文档此前未记录本地值 | 骨干基线数值的引用 | 外部对照表引原论文数值，本地 checkpoint 另有复现结果 | 新增第 2.5 节记录本地复现完整指标，并注明两者用途区别 | 已补录 | 否，但第四章用作基线时须取 71.73 |
 | P6 | 2026-08-02 | WebQSP 路径答案解析口径 | SP 的 PathHit@1 为 65.72，低于同一 checkpoint 的骨干 `hit1`（71.73），而 SP 首条路径的终点本应就是骨干最高分候选 | 全部路径级指标（`answer_hit`/`top1_hit`/`precision`/`recall`/`f1`）及其配对区间，涉及第 4.1、5.1、5.2、6.1—6.5、7.1、9.3 节 | `utils/path_utils.py::path_answer_ids` 含一条 CVT 汇合规则：路径出现「正向关系→节点←反向关系」转折时改取中间节点。该规则在 WebQSP 的「主题实体→CVT 中介→答案」模式上系统性判错（SP 触发 4,663 条中判错 1,697、判对 321，5.3:1），且对不同检索方法影响相差 16 倍；MetaQA 因关系名无 `_reverse` 后缀从未触发 | 移除该规则，统一改为取路径终点，与 `kgqa/pfit/build.py::label_paths` 和 `kgqa/agent` 的 `mmr_top1_hit` 口径一致；用 `recompute_summaries.py` 重算 253 个 `test_summary.json`（不重跑检索），并重跑路径级配对 bootstrap；原值备份于 `summaries_before_fix.json` | 已修正并全量回算 | 是。PathHit@20 主对比由 +4.17 变为 +4.43（仍不跨0）；**PathHit@1 主对比由 +8.03 变为 +0.76 且跨0，该指标已从第三章正文取消**；路径 F1 主对比由 +7.06 变为 +3.60，精确率方向翻转（SP 34.53 > TARRS 33.52）；全部 QA 指标不受影响 |
 | P7 | 2026-08-02 | WebQSP PathHit@1 的跨方法可比性 | 修正 P6 后 SP 的 PathHit@1 仍为 75.46，高于骨干 `hit1` 71.73 | PathHit@1 作为跨方法比较指标的有效性 | 逐样本归因：并列最高分 tie-break 规则不同贡献 +35 例（`build_prediction` 取 `e_score` 降序首个，`_top_candidates` 同分按 `entity_id` 升序；1,581 题中 560 题存在并列最高分），骨干 Top-1 不可达时回退低分候选贡献 +24 例 | 第三章主对比（表 3-4）不使用 PathHit@1，改以 PathHit@20、路径 P/R/F1、多样性与下游 QA 为准；族内消融（如 \(\eta=0\) vs \(\eta=1\)）保留该指标，两侧 tie-break 与可达性条件相同、受同等影响，正文 3.3.1（1）已就其适用范围加限定说明 | 已确认口径边界 | 是，正文不得以 PathHit@1 作跨方法比较 |
-| P8 | 2026-08-02 | WebQSP 外部结果口径标注 | 本节（§3.2）曾将 ToG 的 76.2 / 82.6 与 RoG 的 81.5 / 85.7 置于 H@1 列，表后分析据此得出"本章低于 ToG-GPT-4（82.6）" | §3.2 表格与表后分析、§3.1 可比性记录 | ToG、RoG 原文将其生成命中结果称作 "Hits@1"，实现为"任一标准答案出现在生成结果中"，属论文正文 Hit 口径而非首个预测命中的 H@1；撰写 `thesis_tables_draft.md` 时与 GNN-RAG 对照表的双口径交叉核对发现 | 2026-08-15 修订：§3.2 表格上方增口径说明，ToG / RoG 的 Hit 数值移入"其他指标"列，H@1 列改填转引 GNN-RAG 对照表的 RoG 80.0、GNN-RAG 80.6，并新增 ToG（LLaMA2-Chat-70B）Hit 68.9 行与 UniKGQA 增强变体 77.2；表后分析删除"低于 ToG-GPT-4"结论，改为同口径比较（本章 Hit 90.01 高出 ToG-GPT-4 7.4 个百分点、高出 RoG / GNN-RAG 4.3 个百分点）；§3.1 RoG、ToG 两行可比性说明补注口径与备查数值 | 已修正 | 是。同口径下"本章方法低于 ToG-GPT-4（82.6）"结论不成立，正文表 3-2 已按修订后口径定稿 |
+| P8 | 2026-08-02 | WebQSP 外部结果口径标注 | 本节（§3.2）曾将 ToG 的 76.2 / 82.6 与 RoG 的 81.5 / 85.7 置于 H@1 列，表后分析据此得出"本章低于 ToG-GPT-4（82.6）" | §3.2 表格与表后分析、§3.1 可比性记录 | ToG、RoG 原文将其生成命中结果称作 "Hits@1"，实现为"任一标准答案出现在生成结果中"，属论文正文 Hit 口径而非首个预测命中的 H@1；与 GNN-RAG 对照表进行双口径交叉核对时发现 | 2026-08-15 修订：§3.2 表格上方增口径说明，ToG / RoG 的 Hit 数值移入"其他指标"列，H@1 列改填转引 GNN-RAG 对照表的 RoG 80.0、GNN-RAG 80.6，并新增 ToG（LLaMA2-Chat-70B）Hit 68.9 行与 UniKGQA 增强变体 77.2；表后分析删除"低于 ToG-GPT-4"结论，改为同口径比较（本章 Hit 90.01 高出 ToG-GPT-4 7.4 个百分点、高出 RoG / GNN-RAG 4.3 个百分点）；§3.1 RoG、ToG 两行可比性说明补注口径与备查数值 | 已修正 | 是。同口径下"本章方法低于 ToG-GPT-4（82.6）"结论不成立，正文表 3-2 已按修订后口径定稿 |
 
 问题状态统一使用：
 
