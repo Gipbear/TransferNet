@@ -7,6 +7,7 @@ set -euo pipefail
 #   ./scripts/llm_server.sh restart
 #   ./scripts/llm_server.sh status
 #   PORT=8790 ./scripts/llm_server.sh start
+#   MODEL_ID=unsloth/Qwen3.5-2B MODEL_PRECISION=16bit TEXT_ONLY=1 ./scripts/llm_server.sh start
 #   SILICONFLOW_API_KEY=... LLM_BACKEND=siliconflow ./scripts/llm_server.sh start
 #   PORT_BUSY_ACTION=kill ./scripts/llm_server.sh start
 #
@@ -27,6 +28,8 @@ MODEL_ID="${MODEL_ID:-unsloth/meta-llama-3.1-8b-instruct-bnb-4bit}"
 MODEL_CACHE_ROOT="${MODEL_CACHE_ROOT:-$HOME/.cache/huggingface/hub}"
 MODEL_CACHE_KEY="${MODEL_ID//\//--}"
 MODEL_SNAPSHOT="${MODEL_SNAPSHOT:-}"
+MODEL_PRECISION="${MODEL_PRECISION:-4bit}"
+TEXT_ONLY="${TEXT_ONLY:-0}"
 ADAPTER_PATH="${ADAPTER_PATH:-${PROJECT_DIR}/models/webqsp/offline_ablation/offC_name_v2}"
 SILICONFLOW_BASE_URL="${SILICONFLOW_BASE_URL:-https://api.siliconflow.cn/v1}"
 SILICONFLOW_MODEL="${SILICONFLOW_MODEL:-zai-org/GLM-4.5-Air}"
@@ -245,8 +248,14 @@ start_server() {
       --port "${PORT}" \
       > "${LOG_PATH}" 2>&1 &
   else
+    local text_only_flag=()
+    if [[ "${TEXT_ONLY}" == "1" ]]; then
+      text_only_flag=(--text-only)
+    fi
     nohup python -m kgqa.serving.llm.server \
       --model "${MODEL_SNAPSHOT}" \
+      --model-precision "${MODEL_PRECISION}" \
+      "${text_only_flag[@]}" \
       --adapter "${ADAPTER_PATH}" \
       --host "${LLM_SERVER_HOST}" \
       --port "${PORT}" \

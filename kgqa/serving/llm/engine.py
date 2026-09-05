@@ -32,13 +32,19 @@ class ModelEngine:
             sys.exit("[Error] unsloth 未安装。pip install unsloth")
 
         log.info("加载 base 模型: %s", cfg.model_name)
-        model, tokenizer = FastLanguageModel.from_pretrained(
-            model_name=cfg.model_name,
-            max_seq_length=cfg.max_seq_length,
-            dtype=None,
-            load_in_4bit=True,
-            local_files_only=True,
-        )
+        load_kwargs = {
+            "model_name": cfg.model_name,
+            "max_seq_length": cfg.max_seq_length,
+            "dtype": None,
+            "load_in_4bit": cfg.model_precision == "4bit",
+            "load_in_16bit": cfg.model_precision == "16bit",
+            "local_files_only": True,
+        }
+        if cfg.text_only:
+            load_kwargs["text_only"] = True
+        model, tokenizer = FastLanguageModel.from_pretrained(**load_kwargs)
+        if cfg.text_only and not model.config.architectures:
+            model.config.architectures = [type(model).__name__]
 
         if cfg.adapter_path:
             log.info("加载 LoRA adapter: %s", cfg.adapter_path)

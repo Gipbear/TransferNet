@@ -4,11 +4,14 @@ Replaces the old monkey-patch-based tests with dependency-injection style.
 All tests construct ModelEngine / BatchScheduler directly and inject fakes.
 """
 
+from argparse import Namespace
 import sys
 import threading
 import time
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
 from unittest.mock import patch
 
 import torch
@@ -18,6 +21,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from kgqa.serving.llm.client import GenerateResponse
+from kgqa.serving.llm.config import ServerConfig
 from kgqa.serving.llm.engine import ModelEngine
 from kgqa.serving.llm.scheduler import BatchScheduler
 
@@ -96,6 +100,48 @@ def _make_engine(model, tokenizer, *, adapter_loaded: bool = True) -> ModelEngin
 # ── ModelEngine tests ─────────────────────────────────────────────────────────
 
 class ModelEngineTests(unittest.TestCase):
+    def test_load_uses_text_only_mode_and_restores_missing_architecture(self):
+        model = mock.Mock()
+        model.config.architectures = None
+        tokenizer = mock.Mock(pad_token="<pad>")
+        fast_language_model = mock.Mock()
+        fast_language_model.from_pretrained.return_value = model, tokenizer
+        fake_unsloth = types.SimpleNamespace(FastLanguageModel=fast_language_model)
+        cfg = ServerConfig(
+            model_name="unsloth/Qwen3.5-2B",
+            adapter_path=None,
+            host="127.0.0.1",
+            port=8788,
+            max_batch_size=1,
+            batch_wait_seconds=0.0,
+            model_precision="16bit",
+            text_only=True,
+        )
+
+        with patch.dict(sys.modules, {"unsloth": fake_unsloth}):
+            ModelEngine().load(cfg)
+
+        load_kwargs = fast_language_model.from_pretrained.call_args.kwargs
+        self.assertFalse(load_kwargs["load_in_4bit"])
+        self.assertTrue(load_kwargs["load_in_16bit"])
+        self.assertTrue(load_kwargs["text_only"])
+        self.assertEqual(model.config.architectures, [type(model).__name__])
+
+    def test_server_config_reads_model_loading_options(self):
+        args = Namespace(
+            model="unsloth/Qwen3.5-2B",
+            adapter=None,
+            host="127.0.0.1",
+            port=8788,
+            model_precision="16bit",
+            text_only=True,
+        )
+
+        cfg = ServerConfig.from_args_and_env(args)
+
+        self.assertEqual(cfg.model_precision, "16bit")
+        self.assertTrue(cfg.text_only)
+
     def test_generate_batch_disable_adapter_once(self):
         """Concurrent calls: use_adapter=False triggers disable_adapter exactly once."""
         model = TrackingModel()

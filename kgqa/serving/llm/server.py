@@ -48,6 +48,8 @@ def _parse_args() -> argparse.Namespace:
         default="unsloth/meta-llama-3.1-8b-instruct-bnb-4bit",
         help="base 模型名称或本地路径",
     )
+    p.add_argument("--model-precision", choices=["4bit", "16bit"], default="4bit")
+    p.add_argument("--text-only", action="store_true", help="跳过视觉/音频塔，仅加载文本解码器")
     p.add_argument("--adapter", default=None, help="LoRA adapter 目录（不传则只提供 base 推理）")
     p.add_argument("--port", type=int, default=8788)
     p.add_argument("--host", default="0.0.0.0")

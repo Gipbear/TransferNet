@@ -17,6 +17,8 @@ class ServerConfig:
     max_batch_size: int        # 来自 LLM_SERVER_MAX_BATCH_SIZE env，默认 4，最小 1
     batch_wait_seconds: float  # 来自 LLM_SERVER_BATCH_WAIT_MS env（毫秒转秒），默认 0ms，最小 0.0
     max_seq_length: int = 2048
+    model_precision: str = "4bit"
+    text_only: bool = False
 
     @classmethod
     def from_args_and_env(cls, args: argparse.Namespace) -> "ServerConfig":
@@ -35,4 +37,6 @@ class ServerConfig:
             port=args.port,
             max_batch_size=max_batch_size,
             batch_wait_seconds=batch_wait_seconds,
+            model_precision=getattr(args, "model_precision", "4bit"),
+            text_only=getattr(args, "text_only", False),
         )
