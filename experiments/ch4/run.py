@@ -42,10 +42,12 @@ def _build_command(dataset: str, entry: dict[str, Any], train_input: Path, run_d
     ]
 
 
-def _eval_command(dataset: str, entry: dict[str, Any], test_input: Path, run_dir: Path, adapter: str | None) -> list[str]:
+def _eval_command(
+        dataset: str, entry: dict[str, Any], test_input: Path, run_dir: Path,
+        adapter: str | None, seed: int) -> list[str]:
     command = [
         sys.executable, "-m", "kgqa.pfit.eval", "--dataset", dataset,
-        "--input", str(test_input), "--exp_dir", str(run_dir),
+        "--input", str(test_input), "--exp_dir", str(run_dir), "--seed", str(seed),
         *entry.get("eval_args", []), "--run_dir", str(run_dir),
     ]
     if adapter:
@@ -63,10 +65,9 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError("第四章配置、检索配置和命令行数据集必须一致")
     paths = ExperimentPaths(project_dir)
     profile_dir = paths.ch3_profile_dir(profile["dataset"], profile["backbone"], profile["config_id"])
-    train_input = profile_dir / config.get("train_file", "train.jsonl")
-    test_input = profile_dir / config.get("test_file", "test.jsonl")
-
     for entry in _selected_entries(config, args.experiment):
+        train_input = profile_dir / entry.get("train_file", config.get("train_file", "train.jsonl"))
+        test_input = profile_dir / entry.get("test_file", config.get("test_file", "test.jsonl"))
         for seed in entry.get("seeds", [17]):
             if args.seed is not None and seed != args.seed:
                 continue
@@ -79,7 +80,11 @@ def main(argv: list[str] | None = None) -> int:
             if entry.get("mode") == "train" and args.phase in {"build", "all"}:
                 run_command(_build_command(args.dataset, entry, train_input, run_dir, seed), run_dir, dry_run=args.dry_run)
             if entry.get("mode") == "train" and args.phase in {"train", "all"}:
-                run_command([sys.executable, "-m", "kgqa.pfit.train", "--exp_dir", str(run_dir), "--seed", str(seed), "--run_dir", str(run_dir)], run_dir, dry_run=args.dry_run)
+                train_command = [
+                    sys.executable, "-m", "kgqa.pfit.train", "--exp_dir", str(run_dir), "--seed", str(seed),
+                    *entry.get("train_args", []), "--run_dir", str(run_dir),
+                ]
+                run_command(train_command, run_dir, dry_run=args.dry_run)
             if args.phase in {"eval", "all"}:
                 adapter = None
                 if entry.get("adapter_from"):
@@ -87,7 +92,8 @@ def main(argv: list[str] | None = None) -> int:
                     adapter = str(source / "adapter")
                 elif entry.get("mode") == "train":
                     adapter = str(run_dir / "adapter")
-                run_command(_eval_command(args.dataset, entry, test_input, run_dir, adapter), run_dir, dry_run=args.dry_run)
+                command = _eval_command(args.dataset, entry, test_input, run_dir, adapter, seed)
+                run_command(command, run_dir, dry_run=args.dry_run)
             update_progress(run_dir, completed=1, total=1, status="completed", phase="路径监督微调")
             emit_event(run_dir, "phase_end", phase="路径监督微调")
     return 0

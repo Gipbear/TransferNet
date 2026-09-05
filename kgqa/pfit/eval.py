@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -55,6 +56,14 @@ def set_global_seed(seed: int = 0) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+
+def shuffled_path_order(question: str, path_count: int, *, seed: int, run_idx: int) -> list[int]:
+    payload = f"{seed}\0{run_idx}\0{question}".encode("utf-8")
+    shuffle_seed = int.from_bytes(hashlib.sha256(payload).digest()[:8], "big")
+    order = list(range(path_count))
+    random.Random(shuffle_seed).shuffle(order)
+    return order
 
 
 # ─── Golden Path 标注(与 legacy 行为一致) ─────────────────────────────────────
@@ -554,10 +563,9 @@ def run_single(samples: list, model, tokenizer, cfg: dict, spec,
                 path_orig_idx = [idx_by_id[id(p)] for p in mmr_paths]
 
             if cfg["shuffle_paths"]:
-                _seed = (hash(question) + run_idx) % (2 ** 31)
-                _rng = random.Random(_seed)
-                order = list(range(len(mmr_paths)))
-                _rng.shuffle(order)
+                order = shuffled_path_order(
+                    question, len(mmr_paths), seed=cfg["seed"], run_idx=run_idx,
+                )
                 mmr_paths = [mmr_paths[i] for i in order]
                 path_orig_idx = [path_orig_idx[i] for i in order]
 
@@ -737,6 +745,7 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
              max_paths: int = 0,
              num_runs: int = 1, reject_prompt: bool = False,
              no_paths: bool = False, limit: int = 0,
+             seed: int = 0,
              intervention: str | None = None, cite_src: str | None = None,
              system_prompt_file: str | None = None,
              model: str = "unsloth/meta-llama-3.1-8b-instruct-bnb-4bit",
@@ -777,7 +786,7 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
         "entity_map_path": resolved_map_path, "show_score": show_score,
         "noise_paths": noise_paths, "dedupe_tail_paths": dedupe_tail_paths,
         "shuffle_paths": shuffle_paths, "max_paths": max_paths,
-        "num_runs": num_runs,
+        "num_runs": num_runs, "seed": seed,
         "reject_prompt": reject_prompt, "no_paths": no_paths, "limit": limit,
         "intervention": intervention,
         "cite_src": os.path.abspath(cite_src) if cite_src else None,
@@ -806,7 +815,7 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
             raise RuntimeError(
                 f"{exp_dir} 已有不同配置的 eval 记录;请换 exp_dir 或删除旧目录后重跑")
 
-    set_global_seed(0)
+    set_global_seed(seed)
 
     with open(input_path, encoding="utf-8") as f:
         samples = [json.loads(l) for l in f if l.strip()]
@@ -841,7 +850,7 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
     cfg = {
         "fmt": fmt, "path_format": path_format, "show_score": show_score,
         "noise_paths": noise_paths, "dedupe_tail_paths": dedupe_tail_paths,
-        "shuffle_paths": shuffle_paths, "max_paths": max_paths,
+        "shuffle_paths": shuffle_paths, "max_paths": max_paths, "seed": seed,
         "reject_prompt": reject_prompt,
         "no_paths": no_paths, "batch_size": batch_size,
         "max_new_tokens": max_new_tokens,
@@ -897,6 +906,7 @@ def build_parser():
     p.add_argument("--noise_paths", type=int, default=0)
     p.add_argument("--dedupe_tail_paths", action="store_true")
     p.add_argument("--shuffle_paths", action="store_true")
+    p.add_argument("--seed", type=int, default=0, help="生成与路径乱序的可复现随机种子")
     p.add_argument("--max_paths", type=int, default=0,
                    help="按检索得分保留前 N 条路径(≤0=不截断)")
     p.add_argument("--num_runs", type=int, default=1)
@@ -930,7 +940,7 @@ def main(argv=None):
         show_score=a.show_score, noise_paths=a.noise_paths,
         dedupe_tail_paths=a.dedupe_tail_paths, shuffle_paths=a.shuffle_paths,
         max_paths=a.max_paths,
-        num_runs=a.num_runs, reject_prompt=a.reject_prompt, no_paths=a.no_paths,
+        num_runs=a.num_runs, reject_prompt=a.reject_prompt, no_paths=a.no_paths, seed=a.seed,
         intervention=a.intervention, cite_src=a.cite_src,
         system_prompt_file=a.system_prompt_file,
         limit=a.limit, model=a.model, max_seq_length=a.max_seq_length,

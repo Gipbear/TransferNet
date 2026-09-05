@@ -1,7 +1,9 @@
 """pfit eval 路径预算截断(truncate_paths_by_score)单元测试。"""
+import subprocess
+import sys
 import unittest
 
-from kgqa.pfit.eval import truncate_paths_by_score
+from kgqa.pfit.eval import build_parser, truncate_paths_by_score
 
 
 class TestTruncatePathsByScore(unittest.TestCase):
@@ -28,6 +30,23 @@ class TestTruncatePathsByScore(unittest.TestCase):
         original = list(paths)
         truncate_paths_by_score(paths, 1)
         self.assertEqual(paths, original)
+
+    def test_shuffle_order_is_seeded_and_stable_across_python_processes(self):
+        parser = build_parser()
+        args = parser.parse_args([
+            "--dataset", "webqsp", "--input", "input.jsonl", "--exp_dir", "exp", "--seed", "17",
+        ])
+        self.assertEqual(args.seed, 17)
+
+        script = (
+            "from kgqa.pfit.eval import shuffled_path_order; "
+            "print(shuffled_path_order('same question', 6, seed=17, run_idx=0))"
+        )
+        outputs = [
+            subprocess.check_output([sys.executable, "-c", script], text=True).strip()
+            for _ in range(3)
+        ]
+        self.assertEqual(len(set(outputs)), 1)
 
 
 if __name__ == "__main__":
