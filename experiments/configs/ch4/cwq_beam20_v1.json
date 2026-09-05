@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "kind": "ch4_pfit_matrix",
+  "dataset": "cwq",
+  "config_id": "rog_transfernet_v1",
+  "note": "RoG-CWQ 第四章 beam20 正式矩阵。上游为 rog_transfernet_v1（beam=20，PathHit@20=73.61），所有实验评测完整 3531 条测试集。原三组使用 6000 条训练检索子集：无拒答组保留 4584 条可回答样本，拒答组保留全部 6000 条。全量无拒答_1ep 读取 full_train_27631/train_full.jsonl，以完整 27631 条原始训练记录为输入，过滤路径不可达样本后进行 1 epoch 训练，用于和既有全量拒答_1ep 做训练规模一致的拒答监督对照。",
+  "experiments": [
+    {
+      "id": "本域微调",
+      "group": "主线",
+      "mode": "train",
+      "seeds": [17],
+      "build_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"],
+      "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"]
+    },
+    {
+      "id": "零样本基线",
+      "group": "主线",
+      "mode": "eval_only",
+      "seeds": [17],
+      "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"]
+    },
+    {
+      "id": "本域微调_拒答",
+      "group": "可信性",
+      "mode": "train",
+      "seeds": [17],
+      "build_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name", "--include_rejection"],
+      "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"]
+    },
+    {
+      "id": "全量无拒答_1ep",
+      "group": "训练规模对照",
+      "mode": "train",
+      "seeds": [17],
+      "train_file": "../../full_train_27631/train_full.jsonl",
+      "build_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"],
+      "train_args": ["--epochs", "1"],
+      "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"]
+    }
+  ]
+}
