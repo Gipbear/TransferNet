@@ -424,6 +424,74 @@ class TestExperimentRunners(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "尚未人工确认"):
                 run_ch4.main(["--dataset", "webqsp", "--config", str(matrix), "--profile", str(profile), "--project_dir", str(root), "--dry_run"])
 
+    def test_ch4_dry_run_keeps_matrix_level_inputs_and_default_train_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            profile = write_json(root / "profile.json", {
+                "kind": "ch3_retrieval_profile", "status": "confirmed", "dataset": "webqsp",
+                "backbone": "transfernet", "config_id": "v1", "topk": 500, "retrieve": {},
+            })
+            matrix = write_json(root / "ch4.json", {
+                "dataset": "webqsp", "config_id": "v1",
+                "train_file": "matrix_train.jsonl", "test_file": "matrix_test.jsonl",
+                "experiments": [{"id": "baseline", "mode": "train", "seeds": [17]}],
+            })
+            stream = io.StringIO()
+            with redirect_stdout(stream):
+                run_ch4.main([
+                    "--dataset", "webqsp", "--config", str(matrix), "--profile", str(profile),
+                    "--project_dir", str(root), "--dry_run",
+                ])
+            output = stream.getvalue()
+            self.assertIn("confirmed_profiles/v1/matrix_train.jsonl", output)
+            self.assertIn("confirmed_profiles/v1/matrix_test.jsonl", output)
+            self.assertNotIn('"--epochs"', output)
+
+    def test_ch4_entry_overrides_inputs_and_forwards_train_args(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            profile = write_json(root / "profile.json", {
+                "kind": "ch3_retrieval_profile", "status": "confirmed", "dataset": "webqsp",
+                "backbone": "transfernet", "config_id": "v1", "topk": 500, "retrieve": {},
+            })
+            matrix = write_json(root / "ch4.json", {
+                "dataset": "webqsp", "config_id": "v1",
+                "train_file": "matrix_train.jsonl", "test_file": "matrix_test.jsonl",
+                "experiments": [{
+                    "id": "override", "mode": "train", "seeds": [17],
+                    "train_file": "candidates/custom/train.jsonl",
+                    "test_file": "candidates/custom/test.jsonl",
+                    "train_args": ["--epochs", "3"],
+                }],
+            })
+            stream = io.StringIO()
+            with redirect_stdout(stream):
+                run_ch4.main([
+                    "--dataset", "webqsp", "--config", str(matrix), "--profile", str(profile),
+                    "--project_dir", str(root), "--dry_run",
+                ])
+            output = stream.getvalue()
+            self.assertIn("confirmed_profiles/v1/candidates/custom/train.jsonl", output)
+            self.assertIn("confirmed_profiles/v1/candidates/custom/test.jsonl", output)
+            self.assertNotIn("confirmed_profiles/v1/matrix_train.jsonl", output)
+            self.assertNotIn("confirmed_profiles/v1/matrix_test.jsonl", output)
+            self.assertEqual(output.count('"--epochs" "3"'), 1)
+
+    def test_ch4_qwen35_config_uses_16bit_text_only_for_train_and_eval(self):
+        root = Path(__file__).resolve().parents[2]
+        config_path = root / "experiments/configs/ch4/webqsp_qwen35_2b_v1.json"
+
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+
+        experiment = config["experiments"][0]
+        expected_loading_args = [
+            "--model", "unsloth/Qwen3.5-2B",
+            "--model_precision", "16bit",
+            "--text_only",
+        ]
+        self.assertEqual(experiment["train_args"][:5], expected_loading_args)
+        self.assertEqual(experiment["eval_args"][-5:], expected_loading_args)
+
     def test_ch3_publish_copies_only_confirmed_candidate(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

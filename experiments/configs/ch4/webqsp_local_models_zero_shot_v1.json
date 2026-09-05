@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "kind": "ch4_pfit_matrix",
+  "dataset": "webqsp",
+  "config_id": "local_models_zero_shot_v1",
+  "note": "已完成 SFT 模型的无 adapter 配对评测；复用相同 WebQSP 测试集、路径输入和模型加载精度。",
+  "experiments": [
+    {
+      "id": "Qwen3.5-0.8B零样本",
+      "group": "基座模型零样本对比",
+      "mode": "eval_only",
+      "seeds": [17],
+      "eval_args": [
+        "--format", "v2",
+        "--path_format", "chain",
+        "--entity_repr", "name",
+        "--batch_size", "1",
+        "--model", "unsloth/Qwen3.5-0.8B",
+        "--model_precision", "16bit",
+        "--text_only"
+      ]
+    },
+    {
+      "id": "Llama3.2-1B零样本",
+      "group": "基座模型零样本对比",
+      "mode": "eval_only",
+      "seeds": [17],
+      "eval_args": [
+        "--format", "v2",
+        "--path_format", "chain",
+        "--entity_repr", "name",
+        "--batch_size", "1",
+        "--model", "unsloth/Llama-3.2-1B-Instruct-unsloth-bnb-4bit",
+        "--model_precision", "4bit"
+      ]
+    },
+    {
+      "id": "Qwen3.5-2B零样本",
+      "group": "基座模型零样本对比",
+      "mode": "eval_only",
+      "seeds": [17],
+      "eval_args": [
+        "--format", "v2",
+        "--path_format", "chain",
+        "--entity_repr", "name",
+        "--batch_size", "1",
+        "--model", "unsloth/Qwen3.5-2B",
+        "--model_precision", "16bit",
+        "--text_only"
+      ]
+    },
+    {
+      "id": "Llama3.2-3B零样本",
+      "group": "基座模型零样本对比",
+      "mode": "eval_only",
+      "seeds": [17],
+      "eval_args": [
+        "--format", "v2",
+        "--path_format", "chain",
+        "--entity_repr", "name",
+        "--batch_size", "1",
+        "--model", "unsloth/Llama-3.2-3B-Instruct-unsloth-bnb-4bit",
+        "--model_precision", "4bit"
+      ]
+    },
+    {
+      "id": "Qwen3.5-4B零样本",
+      "group": "基座模型零样本对比",
+      "mode": "eval_only",
+      "seeds": [17],
+      "eval_args": [
+        "--format", "v2",
+        "--path_format", "chain",
+        "--entity_repr", "name",
+        "--batch_size", "1",
+        "--model", "unsloth/Qwen3.5-4B",
+        "--model_precision", "16bit",
+        "--text_only"
+      ]
+    },
+    {
+      "id": "Mistral-7B零样本",
+      "group": "基座模型零样本对比",
+      "mode": "eval_only",
+      "seeds": [17],
+      "eval_args": [
+        "--format", "v2",
+        "--path_format", "chain",
+        "--entity_repr", "name",
+        "--batch_size", "1",
+        "--model", "unsloth/mistral-7b-instruct-v0.3-bnb-4bit",
+        "--model_precision", "4bit"
+      ]
+    },
+    {
+      "id": "Gemma3-1B零样本",
+      "group": "基座模型零样本对比",
+      "mode": "eval_only",
+      "seeds": [17],
+      "eval_args": [
+        "--format", "v2",
+        "--path_format", "chain",
+        "--entity_repr", "name",
+        "--batch_size", "1",
+        "--model", "unsloth/gemma-3-1b-it-unsloth-bnb-4bit",
+        "--model_precision", "4bit"
+      ]
+    }
+  ]
+}

@@ -1,8 +1,8 @@
-"""pfit QLoRA 训练:sft_train.jsonl → LoRA adapter(迁自 llm_infer/train_sft.py)。
+"""pfit LoRA 训练:sft_train.jsonl → LoRA adapter(迁自 llm_infer/train_sft.py)。
 
-模型 unsloth/meta-llama-3.1-8b-instruct-bnb-4bit,QLoRA + Prompt Masking
-(只在 assistant 回复部分计算 loss)。数据整形函数为模块级纯函数,免 GPU 可测;
-Unsloth/训练主体依赖 GPU,由 smoke 验证。
+默认使用 Llama 3.1 8B 的 4-bit QLoRA；也支持 Qwen3.5 的 16-bit LoRA。
+两者均采用 Prompt Masking，只在 assistant 回复部分计算 loss。
+数据整形函数为模块级纯函数,免 GPU 可测;Unsloth/训练主体依赖 GPU,由 smoke 验证。
 
 用法:
   python -m kgqa.pfit.train --exp_dir data/output/kgqa/webqsp/pfit/webqsp_main --epochs 2
@@ -26,6 +26,7 @@ from datetime import datetime
 
 from kgqa.pfit import manifest as manifest_mod
 from kgqa.runtime import add_runtime_arguments, configure_runtime, emit_event, update_progress
+from utils.huggingface import resolve_model_path_local_first
 
 log = logging.getLogger("pfit.train")
 
@@ -268,6 +269,7 @@ def build_training_args(*, adapter_dir: str, epochs: int, batch_size: int, grad_
 
 def run_train(*, exp_dir: str, train_file: str = None,
               model: str = "unsloth/meta-llama-3.1-8b-instruct-bnb-4bit",
+              model_precision: str = "4bit", text_only: bool = False,
               lora_rank: int = 16, lora_alpha: int = 32, lora_dropout: float = 0.0,
               lr: float = 2e-4, batch_size: int = 4, grad_accum: int = 8,
               epochs: int = 2, max_seq_len: int = 1024 + 256,
@@ -279,7 +281,8 @@ def run_train(*, exp_dir: str, train_file: str = None,
     manifest_path = os.path.join(exp_dir, "manifest.json")
 
     config = {
-        "model": model, "lora_rank": lora_rank, "lora_alpha": lora_alpha,
+        "model": model, "model_precision": model_precision, "text_only": text_only,
+        "lora_rank": lora_rank, "lora_alpha": lora_alpha,
         "lora_dropout": lora_dropout, "lr": lr, "batch_size": batch_size,
         "grad_accum": grad_accum, "epochs": epochs, "max_seq_len": max_seq_len,
         "warmup_ratio": warmup_ratio, "seed": seed, "val_ratio": val_ratio,
@@ -310,13 +313,18 @@ def run_train(*, exp_dir: str, train_file: str = None,
     import torch
     from trl import SFTTrainer
 
-    model_obj, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=model,
-        max_seq_length=max_seq_len,
-        dtype=None,
-        load_in_4bit=True,
-        local_files_only=True,
-    )
+    model_path = resolve_model_path_local_first(model)
+    load_kwargs = {
+        "model_name": model_path,
+        "max_seq_length": max_seq_len,
+        "dtype": None,
+        "load_in_4bit": model_precision == "4bit",
+        "load_in_16bit": model_precision == "16bit",
+        "local_files_only": True,
+    }
+    if text_only:
+        load_kwargs["text_only"] = True
+    model_obj, tokenizer = FastLanguageModel.from_pretrained(**load_kwargs)
     model_obj = FastLanguageModel.get_peft_model(
         model_obj,
         r=lora_rank,
@@ -327,6 +335,7 @@ def run_train(*, exp_dir: str, train_file: str = None,
         bias="none",
         use_gradient_checkpointing="unsloth",
         random_state=seed,
+        max_seq_length=max_seq_len,
     )
     log.info("LoRA 注入完成")
 
@@ -372,10 +381,12 @@ def run_train(*, exp_dir: str, train_file: str = None,
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 
 def build_parser():
-    p = argparse.ArgumentParser(description="pfit QLoRA SFT 训练")
+    p = argparse.ArgumentParser(description="pfit LoRA SFT 训练")
     p.add_argument("--exp_dir", required=True, help="实验目录(读 sft_train.jsonl,写 adapter/)")
     p.add_argument("--train_file", default=None, help="覆盖默认训练集路径")
     p.add_argument("--model", default="unsloth/meta-llama-3.1-8b-instruct-bnb-4bit")
+    p.add_argument("--model_precision", choices=["4bit", "16bit"], default="4bit")
+    p.add_argument("--text_only", action="store_true", help="跳过视觉/音频塔，仅加载文本解码器")
     p.add_argument("--lora_rank", type=int, default=16)
     p.add_argument("--lora_alpha", type=int, default=32)
     p.add_argument("--lora_dropout", type=float, default=0.0)
@@ -396,6 +407,7 @@ def main(argv=None):
     run_dir = configure_runtime(a, command="第四章路径监督训练", fallback_run_dir=a.exp_dir,
                                 manifest={"exp_dir": a.exp_dir, "seed": a.seed, "epochs": a.epochs})
     adapter = run_train(exp_dir=a.exp_dir, train_file=a.train_file, model=a.model,
+                        model_precision=a.model_precision, text_only=a.text_only,
                         lora_rank=a.lora_rank, lora_alpha=a.lora_alpha,
                         lora_dropout=a.lora_dropout, lr=a.lr, batch_size=a.batch_size,
                         grad_accum=a.grad_accum, epochs=a.epochs, max_seq_len=a.max_seq_len,

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "kind": "ch4_pfit_matrix",
+  "dataset": "webqsp",
+  "config_id": "qwen35_08b_v1",
+  "note": "Qwen3.5-0.8B 小模型迁移实验；按 Unsloth 官方建议使用 16-bit LoRA，并跳过视觉塔。",
+  "experiments": [
+    {
+      "id": "Qwen3.5-0.8B主实验",
+      "group": "基座模型对比",
+      "mode": "train",
+      "seeds": [17],
+      "build_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"],
+      "train_args": [
+        "--model", "unsloth/Qwen3.5-0.8B",
+        "--model_precision", "16bit",
+        "--text_only",
+        "--batch_size", "1",
+        "--grad_accum", "32"
+      ],
+      "eval_args": [
+        "--format", "v2",
+        "--path_format", "chain",
+        "--entity_repr", "name",
+        "--batch_size", "1",
+        "--model", "unsloth/Qwen3.5-0.8B",
+        "--model_precision", "16bit",
+        "--text_only"
+      ]
+    }
+  ]
+}

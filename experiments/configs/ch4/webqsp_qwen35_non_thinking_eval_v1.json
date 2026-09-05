@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "kind": "ch4_pfit_matrix",
+  "dataset": "webqsp",
+  "config_id": "qwen35_non_thinking_eval_v1",
+  "note": "Qwen3.5 非思考模式配对评测；复用相同测试集、路径、解码参数和已有 LoRA adapter。",
+  "experiments": [
+    {
+      "id": "Qwen3.5-0.8B非思考零样本",
+      "group": "Qwen3.5非思考模式配对评测",
+      "mode": "eval_only",
+      "seeds": [17],
+      "eval_args": [
+        "--format", "v2",
+        "--path_format", "chain",
+        "--entity_repr", "name",
+        "--batch_size", "1",
+        "--model", "unsloth/Qwen3.5-0.8B",
+        "--model_precision", "16bit",
+        "--text_only",
+        "--direct_answer"
+      ]
+    },
+    {
+      "id": "Qwen3.5-0.8B非思考微调",
+      "group": "Qwen3.5非思考模式配对评测",
+      "mode": "eval_only",
+      "adapter_from": "Qwen3.5-0.8B主实验",
+      "seeds": [17],
+      "eval_args": [
+        "--format", "v2",
+        "--path_format", "chain",
+        "--entity_repr", "name",
+        "--batch_size", "1",
+        "--model", "unsloth/Qwen3.5-0.8B",
+        "--model_precision", "16bit",
+        "--text_only",
+        "--direct_answer"
+      ]
+    },
+    {
+      "id": "Qwen3.5-2B非思考零样本",
+      "group": "Qwen3.5非思考模式配对评测",
+      "mode": "eval_only",
+      "seeds": [17],
+      "eval_args": [
+        "--format", "v2",
+        "--path_format", "chain",
+        "--entity_repr", "name",
+        "--batch_size", "1",
+        "--model", "unsloth/Qwen3.5-2B",
+        "--model_precision", "16bit",
+        "--text_only",
+        "--direct_answer"
+      ]
+    },
+    {
+      "id": "Qwen3.5-2B非思考微调",
+      "group": "Qwen3.5非思考模式配对评测",
+      "mode": "eval_only",
+      "adapter_from": "Qwen3.5-2B主实验",
+      "seeds": [17],
+      "eval_args": [
+        "--format", "v2",
+        "--path_format", "chain",
+        "--entity_repr", "name",
+        "--batch_size", "1",
+        "--model", "unsloth/Qwen3.5-2B",
+        "--model_precision", "16bit",
+        "--text_only",
+        "--direct_answer"
+      ]
+    },
+    {
+      "id": "Qwen3.5-4B非思考零样本",
+      "group": "Qwen3.5非思考模式配对评测",
+      "mode": "eval_only",
+      "seeds": [17],
+      "eval_args": [
+        "--format", "v2",
+        "--path_format", "chain",
+        "--entity_repr", "name",
+        "--batch_size", "1",
+        "--model", "unsloth/Qwen3.5-4B",
+        "--model_precision", "16bit",
+        "--text_only",
+        "--direct_answer"
+      ]
+    },
+    {
+      "id": "Qwen3.5-4B非思考微调",
+      "group": "Qwen3.5非思考模式配对评测",
+      "mode": "eval_only",
+      "adapter_from": "Qwen3.5-4B主实验",
+      "seeds": [17],
+      "eval_args": [
+        "--format", "v2",
+        "--path_format", "chain",
+        "--entity_repr", "name",
+        "--batch_size", "1",
+        "--model", "unsloth/Qwen3.5-4B",
+        "--model_precision", "16bit",
+        "--text_only",
+        "--direct_answer"
+      ]
+    }
+  ]
+}

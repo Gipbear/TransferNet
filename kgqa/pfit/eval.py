@@ -582,8 +582,9 @@ def run_single(samples: list, model, tokenizer, cfg: dict, spec,
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ]
+        template_kwargs = {"enable_thinking": False} if cfg["direct_answer"] else {}
         result = tokenizer.apply_chat_template(
-            messages, tokenize=True, add_generation_prompt=True
+            messages, tokenize=True, add_generation_prompt=True, **template_kwargs
         )
         input_ids = result["input_ids"] if hasattr(result, "__getitem__") and not isinstance(result, list) else result
         return input_ids, mmr_paths, golden, sample, path_orig_idx
@@ -710,7 +711,8 @@ def run_single(samples: list, model, tokenizer, cfg: dict, spec,
     return results
 
 
-def load_inference_model(*, model: str, max_seq_length: int, adapter: str | None):
+def load_inference_model(*, model: str, max_seq_length: int, adapter: str | None,
+                         model_precision: str = "4bit", text_only: bool = False):
     """加载一次基座模型及可选 adapter，供同配置的多输入评测复用。"""
     from utils.huggingface import resolve_model_path_local_first
 
@@ -719,13 +721,19 @@ def load_inference_model(*, model: str, max_seq_length: int, adapter: str | None
     except ImportError:
         sys.exit("[Error] unsloth 未安装。请运行: pip install unsloth")
     model_path = resolve_model_path_local_first(model)
-    model_obj, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=model_path,
-        max_seq_length=max_seq_length,
-        dtype=None,
-        load_in_4bit=True,
-        local_files_only=True,
-    )
+    load_kwargs = {
+        "model_name": model_path,
+        "max_seq_length": max_seq_length,
+        "dtype": None,
+        "load_in_4bit": model_precision == "4bit",
+        "load_in_16bit": model_precision == "16bit",
+        "local_files_only": True,
+    }
+    if text_only:
+        load_kwargs["text_only"] = True
+    model_obj, tokenizer = FastLanguageModel.from_pretrained(**load_kwargs)
+    if text_only and not model_obj.config.architectures:
+        model_obj.config.architectures = [type(model_obj).__name__]
     if adapter:
         from peft import PeftModel
         model_obj = PeftModel.from_pretrained(model_obj, adapter)
@@ -749,6 +757,8 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
              intervention: str | None = None, cite_src: str | None = None,
              system_prompt_file: str | None = None,
              model: str = "unsloth/meta-llama-3.1-8b-instruct-bnb-4bit",
+             model_precision: str = "4bit", text_only: bool = False,
+             direct_answer: bool = False,
              max_seq_length: int = 2048, max_new_tokens: int = 256,
              batch_size: int = 4, show_progress: bool = True,
              progress_interval: int = 50, run_dir: str | None = None,
@@ -782,6 +792,8 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
 
     config = {
         "dataset": dataset, "adapter": os.path.abspath(adapter) if adapter else None,
+        "model": model, "model_precision": model_precision, "text_only": text_only,
+        "direct_answer": direct_answer,
         "fmt": fmt, "path_format": path_format, "entity_repr": entity_repr,
         "entity_map_path": resolved_map_path, "show_score": show_score,
         "noise_paths": noise_paths, "dedupe_tail_paths": dedupe_tail_paths,
@@ -790,7 +802,7 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
         "reject_prompt": reject_prompt, "no_paths": no_paths, "limit": limit,
         "intervention": intervention,
         "cite_src": os.path.abspath(cite_src) if cite_src else None,
-        "model": model, "max_seq_length": max_seq_length,
+        "max_seq_length": max_seq_length,
         "max_new_tokens": max_new_tokens,
         "system_prompt": system_prompt,
     }
@@ -842,7 +854,8 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
         raise ValueError("loaded_model 与 loaded_tokenizer 必须同时提供")
     if loaded_model is None:
         model_obj, tokenizer = load_inference_model(
-            model=model, max_seq_length=max_seq_length, adapter=adapter
+            model=model, max_seq_length=max_seq_length, adapter=adapter,
+            model_precision=model_precision, text_only=text_only,
         )
     else:
         model_obj, tokenizer = loaded_model, loaded_tokenizer
@@ -859,6 +872,7 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
         "run_dir": run_dir,
         "entity_map_dict": entity_map_dict, "rev_entity_map": rev_entity_map,
         "use_entity_names": entity_repr == "name",
+        "direct_answer": direct_answer,
         "system_prompt": system_prompt,
         "intervention": intervention, "cite_map": cite_map,
     }
@@ -922,6 +936,10 @@ def build_parser():
                    help="round1 predictions.jsonl 路径,按 sample_index 对齐取引用编号")
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--model", default="unsloth/meta-llama-3.1-8b-instruct-bnb-4bit")
+    p.add_argument("--model_precision", choices=["4bit", "16bit"], default="4bit")
+    p.add_argument("--text_only", action="store_true", help="跳过视觉/音频塔，仅加载文本解码器")
+    p.add_argument("--direct_answer", action="store_true",
+                   help="通过 chat template 关闭思考模式，直接生成最终答案")
     p.add_argument("--max_seq_length", type=int, default=2048)
     p.add_argument("--max_new_tokens", type=int, default=256)
     p.add_argument("--batch_size", type=int, default=4)
@@ -943,7 +961,9 @@ def main(argv=None):
         num_runs=a.num_runs, reject_prompt=a.reject_prompt, no_paths=a.no_paths, seed=a.seed,
         intervention=a.intervention, cite_src=a.cite_src,
         system_prompt_file=a.system_prompt_file,
-        limit=a.limit, model=a.model, max_seq_length=a.max_seq_length,
+        limit=a.limit, model=a.model, model_precision=a.model_precision, text_only=a.text_only,
+        direct_answer=a.direct_answer,
+        max_seq_length=a.max_seq_length,
         max_new_tokens=a.max_new_tokens, batch_size=a.batch_size,
         show_progress=not a.no_progress, progress_interval=a.progress_interval,
         run_dir=str(run_dir) if run_dir else None)
