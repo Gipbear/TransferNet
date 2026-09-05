@@ -233,7 +233,7 @@ def make_memory_cleanup_callback():
 
 def build_training_args(*, adapter_dir: str, epochs: int, batch_size: int, grad_accum: int,
                         lr: float, warmup_ratio: float, max_seq_len: int, seed: int,
-                        bf16: bool, has_eval: bool):
+                        bf16: bool, has_eval: bool, save_total_limit: int = 1):
     """构造 SFTConfig(纯配置,免 GPU 可测)。
 
     eval batch 固定为 1 而非跟随 train batch:eval 的 logits 张量是
@@ -254,7 +254,7 @@ def build_training_args(*, adapter_dir: str, epochs: int, batch_size: int, grad_
         bf16=bf16,
         logging_steps=10,
         save_strategy="epoch",
-        save_total_limit=1,
+        save_total_limit=save_total_limit,
         eval_strategy="epoch" if has_eval else "no",
         per_device_eval_batch_size=1,
         seed=seed,
@@ -274,7 +274,7 @@ def run_train(*, exp_dir: str, train_file: str = None,
               lr: float = 2e-4, batch_size: int = 4, grad_accum: int = 8,
               epochs: int = 2, max_seq_len: int = 1024 + 256,
               warmup_ratio: float = 0.05, seed: int = 42,
-              val_ratio: float = 0.05) -> str:
+              val_ratio: float = 0.05, save_total_limit: int = 1) -> str:
     """训练主入口,adapter 写 exp_dir/adapter/;同配置且 adapter 已在则跳过。"""
     train_file = train_file or os.path.join(exp_dir, "sft_train.jsonl")
     adapter_dir = os.path.join(exp_dir, "adapter")
@@ -286,6 +286,7 @@ def run_train(*, exp_dir: str, train_file: str = None,
         "lora_dropout": lora_dropout, "lr": lr, "batch_size": batch_size,
         "grad_accum": grad_accum, "epochs": epochs, "max_seq_len": max_seq_len,
         "warmup_ratio": warmup_ratio, "seed": seed, "val_ratio": val_ratio,
+        "save_total_limit": save_total_limit,
     }
     section = manifest_mod.make_section(config, {"sft_train": train_file})
 
@@ -356,6 +357,7 @@ def run_train(*, exp_dir: str, train_file: str = None,
         adapter_dir=adapter_dir, epochs=epochs, batch_size=batch_size, grad_accum=grad_accum,
         lr=lr, warmup_ratio=warmup_ratio, max_seq_len=max_seq_len, seed=seed,
         bf16=torch.cuda.is_bf16_supported(), has_eval=eval_dataset is not None,
+        save_total_limit=save_total_limit,
     )
     trainer = SFTTrainer(
         model=model_obj,
@@ -398,6 +400,7 @@ def build_parser():
     p.add_argument("--warmup_ratio", type=float, default=0.05)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--val_ratio", type=float, default=0.05)
+    p.add_argument("--save_total_limit", type=int, default=1)
     add_runtime_arguments(p)
     return p
 
@@ -411,7 +414,8 @@ def main(argv=None):
                         lora_rank=a.lora_rank, lora_alpha=a.lora_alpha,
                         lora_dropout=a.lora_dropout, lr=a.lr, batch_size=a.batch_size,
                         grad_accum=a.grad_accum, epochs=a.epochs, max_seq_len=a.max_seq_len,
-                        warmup_ratio=a.warmup_ratio, seed=a.seed, val_ratio=a.val_ratio)
+                        warmup_ratio=a.warmup_ratio, seed=a.seed, val_ratio=a.val_ratio,
+                        save_total_limit=a.save_total_limit)
     update_progress(run_dir, completed=1, total=1, status="completed", phase="路径监督训练")
     emit_event(run_dir, "phase_end", phase="路径监督训练", adapter=adapter)
 

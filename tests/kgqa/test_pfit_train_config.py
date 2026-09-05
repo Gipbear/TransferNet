@@ -28,6 +28,7 @@ def _args(**overrides):
         "seed": 17,
         "bf16": True,
         "has_eval": True,
+        "save_total_limit": 1,
     }
     kwargs.update(overrides)
     return build_training_args(**kwargs)
@@ -43,6 +44,10 @@ class TestBuildTrainingArgs(unittest.TestCase):
         args = _args()
         self.assertEqual(args.save_strategy.value, "epoch")
         self.assertGreaterEqual(args.save_total_limit, 1)
+
+    def test_checkpoint_retention_is_configurable(self):
+        args = _args(save_total_limit=5, bf16=False)
+        self.assertEqual(args.save_total_limit, 5)
 
     def test_eval_strategy_follows_has_eval(self):
         self.assertEqual(_args(has_eval=True).eval_strategy.value, "epoch")

@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "kind": "ch4_pfit_matrix",
+  "dataset": "webqsp",
+  "config_id": "epoch_curve_v1",
+  "note": "单次训练 5 epoch 并保留每个 epoch checkpoint；固定 transfernet_v2、seed17，后续统一在全量 1581 条测试集上评测。",
+  "experiments": [
+    {
+      "id": "训练轮数_epoch1至5",
+      "group": "训练轮数",
+      "mode": "train",
+      "seeds": [17],
+      "build_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name", "--no_progress"],
+      "train_args": ["--epochs", "5", "--save_total_limit", "5", "--no_progress"],
+      "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name", "--no_progress"]
+    }
+  ]
+}
