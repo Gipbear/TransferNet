@@ -20,3 +20,4 @@ MetaQA_KB/predict_result*.jsonl
 .omx/
 defense_ppt/
 .playwright-mcp
+.omo
