@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "kind": "ch4_pfit_matrix",
+  "dataset": "webqsp",
+  "config_id": "local_eval_beam30_v1",
+  "note": "本地第一阶段：补齐两项乱序评测，并完成 beam5/10/15/30 全量敏感性评测；固定 transfernet_v2 与 seed17。",
+  "experiments": [
+    {
+      "id": "推理期扰动_零样本",
+      "group": "乱序缺口",
+      "mode": "eval_only",
+      "seeds": [17],
+      "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name", "--shuffle_paths", "--no_progress"]
+    },
+    {
+      "id": "关闭路径打乱_推理期扰动",
+      "group": "乱序缺口",
+      "mode": "eval_only",
+      "seeds": [17],
+      "adapter_from": "关闭路径打乱",
+      "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name", "--shuffle_paths", "--no_progress"]
+    },
+    {
+      "id": "检索宽度_beam5",
+      "group": "P2检索宽度",
+      "mode": "eval_only",
+      "seeds": [17],
+      "adapter_from": "主实验",
+      "test_file": "candidates/beam5_lambda02_eta1/test.jsonl",
+      "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name", "--no_progress"]
+    },
+    {
+      "id": "检索宽度_beam10",
+      "group": "P2检索宽度",
+      "mode": "eval_only",
+      "seeds": [17],
+      "adapter_from": "主实验",
+      "test_file": "candidates/beam10_lambda02_eta1/test.jsonl",
+      "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name", "--no_progress"]
+    },
+    {
+      "id": "检索宽度_beam15",
+      "group": "P2检索宽度",
+      "mode": "eval_only",
+      "seeds": [17],
+      "adapter_from": "主实验",
+      "test_file": "candidates/beam15_lambda02_eta1/test.jsonl",
+      "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name", "--no_progress"]
+    },
+    {
+      "id": "检索宽度_beam30",
+      "group": "P2检索宽度",
+      "mode": "eval_only",
+      "seeds": [17],
+      "adapter_from": "主实验",
+      "test_file": "candidates/beam30_lambda02_eta1/test.jsonl",
+      "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name", "--no_progress"]
+    }
+  ]
+}

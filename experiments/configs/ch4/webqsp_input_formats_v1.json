@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "kind": "ch4_pfit_matrix",
+  "dataset": "webqsp",
+  "config_id": "input_formats_v1",
+  "note": "WebQSP输入路径序列化对比。固定transfernet_v2、seed17和v2引用答案输出；chain复用主实验结果，仅新训练nl、tuple、arrow三组。",
+  "experiments": [
+    {
+      "id": "输入格式_nl",
+      "group": "输入格式",
+      "mode": "train",
+      "seeds": [17],
+      "build_args": ["--format", "v2", "--path_format", "nl", "--entity_repr", "name"],
+      "eval_args": ["--format", "v2", "--path_format", "nl", "--entity_repr", "name"]
+    },
+    {
+      "id": "输入格式_tuple",
+      "group": "输入格式",
+      "mode": "train",
+      "seeds": [17],
+      "build_args": ["--format", "v2", "--path_format", "tuple", "--entity_repr", "name"],
+      "eval_args": ["--format", "v2", "--path_format", "tuple", "--entity_repr", "name"]
+    },
+    {
+      "id": "输入格式_arrow",
+      "group": "输入格式",
+      "mode": "train",
+      "seeds": [17],
+      "build_args": ["--format", "v2", "--path_format", "arrow", "--entity_repr", "name"],
+      "eval_args": ["--format", "v2", "--path_format", "arrow", "--entity_repr", "name"]
+    }
+  ]
+}

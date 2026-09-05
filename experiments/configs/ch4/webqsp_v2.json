@@ -5,9 +5,9 @@
   "config_id": "core_v2",
   "note": "第四章正式实验矩阵，对应 docs/experiments/ch4/thesis_outline.md 第 3.1-3.4 节。上游固定为第三章 transfernet_v2 已发布产物。P1-P4 参数分析沿用旧检索配置的既有结果，不在本矩阵中。",
   "experiments": [
-    {"id": "主实验", "group": "主线", "mode": "train", "seeds": [17, 23, 29], "build_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"], "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"]},
+    {"id": "主实验", "group": "主线", "mode": "train", "seeds": [17], "build_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"], "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"]},
     {"id": "零样本基线", "group": "主线", "mode": "eval_only", "seeds": [17], "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"]},
-    {"id": "无路径基线", "group": "主线", "mode": "eval_only", "seeds": [17, 23, 29], "adapter_from": "主实验", "eval_args": ["--format", "v1", "--no_paths", "--entity_repr", "name"]},
+    {"id": "无路径基线", "group": "主线", "mode": "eval_only", "seeds": [17], "adapter_from": "主实验", "eval_args": ["--format", "v1", "--no_paths", "--entity_repr", "name"]},
 
     {"id": "关闭路径打乱", "group": "创新点一", "mode": "train", "seeds": [17], "build_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name", "--no_shuffle"], "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"]},
     {"id": "干扰比例30", "group": "创新点一", "mode": "train", "seeds": [17], "build_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name", "--distractor_ratio", "0.3"], "eval_args": ["--format", "v2", "--path_format", "chain", "--entity_repr", "name"]},
