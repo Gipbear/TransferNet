@@ -9,6 +9,13 @@ def norm_entity(value: str) -> str:
     return value.lower().strip()
 
 
+def is_path_supported_entity(answer: str, path_entities: set[str]) -> bool:
+    normalized_answer = norm_entity(answer)
+    return bool(normalized_answer) and any(
+        norm_entity(path_entity).startswith(normalized_answer) for path_entity in path_entities
+    )
+
+
 def label_golden_indices(mmr_paths: list[dict], golden: list[str]) -> set[int]:
     golden_set = {norm_entity(answer) for answer in golden}
     indices: set[int] = set()
@@ -79,7 +86,7 @@ def compute_faithfulness(
     ]
     if effective_answers:
         hallucinated_entities = [
-            answer for answer in effective_answers if norm_entity(answer) not in path_entities
+            answer for answer in effective_answers if not is_path_supported_entity(answer, path_entities)
         ]
         hallucination_rate = len(hallucinated_entities) / len(effective_answers)
     else:

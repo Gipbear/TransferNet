@@ -34,6 +34,7 @@ from datetime import datetime
 warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
 logging.getLogger("transformers").setLevel(logging.ERROR)
 
+from kgqa.core.answer_metrics import is_path_supported_entity
 from kgqa.pfit import manifest as manifest_mod
 from kgqa.runtime import add_runtime_arguments, configure_runtime, emit_event, update_progress
 from kgqa.pfit.formats import (
@@ -381,7 +382,7 @@ def compute_faithfulness(cited_indices: set, golden_indices: set,
     effective_pred_answers = [e for e in pred_answers if not is_rejection_text(e)]
     if effective_pred_answers:
         hallu_entities = [e for e in effective_pred_answers
-                          if norm_entity(e) not in path_entities]
+                          if not is_path_supported_entity(e, path_entities)]
         hallu_rate = len(hallu_entities) / len(effective_pred_answers)
     else:
         hallu_entities = []

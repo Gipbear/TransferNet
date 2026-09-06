@@ -74,7 +74,7 @@ EOF
 }
 
 find_server_pids() {
-  pgrep -f "kgqa\\.llm_server\\.server.*--port ${PORT}" || true
+  pgrep -f "kgqa\\.serving\\.llm\\.server.*--port ${PORT}" || true
 }
 
 find_port_pids() {

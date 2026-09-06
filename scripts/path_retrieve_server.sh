@@ -41,7 +41,7 @@ EOF
 }
 
 find_server_pids() {
-  pgrep -f "kgqa\\.server\\.path_retrieve_server.*--port ${PORT}" || true
+  pgrep -f "kgqa\\.retrieve\\.api\\.path_retrieve_server.*--port ${PORT}" || true
 }
 
 find_port_pids() {

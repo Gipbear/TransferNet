@@ -93,6 +93,28 @@ class TestMetricsParity(unittest.TestCase):
                 legacy.compute_faithfulness(cited, golden_idx, pred, ents),
                 pfit_eval.compute_faithfulness(cited, golden_idx, pred, ents))
 
+    def test_faithfulness_accepts_truncated_path_entity_prefix(self):
+        from kgqa.core.answer_metrics import compute_faithfulness as core_compute
+        from kgqa.pfit import eval as pfit_eval
+
+        path_entities = {"andrea del verrocchio", "unrelated entity"}
+        for compute in (core_compute, pfit_eval.compute_faithfulness):
+            with self.subTest(module=compute.__module__):
+                metrics = compute(set(), set(), ["Andrea del Verroc"], path_entities)
+                self.assertEqual(metrics["hallucination_rate"], 0.0)
+                self.assertEqual(metrics["hallucinated_entities"], [])
+
+    def test_faithfulness_rejects_answer_extending_path_entity(self):
+        from kgqa.core.answer_metrics import compute_faithfulness as core_compute
+        from kgqa.pfit import eval as pfit_eval
+
+        path_entities = {"andrea del verroc"}
+        for compute in (core_compute, pfit_eval.compute_faithfulness):
+            with self.subTest(module=compute.__module__):
+                metrics = compute(set(), set(), ["Andrea del Verrocchio"], path_entities)
+                self.assertEqual(metrics["hallucination_rate"], 1.0)
+                self.assertEqual(metrics["hallucinated_entities"], ["Andrea del Verrocchio"])
+
     def test_aggregate_and_rejection_parity(self):
         from kgqa.pfit import eval as pfit_eval
         results = _fake_results()
