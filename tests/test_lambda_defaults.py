@@ -55,7 +55,7 @@ class LambdaDefaultTests(unittest.TestCase):
         )
 
     def test_checker_dataset_cli_exposes_lambda(self):
-        from llm_infer.build_checker_dataset import build_parser
+        from kgqa.agent.cli.build_checker_dataset import build_parser
 
         self.assertEqual(build_parser().parse_args([]).lambda_val, 0.2)
 

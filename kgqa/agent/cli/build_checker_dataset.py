@@ -1,42 +1,49 @@
-"""Build an SFT dataset for a strict reject-list checker adapter.
+"""构造 strict reject-list checker adapter 的 SFT 训练集。
 
-For each WebQSP TRAIN question: retrieve beam paths from a train score cache
-(same MMR settings as the eval pipeline), split into batches, build the exact
-strict-check prompt the pipeline uses, and label rejected candidate indices by
-gold answers. Output is messages-format JSONL for llm_infer.train_sft.
+为每个 WebQSP TRAIN 问题:从 train score cache 检索 beam 路径,按批切分,
+构造流水线实际使用的 strict-check 提示词,并按 golden 答案标注各候选
+答案索引是否应被 reject。输出 messages 格式 JSONL,供 kgqa.pfit.train
+训练 checker adapter(经 llm_server 挂载后由 checked-batch 流水的
+reject 检查消费)。
 
-Prerequisites (see docs/experiments_checked_batch_optimization_202606.md §7):
-  1. Filter the train QA file to loader-valid rows:
+检索经 kgqa.retrieve.api.service.PathRetrieveService——即 path_retrieve_server
+进程内同款实现,与评测时 checker 实际看到的路径输入同源同参数。
+
+迁自 llm_infer/build_checker_dataset.py(原依赖 oh_my_agent,其检索/实体映射
+底层本就来自 kgqa,迁移仅替换 import 与构造方式)。
+
+前置条件(参见 docs/experiments/experiments_checked_batch_optimization_202606.md §7):
+  1. 先把 train QA 过滤为 loader 实际会加载的行:
        python scripts/build_webqsp_fixed_qa.py \
            --source data/input/WebQSP/QA_data/WebQuestionsSP/qa_train_webqsp.txt \
            --output data/input/WebQSP/QA_data/WebQuestionsSP/qa_train_webqsp_fixed.txt
-  2. Dump the train score cache with the SAME (filtered) file. Use an ABSOLUTE
-     --qa_file path and --mode val (NOT train: that selects the shuffled default
-     train loader and silently misaligns questions with score tensors):
-       python -m WebQSP.dump_scores --input_dir data/input/WebQSP \
-           --ckpt <CKPT> --mode val --qa_file <ABS_PATH_TO_FIXED_TRAIN_QA> \
-           --output <TRAIN_CACHE_PT>
+  2. 用同一(过滤后)qa 文件 dump train score cache。cache 的问题文本必须与
+     本脚本逐字匹配,否则 golden 标签整体错位;dump 时须避开默认被 shuffle
+     的 train loader(否则问题与得分张量静默错位)。历史产物由
+     WebQSP.dump_scores 以 --mode val + 绝对 --qa_file 生成;现役统一入口为
+     kgqa.retrieve.cli.dump_scores,具体参数以该 CLI 的 --help 为准。
 
-Usage:
-  python -m llm_infer.build_checker_dataset \
+用法:
+  python -m kgqa.agent.cli.build_checker_dataset \
       --cache <TRAIN_CACHE_PT> --qa_file <FIXED_TRAIN_QA> --out <OUT_JSONL>
 """
-
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
 
-from oh_my_agent.common import apply_entity_map, load_entity_map
-from oh_my_agent.common.qa_data import load_webqsp_qa_samples
-from oh_my_agent.path_retrieve_server.service import CachedPathRetriever
-from oh_my_agent.tools.cited_path_check import (
+from kgqa.agent.common import apply_entity_map, load_entity_map, load_webqsp_qa_samples
+from kgqa.agent.specs import get_agent_spec
+from kgqa.agent.tools.cited_path_check import (
     STRICT_REJECTED_ANSWER_CHECK_SYSTEM,
     _candidate_answers_from_cited_paths,
     build_rejected_answer_prompt,
 )
-from oh_my_agent.tools.path_retrieve import DEFAULT_ENTITY_MAP_PATH
+from kgqa.retrieve.api.service import PathRetrieveService
+from kgqa.retrieve.datasets.registry import get_adapter
+
+_DATASET = "webqsp"
 
 
 def _norm(value: str) -> str:
@@ -48,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--cache",
         default="data/output/WebQSP/path_retrieve_server/score_cache/webqsp_train_2996_fixed.pt",
-        help="Train score cache from WebQSP.dump_scores (see module docstring)",
+        help="Train score cache from dump_scores (see module docstring)",
     )
     parser.add_argument("--input_dir", default="data/input/WebQSP")
     parser.add_argument(
@@ -60,7 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         default="data/output/WebQSP/llm_dataset/checker_strict_v1/checker_train.jsonl",
     )
-    parser.add_argument("--entity_map", default=DEFAULT_ENTITY_MAP_PATH)
+    parser.add_argument(
+        "--entity_map",
+        default=None,
+        help="实体映射文件路径 (MID→Name, tab-separated);缺省用 webqsp agent spec 的默认映射",
+    )
     parser.add_argument("--beam_size", type=int, default=50)
     parser.add_argument("--lambda_val", type=float, default=0.2)
     parser.add_argument("--batch_size", type=int, default=20)
@@ -78,8 +89,12 @@ def main() -> int:
     args = build_parser().parse_args()
 
     samples = load_webqsp_qa_samples(args.qa_file, limit=args.limit)
-    retriever = CachedPathRetriever(cache_path=args.cache, input_dir=args.input_dir)
-    entity_map = load_entity_map(args.entity_map)
+    adapter = get_adapter(_DATASET, input_dir=args.input_dir)
+    retriever = PathRetrieveService(adapter, cache_path=args.cache)
+    if args.entity_map:
+        entity_map = load_entity_map(args.entity_map)
+    else:
+        entity_map = get_agent_spec(_DATASET).load_entity_map()
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     n_records = n_skipped = n_all_reject = n_none = 0
