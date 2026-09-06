@@ -3,7 +3,7 @@
 TransferNet(EMNLP 2021)多跳 KGQA 实现,扩展为三章实验:
 
 - **Ch3**: TransferNet + MMR 多样性 beam search 检索推理路径
-- **Ch4**: 用 TransferNet 推理路径对 LLaMA 3.1 8B 做 QLoRA SFT(现役 `kgqa/pfit/`;`llm_infer/` 只读保留作 parity 参照与 Ch4 复现凭证)
+- **Ch4**: 用 TransferNet 推理路径对 LLaMA 3.1 8B 做 QLoRA SFT(现役 `kgqa/pfit/`,迁自 `llm_infer/`;legacy 原实现完成迁移与 parity 对拍后已删除,见 git 历史)
 - **Ch5**: `kgqa/agent/` — checked-batch(PV-GAC)推理流水线(分批答题 + LLM reject 检查,首批 loose、后续批 strict);`oh_my_agent/` 只读保留作 WebQSP parity 与论文复现凭证
 
 ## 环境与语言
@@ -108,9 +108,9 @@ python -m kgqa.pfit.eval --dataset <DS> --input <TEST_JSONL> --exp_dir <DIR> [--
 
 正式第四章实验使用 `python -m experiments.ch4.run`; `scripts/run_pfit.sh` 仅作为历史兼容入口,不得作为新实验的默认编排器。路径格式由 pfit CLI 管理,当前为 `arrow`/`nl`/`tuple`/`chain`,`schema` 系已废弃。现役实验清单与目录约定见 `experiments/README.md` 和 `docs/experiments/experiments_kgqa_reproducible_layout.md`；历史迁移验证记录见 `docs/experiments/experiments_kgqa_stage_history.md`。
 
-### LLM SFT(Ch4 legacy,只读)
+### LLM SFT(Ch4 legacy,已删除)
 
-`llm_infer/` 与 `scripts/run_ablation.sh` 为 Ch4 原始实现,只读保留(pfit 建集 parity 的对拍参照);新实验通过 `experiments.ch4.run` 编排并调用 `kgqa/pfit/`。消融分组和基座模型以实验配置与 `experiments/README.md` 为准。
+`llm_infer/` 与 `scripts/run_ablation.sh` 为 Ch4 原始实现,功能迁移至 `kgqa/pfit/` 并经逐条 parity 对拍后已删除(原实现与对拍测试见 git 历史);新实验通过 `experiments.ch4.run` 编排并调用 `kgqa/pfit/`。消融分组和基座模型以实验配置与 `experiments/README.md` 为准。
 
 ### 实验入口
 
@@ -126,7 +126,6 @@ python -m experiments.ch5.run --dataset <DS> --config <CONFIG> --profile <PROFIL
 
 ```bash
 python -m unittest discover -s tests -t . -p 'test*.py' -v
-bash tests/run_ablation_lib_test.sh  # ablation 库函数测试
 bash tests/run_pfit_lib_test.sh     # run_pfit.sh 命令拼装 dry-run 测试
 ```
 
@@ -167,7 +166,7 @@ python -m kgqa.agent.cli.eval_checked_batch \
 ## 代码边界
 
 - `kgqa/` 是当前统一框架;`retrieve/`、`pfit/`、`agent/`、`serving/` 和 `experiments/` 分别承担检索、路径监督微调、checked-batch、服务和实验编排。
-- `oh_my_agent/` 与 `llm_infer/` 是只读 legacy/parity 参考;新功能和新实验不要写入这两个目录。
+- `oh_my_agent/` 是只读 legacy/parity 参考(WebQSP checked-batch 原实现);新功能和新实验不要写入该目录。
 - 具体模块关系、模型实现和数据集差异以源代码、测试及 `experiments/README.md` 为准,不要把实现细节复制到本文件。
 
 ## 分析归档

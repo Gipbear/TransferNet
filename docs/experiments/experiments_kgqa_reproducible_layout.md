@@ -3,8 +3,8 @@
 ## 适用范围
 
 本文定义当前现役的第三章检索、第四章路径监督微调和第五章渐进验证实验。所有新产物
-必须写入 `data/output/kgqa/`；`scripts/`、`llm_infer/` 和 `oh_my_agent/` 是历史保留实现，
-不改变其旧产物位置。
+必须写入 `data/output/kgqa/`；`scripts/` 与 `oh_my_agent/` 是历史保留实现(`llm_infer/`
+已迁移至 `kgqa/pfit/` 并删除,见 git 历史),不改变其旧产物位置。
 
 ## 统一目录
 
