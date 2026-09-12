@@ -69,6 +69,27 @@ class GlobalKG(KGEdgeSource):
         triples = [[int(s), int(r), int(o)] for s, r, o in stacked]
         return cls.from_triples(triples)
 
+    @classmethod
+    def from_adint_tsv(cls, input_dir: str) -> "GlobalKG":
+        """按 ADInt TransferNet 的首见顺序重建名称原生双向图。"""
+        ent2id: dict[str, int] = {}
+        rel2id: dict[str, int] = {}
+        valid_edges: dict[int, list[tuple[int, int]]] = {}
+        graph_path = Path(input_dir) / "kb/kb.tsv"
+        with graph_path.open(encoding="utf-8") as source:
+            for line_number, line in enumerate(source, 1):
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) != 3:
+                    raise ValueError(f"invalid ADInt triple at {graph_path}:{line_number}")
+                subject, relation, obj = parts
+                subject_id = ent2id.setdefault(subject, len(ent2id))
+                object_id = ent2id.setdefault(obj, len(ent2id))
+                relation_id = rel2id.setdefault(relation, len(rel2id))
+                reverse_id = rel2id.setdefault(f"{relation}_reverse", len(rel2id))
+                valid_edges.setdefault(subject_id, []).append((relation_id, object_id))
+                valid_edges.setdefault(object_id, []).append((reverse_id, subject_id))
+        return cls(valid_edges)
+
     def neighbors(self, node_id: int) -> list[tuple[int, int]]:
         return self.valid_edges_dict.get(node_id, [])
 

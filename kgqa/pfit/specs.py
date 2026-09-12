@@ -60,6 +60,15 @@ class PfitDatasetSpec:
 
 
 _SPECS: dict[str, PfitDatasetSpec] = {
+    "adint": PfitDatasetSpec(
+        name="adint",
+        entity_reprs=("name",),
+        default_entity_repr="name",
+        clean_question=_clean_question_bert_tokens,
+        supports_rejection=True,
+        group_by_hop=True,
+        hops=(1, 2),
+    ),
     "webqsp": PfitDatasetSpec(
         name="webqsp",
         entity_reprs=("mid", "name"),

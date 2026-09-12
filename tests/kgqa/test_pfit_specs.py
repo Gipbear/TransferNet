@@ -80,6 +80,40 @@ class TestCWQSpec(unittest.TestCase):
         self.assertEqual(self.spec.hops, (1, 2))
 
 
+class TestPharmKGSpec(unittest.TestCase):
+    def setUp(self):
+        from kgqa.pfit.specs import get_pfit_spec
+        self.spec = get_pfit_spec("pharmkg")
+
+    def test_entity_reprs_name_only_with_mapping(self):
+        self.assertEqual(self.spec.entity_reprs, ("name",))
+        self.assertTrue(self.spec.entity_map_path.endswith(
+            "data/input/PharmKG/fbwq_full/mid2name.txt"))
+
+    def test_clean_question_keeps_plain_text(self):
+        question = "What disease is associated with metformin?"
+        self.assertEqual(self.spec.clean_question(question, ["metformin"]), question)
+
+    def test_rejection_supported_without_hop_grouping(self):
+        self.assertTrue(self.spec.supports_rejection)
+        self.assertFalse(self.spec.group_by_hop)
+        self.assertEqual(self.spec.hops, (1, 2))
+
+
+class TestADIntSpec(unittest.TestCase):
+    def test_name_native_two_hop_spec(self):
+        from kgqa.pfit.specs import get_pfit_spec
+
+        spec = get_pfit_spec("adint")
+
+        self.assertEqual(spec.entity_reprs, ("name",))
+        self.assertEqual(spec.default_entity_repr, "name")
+        self.assertIsNone(spec.entity_map_path)
+        self.assertTrue(spec.supports_rejection)
+        self.assertTrue(spec.group_by_hop)
+        self.assertEqual(spec.hops, (1, 2))
+
+
 class TestRegistry(unittest.TestCase):
     def test_unknown_dataset_raises(self):
         from kgqa.pfit.specs import get_pfit_spec

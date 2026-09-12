@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "kind": "ch3_retrieval_profile",
+  "status": "confirmed",
+  "confirmation_reason": "ADInt 第四章工程适配固定使用 beam=20、lambda=0.3、eta=0.5；该配置与 20 条 LLM 路径预算一致，并已通过真实 score、RSDPR、SFT、基座与 adapter 冒烟验证。该配置用于首轮可复现运行，不代表完成了 ADInt 检索参数优选。",
+  "selected_candidate": "beam20_lambda03_eta05",
+  "config_id": "transfernet_v1",
+  "dataset": "adint",
+  "backbone": "transfernet",
+  "topk": 500,
+  "selection_split": "dev",
+  "topk_candidates": [500],
+  "score_source": {
+    "ckpt": "data/ckpt/ADInt/name_native_2hop_seed17/model-29-0.3402.pt",
+    "input_dir": "data/input/ADInt",
+    "bert_name": "BAAI/bge-base-en-v1.5",
+    "splits": {
+      "train": {"qa_file": "data/input/ADInt/train.json"},
+      "dev": {"qa_file": "data/input/ADInt/dev.json"},
+      "test": {"qa_file": "data/input/ADInt/test.json"}
+    }
+  },
+  "retrieve": {
+    "beam_size": 20,
+    "lambda_val": 0.3,
+    "threshold": 0.01,
+    "eta": 0.5,
+    "step_score_mode": "joint",
+    "penalty_mode": "adaptive",
+    "relation_normalization": "global"
+  },
+  "parameter_scan": {
+    "items": [
+      {"beam_size": 20, "lambda_val": 0.3, "eta": 0.5}
+    ]
+  }
+}

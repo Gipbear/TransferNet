@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "kind": "ch4_pfit_matrix",
+  "dataset": "adint",
+  "config_id": "llama31_8b_rejection_v1",
+  "note": "ADInt 的 Llama 3.1 8B 检索证据感知拒答实验。三组使用相同 beam20 路径、拒答提示和确定性解码；拒答训练仅使用自然路径未命中样本，不做过采样或合成拒答。",
+  "experiments": [
+    {
+      "id": "Llama3.1-8B未微调_拒答提示",
+      "group": "拒答基线",
+      "mode": "eval_only",
+      "seeds": [17],
+      "eval_args": [
+        "--format", "v2", "--path_format", "chain", "--entity_repr", "name",
+        "--max_paths", "20", "--batch_size", "1", "--reject_prompt",
+        "--model", "unsloth/Meta-Llama-3.1-8B-Instruct-unsloth-bnb-4bit",
+        "--model_precision", "4bit", "--max_seq_length", "2048", "--max_new_tokens", "256"
+      ]
+    },
+    {
+      "id": "Llama3.1-8B原路径微调_拒答提示",
+      "group": "训练方式对照",
+      "mode": "eval_only",
+      "adapter_from": "Llama3.1-8B路径微调",
+      "seeds": [17],
+      "eval_args": [
+        "--format", "v2", "--path_format", "chain", "--entity_repr", "name",
+        "--max_paths", "20", "--batch_size", "1", "--reject_prompt",
+        "--model", "unsloth/Meta-Llama-3.1-8B-Instruct-unsloth-bnb-4bit",
+        "--model_precision", "4bit", "--max_seq_length", "2048", "--max_new_tokens", "256"
+      ]
+    },
+    {
+      "id": "Llama3.1-8B路径微调_自然拒答",
+      "group": "拒答训练",
+      "mode": "train",
+      "seeds": [17],
+      "build_args": [
+        "--format", "v2", "--path_format", "chain", "--entity_repr", "name",
+        "--include_rejection"
+      ],
+      "train_args": [
+        "--model", "unsloth/Meta-Llama-3.1-8B-Instruct-unsloth-bnb-4bit",
+        "--model_precision", "4bit", "--lora_rank", "16", "--lora_alpha", "32",
+        "--lr", "2e-4", "--batch_size", "1", "--grad_accum", "32",
+        "--epochs", "2", "--max_seq_len", "1280"
+      ],
+      "eval_args": [
+        "--format", "v2", "--path_format", "chain", "--entity_repr", "name",
+        "--max_paths", "20", "--batch_size", "1", "--reject_prompt",
+        "--model", "unsloth/Meta-Llama-3.1-8B-Instruct-unsloth-bnb-4bit",
+        "--model_precision", "4bit", "--max_seq_length", "2048", "--max_new_tokens", "256"
+      ]
+    }
+  ]
+}

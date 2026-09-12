@@ -492,6 +492,54 @@ class TestExperimentRunners(unittest.TestCase):
         self.assertEqual(experiment["train_args"][:5], expected_loading_args)
         self.assertEqual(experiment["eval_args"][-5:], expected_loading_args)
 
+    def test_ch4_pharmkg_llama7b_config_defines_fair_adapter_comparison(self):
+        root = Path(__file__).resolve().parents[2]
+        config_path = root / "experiments/configs/ch4/pharmkg_llama2_7b_v1.json"
+
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(config["dataset"], "pharmkg")
+        fine_tuned, base = config["experiments"]
+        self.assertEqual(fine_tuned["mode"], "train")
+        self.assertEqual(base["mode"], "eval_only")
+        self.assertNotIn("adapter_from", base)
+        expected_eval_args = [
+            "--format", "v2",
+            "--path_format", "chain",
+            "--entity_repr", "name",
+            "--max_paths", "20",
+            "--batch_size", "1",
+            "--model", "unsloth/llama-2-7b-chat-bnb-4bit",
+            "--model_precision", "4bit",
+            "--max_seq_length", "2048",
+            "--max_new_tokens", "256",
+        ]
+        self.assertEqual(fine_tuned["eval_args"], expected_eval_args)
+        self.assertEqual(base["eval_args"], expected_eval_args)
+
+    def test_ch4_parser_accepts_pharmkg(self):
+        args = run_ch4.build_parser().parse_args([
+            "--dataset", "pharmkg", "--config", "matrix.json", "--profile", "profile.json",
+        ])
+
+        self.assertEqual(args.dataset, "pharmkg")
+
+    def test_ch4_adint_llama31_config_defines_base_and_finetuned_evaluation(self):
+        root = Path(__file__).resolve().parents[2]
+        config_path = root / "experiments/configs/ch4/adint_llama31_8b_v1.json"
+
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(config["dataset"], "adint")
+        base, fine_tuned = config["experiments"]
+        self.assertEqual(base["mode"], "eval_only")
+        self.assertEqual(fine_tuned["mode"], "train")
+        self.assertNotIn("adapter_from", base)
+        self.assertIn("--entity_repr", fine_tuned["build_args"])
+        self.assertIn("name", fine_tuned["build_args"])
+        self.assertEqual(base["eval_args"], fine_tuned["eval_args"])
+        self.assertIn("unsloth/Meta-Llama-3.1-8B-Instruct-unsloth-bnb-4bit", base["eval_args"])
+
     def test_ch3_publish_copies_only_confirmed_candidate(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

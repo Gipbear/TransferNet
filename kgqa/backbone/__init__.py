@@ -12,6 +12,9 @@ def make_score_producer(
     limit: int = 0,
     rev: bool = False,
 ) -> ScoreProducer:
+    if dataset == "adint":
+        from kgqa.backbone.adint import ADIntScoreProducer
+        return ADIntScoreProducer(bert_name=bert_name or "BAAI/bge-base-en-v1.5", limit=limit)
     if dataset == "webqsp":
         from kgqa.backbone.webqsp import WebQSPScoreProducer
         return WebQSPScoreProducer(bert_name=bert_name or "BAAI/bge-base-en-v1.5")

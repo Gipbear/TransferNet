@@ -1,11 +1,13 @@
 """统一检索框架的数据集适配器注册表。"""
 from kgqa.retrieve.datasets.base import DatasetAdapter
+from kgqa.retrieve.datasets.adint import ADIntAdapter
 from kgqa.retrieve.datasets.cwq import CWQAdapter
 from kgqa.retrieve.datasets.metaqa import MetaQAAdapter
 from kgqa.retrieve.datasets.pharmkg import PharmKGAdapter
 from kgqa.retrieve.datasets.webqsp import WebQSPAdapter
 
 _REGISTRY: dict[str, type[DatasetAdapter]] = {
+    "adint": ADIntAdapter,
     "webqsp": WebQSPAdapter,
     "metaqa": MetaQAAdapter,
     "pharmkg": PharmKGAdapter,
