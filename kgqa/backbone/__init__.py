@@ -24,6 +24,9 @@ def make_score_producer(
     if dataset == "pharmkg":
         from kgqa.backbone.pharmkg import PharmKGScoreProducer
         return PharmKGScoreProducer(bert_name=bert_name or "BAAI/bge-base-en-v1.5")
+    if dataset == "prime":
+        from kgqa.backbone.prime import PrimeScoreProducer
+        return PrimeScoreProducer(bert_name=bert_name or "BAAI/bge-base-en-v1.5", limit=limit)
     if dataset == "cwq":
         from kgqa.backbone.cwq import CWQScoreProducer
         return CWQScoreProducer(bert_name=bert_name or "bert-base-cased", limit=limit,

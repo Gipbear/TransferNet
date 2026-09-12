@@ -4,6 +4,7 @@ from kgqa.retrieve.datasets.adint import ADIntAdapter
 from kgqa.retrieve.datasets.cwq import CWQAdapter
 from kgqa.retrieve.datasets.metaqa import MetaQAAdapter
 from kgqa.retrieve.datasets.pharmkg import PharmKGAdapter
+from kgqa.retrieve.datasets.prime import PrimeAdapter
 from kgqa.retrieve.datasets.webqsp import WebQSPAdapter
 
 _REGISTRY: dict[str, type[DatasetAdapter]] = {
@@ -11,6 +12,7 @@ _REGISTRY: dict[str, type[DatasetAdapter]] = {
     "webqsp": WebQSPAdapter,
     "metaqa": MetaQAAdapter,
     "pharmkg": PharmKGAdapter,
+    "prime": PrimeAdapter,
     "cwq": CWQAdapter,
 }
 

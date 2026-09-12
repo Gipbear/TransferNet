@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "kind": "ch3_retrieval_profile",
+  "status": "confirmed",
+  "confirmation_reason": "Prime 首轮评测沿用 ADInt 与 PharmKG 的 beam20、lambda0.3、eta0.5 口径，后续再以 dev 扫描选择正式参数。",
+  "selected_candidate": "beam20_lambda03_eta05",
+  "config_id": "transfernet_v1",
+  "dataset": "prime",
+  "backbone": "transfernet",
+  "topk": 500,
+  "selection_split": "dev",
+  "topk_candidates": [500],
+  "score_source": {
+    "ckpt": "data/ckpt/Prime/prime_3hop_seed17/model-29-0.1027.pt",
+    "input_dir": "data/input/Prime",
+    "bert_name": "BAAI/bge-base-en-v1.5",
+    "splits": {
+      "dev": {"qa_file": "data/input/Prime/dev.json"},
+      "test": {"qa_file": "data/input/Prime/test.json"}
+    }
+  },
+  "retrieve": {
+    "beam_size": 20,
+    "lambda_val": 0.3,
+    "threshold": 0.01,
+    "eta": 0.5,
+    "step_score_mode": "joint",
+    "penalty_mode": "adaptive",
+    "relation_normalization": "global"
+  },
+  "parameter_scan": {
+    "items": [
+      {"beam_size": 20, "lambda_val": 0.3, "eta": 0.5}
+    ]
+  }
+}
