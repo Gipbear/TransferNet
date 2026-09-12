@@ -17,7 +17,7 @@ from kgqa.runtime import add_runtime_arguments, configure_runtime, emit_event, f
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="基于骨干候选答案的最短路径后处理基线")
-    parser.add_argument("--dataset", required=True, help="数据集：webqsp | metaqa | cwq")
+    parser.add_argument("--dataset", required=True, help="数据集：adint | webqsp | metaqa | pharmkg | cwq")
     parser.add_argument("--backbone", default="transfernet", choices=["transfernet", "rearev"],
                         help="基础检索模型；本基线当前使用离线得分缓存")
     parser.add_argument("--cache", required=True, help="已有离线 score 缓存")

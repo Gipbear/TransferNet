@@ -907,7 +907,7 @@ def run_eval(*, dataset: str, input_path: str, exp_dir: str,
 
 def build_parser():
     p = argparse.ArgumentParser(description="pfit 推理 + 忠实度评测")
-    p.add_argument("--dataset", required=True, help="webqsp | metaqa")
+    p.add_argument("--dataset", required=True, help="adint | webqsp | metaqa | pharmkg | cwq")
     p.add_argument("--input", required=True, help="kgqa.retrieve.cli.retrieve 输出 JSONL(test split)")
     p.add_argument("--exp_dir", required=True, help="实验目录(写 eval/ 与 manifest)")
     p.add_argument("--adapter", default=None, help="LoRA adapter 目录(缺省=base 零样本)")

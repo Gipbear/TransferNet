@@ -79,6 +79,16 @@ _SPECS: dict[str, PfitDatasetSpec] = {
         group_by_hop=True,
         hops=(1, 2, 3),
     ),
+    "pharmkg": PfitDatasetSpec(
+        name="pharmkg",
+        entity_reprs=("name",),
+        default_entity_repr="name",
+        clean_question=_clean_question_bert_tokens,
+        supports_rejection=True,
+        group_by_hop=False,
+        hops=(1, 2),
+        entity_map_path=str(_PROJECT_DIR / "data/input/PharmKG/fbwq_full/mid2name.txt"),
+    ),
     # RoG-CWQ 的实体在数据文件里已是表面名,不存在 MID→Name 映射;hop 取检索步数(1/2),
     # 与 CWQ 官方的 composition/conjunction 等问题类型无关,故不按 hop 分层。
     "cwq": PfitDatasetSpec(

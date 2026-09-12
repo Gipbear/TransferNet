@@ -20,7 +20,7 @@ from kgqa.runtime import add_runtime_arguments, configure_runtime, emit_event, u
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="kgqa 统一路径检索")
-    p.add_argument("--dataset", required=True, help="数据集：webqsp | metaqa | cwq")
+    p.add_argument("--dataset", required=True, help="数据集：adint | webqsp | metaqa | pharmkg | cwq")
     p.add_argument("--backbone", default="transfernet", choices=["transfernet", "rearev"],
                    help="基础检索模型；ReaRev 当前仅支持 WebQSP 离线缓存")
     p.add_argument("--backend", choices=["offline", "online"], default="offline")

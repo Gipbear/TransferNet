@@ -27,7 +27,7 @@ def _default_config(project_dir: Path, dataset: str, backbone: str) -> Path:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="第三章检索实验：top-k 饱和性与检索参数扫描")
-    parser.add_argument("--dataset", choices=["webqsp", "metaqa", "cwq"], required=True)
+    parser.add_argument("--dataset", choices=["adint", "webqsp", "metaqa", "pharmkg", "prime", "cwq"], required=True)
     parser.add_argument("--backbone", default="transfernet", choices=["transfernet", "rearev"])
     parser.add_argument("--config", default="", help="版本化检索配置 JSON；默认按数据集与基础检索模型选择")
     parser.add_argument(

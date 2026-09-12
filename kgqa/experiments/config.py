@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 
-SUPPORTED_DATASETS = {"webqsp", "metaqa", "cwq"}
+SUPPORTED_DATASETS = {"adint", "webqsp", "metaqa", "pharmkg", "cwq"}
 SUPPORTED_BACKBONES = {"transfernet", "rearev"}
 
 

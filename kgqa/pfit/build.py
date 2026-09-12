@@ -537,7 +537,7 @@ def run_build(*, dataset: str, input_path: str, exp_dir: str, fmt: str,
 
 def build_parser():
     p = argparse.ArgumentParser(description="pfit 建集:retrieve JSONL → SFT JSONL")
-    p.add_argument("--dataset", required=True, help="webqsp | metaqa")
+    p.add_argument("--dataset", required=True, help="adint | webqsp | metaqa | pharmkg | cwq")
     p.add_argument("--input", required=True, help="kgqa.retrieve.cli.retrieve 输出 JSONL")
     p.add_argument("--exp_dir", required=True, help="实验目录(产物+manifest)")
     p.add_argument("--format", default="v2", dest="fmt",

@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "kind": "ch3_retrieval_profile",
+  "status": "confirmed",
+  "confirmation_reason": "在 PharmKG dev 集选择参数，避免 test 泄漏。第四章固定最多输入 20 条路径，因此 beam=20 与实际上下文预算一致；在 12 组 beam20 候选中，lambda=0.3、eta=0.5 的 PathHit@20 最高为 68.55%，同时关系 Jaccard 多样性为 26.99%，故确认为第四章上游检索配置。beam50 产生的额外路径不进入本次 max_paths=20 的 LLM 输入，不作为选择依据。",
+  "selected_candidate": "beam20_lambda03_eta05",
+  "config_id": "transfernet_v1",
+  "dataset": "pharmkg",
+  "backbone": "transfernet",
+  "topk": 500,
+  "selection_split": "dev",
+  "topk_candidates": [100, 250, 500],
+  "score_source": {
+    "ckpt": "data/ckpt/PharmKG/model-29-0.2588.pt",
+    "input_dir": "data/input/PharmKG",
+    "bert_name": "BAAI/bge-base-en-v1.5",
+    "splits": {
+      "train": {"qa_file": "data/input/PharmKG/QA_data/PharmKG/qa_train_pharmkg.txt"},
+      "dev": {"qa_file": "data/input/PharmKG/QA_data/PharmKG/qa_dev_pharmkg.txt"},
+      "test": {"qa_file": "data/input/PharmKG/QA_data/PharmKG/qa_test_pharmkg.txt"}
+    }
+  },
+  "retrieve": {
+    "beam_size": 20,
+    "lambda_val": 0.3,
+    "threshold": 0.01,
+    "eta": 0.5,
+    "step_score_mode": "joint",
+    "penalty_mode": "adaptive",
+    "relation_normalization": "global"
+  },
+  "parameter_scan": {
+    "beam_size": [10, 20, 50],
+    "lambda_val": [0.0, 0.1, 0.2, 0.3],
+    "eta": [0.5, 1.0, 1.5]
+  },
+  "score_component_ablation": [
+    {
+      "id": "joint_eta1",
+      "label": "联合逐跳分数与终点实体融合",
+      "retrieve": {"step_score_mode": "joint", "eta": 1.0}
+    },
+    {
+      "id": "joint_eta0",
+      "label": "联合逐跳分数，移除终点实体融合",
+      "retrieve": {"step_score_mode": "joint", "eta": 0.0}
+    },
+    {
+      "id": "relation_only",
+      "label": "仅关系逐跳排序分数",
+      "retrieve": {"step_score_mode": "relation_only", "eta": 0.0}
+    },
+    {
+      "id": "entity_only",
+      "label": "仅实体逐跳排序分数",
+      "retrieve": {"step_score_mode": "entity_only", "eta": 0.0}
+    }
+  ],
+  "penalty_ablation": [
+    {"id": "none", "label": "无关系冗余惩罚", "retrieve": {"penalty_mode": "none"}},
+    {"id": "fixed", "label": "固定加性关系冗余惩罚", "retrieve": {"penalty_mode": "fixed"}},
+    {"id": "adaptive", "label": "路径得分自适应关系冗余惩罚", "retrieve": {"penalty_mode": "adaptive"}}
+  ],
+  "shortest_path_baseline": {
+    "id": "top20_hop_available",
+    "label": "TransferNet 候选答案最短路径后处理",
+    "candidate_topk": 20,
+    "max_paths_per_pair": 20,
+    "path_budget": 20,
+    "max_hop_source": "available_steps",
+    "drop_loopback": true
+  }
+}
