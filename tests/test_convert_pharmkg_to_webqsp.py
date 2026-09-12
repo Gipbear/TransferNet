@@ -8,6 +8,13 @@ from pathlib import Path
 from scripts.convert_pharmkg_to_webqsp import convert_dataset
 
 
+class _ArbitraryPayload:
+    """非基础类型：外部归档中出现的该类实例必须被拒绝加载。"""
+
+    def __init__(self):
+        self.tag = "arbitrary"
+
+
 class TestConvertPharmKGToWebQSP(unittest.TestCase):
     def test_convert_dataset_writes_webqsp_compatible_layout(self):
         # Given
@@ -50,6 +57,24 @@ class TestConvertPharmKGToWebQSP(unittest.TestCase):
             self.assertEqual(first_entity["name"], "gene-a")
             self.assertEqual(first_entity["type"], "gene")
 
+    def test_rejects_metadata_member_with_arbitrary_class(self):
+        # Given: 元数据归档的 node_info.pkl 混入任意类实例。
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source_dir = root / "source"
+            output_dir = root / "output"
+            source_dir.mkdir()
+            (source_dir / "Pharm_KG.txt").write_text("0\t0\t1\n", encoding="utf-8")
+            self._write_qa(source_dir / "pharmKG_train_QA_with_topic_entity.json", quoted=True)
+            self._write_qa(source_dir / "pharmKG_dev_with_topic_entity.json")
+            self._write_qa(source_dir / "pharmKG_test_QA_with_topic_entity.json")
+            metadata_zip = root / "metadata.zip"
+            self._write_metadata(metadata_zip, node_info={0: _ArbitraryPayload()})
+
+            # When/Then: 外部归档中的任意对象必须被拒绝，而不是执行其反序列化逻辑。
+            with self.assertRaises(pickle.UnpicklingError):
+                convert_dataset(source_dir, metadata_zip, output_dir)
+
     @staticmethod
     def _write_qa(path: Path, quoted: bool = False) -> None:
         question = '"Which target?"' if quoted else "Which target?"
@@ -62,11 +87,12 @@ class TestConvertPharmKGToWebQSP(unittest.TestCase):
         path.write_text(json.dumps(row) + "\n", encoding="utf-8")
 
     @staticmethod
-    def _write_metadata(path: Path) -> None:
-        node_info = {
-            0: {"name": "gene-a", "description": "Gene A.", "source": "UMLS", "type": "Gene"},
-            1: {"name": "drug-b", "description": None, "source": "UMLS", "type": "Chemical"},
-        }
+    def _write_metadata(path: Path, node_info: dict | None = None) -> None:
+        if node_info is None:
+            node_info = {
+                0: {"name": "gene-a", "description": "Gene A.", "source": "UMLS", "type": "Gene"},
+                1: {"name": "drug-b", "description": None, "source": "UMLS", "type": "Chemical"},
+            }
         edge_types = {0: "activates"}
         with zipfile.ZipFile(path, "w") as archive:
             archive.writestr("pharmKG/node_info.pkl", pickle.dumps(node_info))

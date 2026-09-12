@@ -13,6 +13,13 @@ import torch
 from scripts.convert_prime import SourceQA
 
 
+class _ArbitraryPayload:
+    """非基础类型：外部归档中出现的该类实例必须被拒绝加载。"""
+
+    def __init__(self):
+        self.tag = "arbitrary"
+
+
 class PrimeConversionTest(unittest.TestCase):
     def test_convert_dataset_keeps_native_ids_and_three_hop_rows(self):
         # Given
@@ -74,15 +81,33 @@ class PrimeConversionTest(unittest.TestCase):
             "topic_entity": [{"topic_name": "topic", "topic_id": "0"}],
         }
 
+    def test_rejects_metadata_member_with_arbitrary_class(self):
+        # Given: 元数据归档的 node_info.pkl 混入任意类实例。
+        from scripts.convert_prime import convert_dataset
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source = root / "source"
+            source.mkdir()
+            self._write_qa(source / "Prime_train_QA_with_topic_entity.json", include_dropped=True)
+            self._write_qa(source / "Prime_test_QA_with_topic_entity.json", include_dropped=False)
+            archive = root / "prime.zip"
+            self._write_graph(archive, nodes={0: _ArbitraryPayload()})
+
+            # When/Then: 外部归档中的任意对象必须被拒绝，而不是执行其反序列化逻辑。
+            with self.assertRaises(pickle.UnpicklingError):
+                convert_dataset(source, archive, root / "output")
+
     @staticmethod
-    def _write_graph(path: Path) -> None:
+    def _write_graph(path: Path, nodes: dict | None = None) -> None:
         edge_index = torch.tensor([[0, 1, 2, 0, 4], [1, 2, 3, 4, 4]], dtype=torch.long)
         edge_types = torch.tensor([0, 1, 1, 0, 1], dtype=torch.long)
         node_types = torch.zeros(6, dtype=torch.long)
-        nodes = {
-            index: {"id": index, "type": "concept", "name": name, "source": "fixture", "details": ""}
-            for index, name in enumerate(["topic", "duplicate", "middle", "far", "duplicate", "unreachable"])
-        }
+        if nodes is None:
+            nodes = {
+                index: {"id": index, "type": "concept", "name": name, "source": "fixture", "details": ""}
+                for index, name in enumerate(["topic", "duplicate", "middle", "far", "duplicate", "unreachable"])
+            }
         with zipfile.ZipFile(path, "w") as archive:
             for member, value in (
                 ("prime/edge_index.pt", edge_index),

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import pickle
 import random
@@ -55,9 +56,16 @@ class ConversionSummary:
     dropped_rows: dict[str, int]
 
 
+class _RestrictedUnpickler(pickle.Unpickler):
+    """上游数据包以 pickle 存 metadata(格式不可改),故只允许基础容器,禁止构造任意对象。"""
+
+    def find_class(self, module: str, name: str):
+        raise pickle.UnpicklingError(f"归档成员含非基础类型: {module}.{name}")
+
+
 def _load_pickle(metadata_zip: Path, member: str):
     with zipfile.ZipFile(metadata_zip) as archive:
-        return pickle.loads(archive.read(member))
+        return _RestrictedUnpickler(io.BytesIO(archive.read(member))).load()
 
 
 def _clean_text(value: str) -> str:

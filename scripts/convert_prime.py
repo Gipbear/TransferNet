@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import pickle
 import random
@@ -61,8 +62,15 @@ class NonContiguousEntityIdsError(ValueError):
         return f"Prime entity IDs must be contiguous from zero; found {self.entity_count} entities"
 
 
+class _RestrictedUnpickler(pickle.Unpickler):
+    """上游数据包以 pickle 存 metadata(格式不可改),故只允许基础容器,禁止构造任意对象。"""
+
+    def find_class(self, module: str, name: str):
+        raise pickle.UnpicklingError(f"归档成员含非基础类型: {module}.{name}")
+
+
 def _load_pickle(archive: zipfile.ZipFile, member: str):
-    return pickle.loads(archive.read(member))
+    return _RestrictedUnpickler(io.BytesIO(archive.read(member))).load()
 
 
 def _load_qa(path: Path) -> list[SourceQA]:

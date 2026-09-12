@@ -10,6 +10,13 @@ from pathlib import Path
 from scripts.convert_adint_name_native import convert_dataset
 
 
+class _ArbitraryPayload:
+    """非基础类型：外部归档中出现的该类实例必须被拒绝加载。"""
+
+    def __init__(self):
+        self.tag = "arbitrary"
+
+
 class TestConvertAdintNameNative(unittest.TestCase):
     def test_convert_dataset_writes_name_native_two_hop_layout(self):
         # Given
@@ -125,13 +132,31 @@ class TestConvertAdintNameNative(unittest.TestCase):
             )
         path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
 
+    def test_rejects_metadata_member_with_arbitrary_class(self):
+        # Given: 元数据归档的 node_info.pkl 混入任意类实例。
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            source_dir = root / "source"
+            output_dir = root / "output"
+            source_dir.mkdir()
+            (source_dir / "ADint_KG.txt").write_text("0\t0\t1\n", encoding="utf-8")
+            self._write_qa(source_dir / "ADint_train_with_topic_entity.json", train=True)
+            self._write_qa(source_dir / "ADint_test_with_topic_entity.json", train=False)
+            metadata_zip = root / "metadata.zip"
+            self._write_metadata(metadata_zip, node_info={0: _ArbitraryPayload()})
+
+            # When/Then: 外部归档中的任意对象必须被拒绝，而不是执行其反序列化逻辑。
+            with self.assertRaises(pickle.UnpicklingError):
+                convert_dataset(source_dir, metadata_zip, output_dir)
+
     @staticmethod
-    def _write_metadata(path: Path) -> None:
-        names = ["drug|alias", "disease", "gene", "far-a", "far-b", "far-c"]
-        node_info = {
-            entity_id: {"name": name, "description": "", "source": "UMLS", "type": "concept"}
-            for entity_id, name in enumerate(names)
-        }
+    def _write_metadata(path: Path, node_info: dict | None = None) -> None:
+        if node_info is None:
+            names = ["drug|alias", "disease", "gene", "far-a", "far-b", "far-c"]
+            node_info = {
+                entity_id: {"name": name, "description": "", "source": "UMLS", "type": "concept"}
+                for entity_id, name in enumerate(names)
+            }
         edge_types = {0: "TREATS", 1: "ASSOCIATED_WITH"}
         with zipfile.ZipFile(path, "w") as archive:
             archive.writestr("ADint/node_info.pkl", pickle.dumps(node_info))
