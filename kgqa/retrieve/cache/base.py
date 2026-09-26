@@ -7,7 +7,7 @@ from kgqa.core.contracts import CacheMeta, SampleScore, ScoreBundle, ScoreLoader
 
 def load_score_cache(path: str) -> dict:
     """加载并校验统一的 PyTorch 得分缓存。"""
-    cache = torch.load(path, map_location="cpu", weights_only=False)
+    cache = torch.load(path, map_location="cpu", weights_only=True)
     version = cache.get("version", 0)
     if version < 1:
         raise ValueError(f"不支持的缓存版本: {version}，请重新生成得分缓存。")

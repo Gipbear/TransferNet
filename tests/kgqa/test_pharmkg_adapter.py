@@ -33,6 +33,83 @@ class TestPharmKGAdapter(unittest.TestCase):
         self.assertEqual(entity_name, "drug name")
         self.assertEqual(adapter.metric_spec().gold_key, "mid")
 
+    def test_conservative_answer_type_inference_rejects_ambiguous_questions(self):
+        # Given: 明确、冲突和易误判的三类医学问题。
+        from kgqa.retrieve.datasets import pharmkg
+
+        # When/Then: 只接受唯一且保守的答案类型线索。
+        self.assertEqual(pharmkg.infer_answer_type("Which gene activates socs3?"), "gene")
+        self.assertIsNone(pharmkg.infer_answer_type("Which gene treats a disease?"))
+        self.assertIsNone(pharmkg.infer_answer_type("What disease has this biomarker?"))
+
+    def test_type_aware_paths_are_stable_and_tail_deduplicated(self):
+        # Given: 首条路径类型不符，后续含两个 gene 尾实体和一个重复尾实体。
+        from kgqa.retrieve.datasets import pharmkg
+
+        entity_types = {"p.d": "disease", "p.g1": "gene", "p.g2": "gene"}
+        paths = [
+            {"path": [["p.topic", "r", "p.d"]], "log_score": -0.1},
+            {"path": [["p.topic", "r", "p.g1"]], "log_score": -0.2},
+            {"path": [["p.topic", "r2", "p.g1"]], "log_score": -0.3},
+            {"path": [["p.topic", "r", "p.g2"]], "log_score": -0.4},
+        ]
+
+        # When: 按答案类型稳定重排，再按尾实体去重并截断为两条。
+        selected = pharmkg.rerank_and_dedupe_paths(
+            "Which gene activates the topic?", paths, entity_types, limit=2,
+        )
+
+        # Then: 类型匹配路径内部次序不变，重复尾实体不占用固定预算。
+        tails = [item["path"][-1][-1] for item in selected]
+        self.assertEqual(tails, ["p.g1", "p.g2"])
+
+    def test_unknown_answer_type_only_deduplicates_tails(self):
+        # Given: 问题没有可靠类型线索。
+        from kgqa.retrieve.datasets import pharmkg
+
+        paths = [
+            {"path": [["p.topic", "r", "p.d"]], "log_score": -0.1},
+            {"path": [["p.topic", "r2", "p.d"]], "log_score": -0.2},
+            {"path": [["p.topic", "r", "p.g"]], "log_score": -0.3},
+        ]
+
+        # When: 执行后处理。
+        selected = pharmkg.rerank_and_dedupe_paths(
+            "What is associated with the topic?", paths, {}, limit=20,
+        )
+
+        # Then: 仅去重，不改变首个尾实体的原始顺序。
+        tails = [item["path"][-1][-1] for item in selected]
+        self.assertEqual(tails, ["p.d", "p.g"])
+
+    def test_postprocess_summary_separates_rescues_from_harms(self):
+        # Given: 固定预算为一条时，原始首条错误而类型匹配路径正确。
+        from kgqa.retrieve.cli.pharmkg_postprocess import process_records
+
+        records = [{
+            "sample_index": 0,
+            "question": "Which gene activates the topic?",
+            "topics": ["p.topic"],
+            "hop": 1,
+            "golden": ["p.g"],
+            "mmr_reason_paths": [
+                {"path": [["p.topic", "r", "p.d"]], "log_score": -0.1},
+                {"path": [["p.topic", "r", "p.g"]], "log_score": -0.2},
+            ],
+            "prediction": {"p.d": 0.9},
+        }]
+
+        # When: 执行类型感知固定预算后处理。
+        _output, summary = process_records(
+            records, {"p.d": "disease", "p.g": "gene"}, path_limit=1,
+        )
+
+        # Then: summary 分开报告救回与损失，而不是只报告净变化。
+        self.assertEqual(summary["answer_hit_gained"], 1)
+        self.assertEqual(summary["answer_hit_lost"], 0)
+        self.assertEqual(summary["top1_rescued"], 1)
+        self.assertEqual(summary["top1_harmed"], 0)
+
 
 class TestPharmKGDispatch(unittest.TestCase):
     def test_score_producer_dispatches_without_webqsp_alias(self):
