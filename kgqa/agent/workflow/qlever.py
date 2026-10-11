@@ -93,6 +93,22 @@ class QLeverClient(KnowledgeSource):
                  f"{triples} }} ORDER BY ?mid ?value LIMIT {limit + 1}")
         return self.query(query, limit)
 
+    def intersect_topic_attribute(self, topics: list[str] | tuple[str, ...],
+                                  chain: tuple[str, ...] | list[str],
+                                  target_value: str) -> QueryResult:
+        subjects = sorted({t for t in topics if MID_RE.fullmatch(t)})
+        if not subjects or not chain or any(not REL_RE.fullmatch(p) for p in chain):
+            return QueryResult("failed", error="invalid_topic_or_chain")
+        topic_clauses = " UNION ".join(f"{{ ns:{t} ?p ?cand . }} UNION {{ ?cand ?p ns:{t} . }}" for t in subjects)
+        variables = ["?cand", *[f"?v{i}" for i in range(len(chain) - 1)], f'"{target_value}"']
+        triples = " ".join(f"{variables[i]} ns:{p} {variables[i + 1]} ." for i, p in enumerate(chain))
+        limit = 10
+        query = (f"PREFIX ns: <{NS}> SELECT DISTINCT ?cand WHERE {{ "
+                 f"{{ {topic_clauses} }} {triples} "
+                 f"FILTER(STRSTARTS(STR(?cand), \"{NS}m.\")) }} ORDER BY ?cand LIMIT {limit + 1}")
+        return self.query(query, limit)
+
+
     def adjacency(self, frontier: list[str], step: dict) -> QueryResult:
         mids = sorted({mid for mid in frontier if MID_RE.fullmatch(mid)})
         relation = step["predicate"]

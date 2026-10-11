@@ -30,6 +30,12 @@ class KnowledgeSource(ABC):
         """查询指定实体的属性事实。"""
 
     @abstractmethod
+    def intersect_topic_attribute(self, topics: list[str] | tuple[str, ...],
+                                  chain: tuple[str, ...] | list[str],
+                                  target_value: str) -> QueryResult:
+        """根据主题词与属性数值约束逆向检索相交实体。"""
+
+    @abstractmethod
     def adjacency(self, frontier: list[str], step: dict) -> QueryResult:
         """查询指定关系与方向的邻接。"""
 

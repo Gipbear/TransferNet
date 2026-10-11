@@ -28,11 +28,15 @@ class ChainIndex:
         self.labels = sorted({chain for _, chain in examples})
         label_ids = {chain: i for i, chain in enumerate(self.labels)}
         self.y = np.array([label_ids[chain] for _, chain in examples])
-        self.vectorizer = TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5), sublinear_tf=True)
-        self.matrix = self.vectorizer.fit_transform(question for question, _ in examples)
+        self.vectorizer = FeatureUnion([
+            ("word", TfidfVectorizer(analyzer="word", ngram_range=(1, 2), min_df=2, sublinear_tf=True)),
+            ("char", TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5), sublinear_tf=True))
+        ])
+        questions = [question for question, _ in examples]
+        self.matrix = self.vectorizer.fit_transform(questions)
         self.min_score = min_score
 
-    def rank(self, question: str, top_k: int = 3) -> list[tuple[tuple, float]]:
+    def rank(self, question: str, top_k: int = 5) -> list[tuple[tuple, float]]:
         similarities = (self.vectorizer.transform([question]) @ self.matrix.T).toarray()[0]
         scores = np.zeros(len(self.labels))
         np.maximum.at(scores, self.y, similarities)
@@ -143,8 +147,8 @@ class TemplateLibrary:
         kind, confidence = self.router.predict(question)
         return RouteDecision(kind, confidence)
 
-    def numeric_chains(self, question: str) -> list[tuple]:
-        return [chain for chain, _ in self.numeric_index.rank(question)]
+    def numeric_chains(self, question: str, top_k: int = 5) -> list[tuple]:
+        return [chain for chain, _ in self.numeric_index.rank(question, top_k)]
 
     def comparison_plan(self, question: str, kind: str) -> dict:
         ranked = self.comparison_indices[kind].rank(question, 2)

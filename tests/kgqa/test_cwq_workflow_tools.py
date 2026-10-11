@@ -24,12 +24,23 @@ class FakeLibrary:
 
 
 class FakeKG:
-    def __init__(self, rows, status="ok"):
+    def __init__(self, rows, status="ok", topic_rows=None, label_rows=None):
         self.rows = rows
         self.status = status
+        self.topic_rows = topic_rows or []
+        self.label_rows = label_rows or []
 
     def attributes(self, mids, chain):
         return QueryResult(self.status, tuple(self.rows), "hash")
+
+    def intersect_topic_attribute(self, topics, chain, value):
+        st = "ok" if self.topic_rows else "empty"
+        return QueryResult(st, tuple(self.topic_rows), "hash_topic")
+
+
+    def labels(self, mids):
+        return QueryResult("ok", tuple(self.label_rows), "hash_labels")
+
 
 
 class TestTools(unittest.TestCase):
@@ -132,9 +143,23 @@ class TestTools(unittest.TestCase):
         kg = FakeKG([{"mid": f"m.a{i}", "value": "1.8"} for i in range(4)])
         self.assertFalse(AttributeTagger(WorkflowConfig(), FakeLibrary(), kg).run(question, self.initial).applied)
 
-    def test_truncated_attribute_result_never_marks_absence(self):
+    def test_truncated_attribute_result_allows_matching_entities(self):
         kg = FakeKG([{"mid": "m.a", "value": "1.8"}], "truncated")
-        self.assertFalse(AttributeTagger(WorkflowConfig(), FakeLibrary(), kg).run(self.question, self.initial).applied)
+        self.assertTrue(AttributeTagger(WorkflowConfig(), FakeLibrary(), kg).run(self.question, self.initial).applied)
+
+    def test_topic_reverse_intersection_rescues_when_candidates_fail(self):
+        question = RuntimeQuestion.from_record({
+            "sample_index": 0, "question": "What happened to topic with rate of 1.8?",
+            "topic_mids": ["m.topic"],
+            "candidates": [{"name": "A", "mids": ["m.a"]}],
+            "paths": [{"path": [["m.topic", "r", "A"]]}],
+        })
+        kg = FakeKG([], "empty", topic_rows=[{"cand": "m.c"}], label_rows=[{"mid": "m.c", "name": "C"}])
+        result = AttributeTagger(WorkflowConfig(), FakeLibrary(), kg).run(question, self.initial)
+        self.assertTrue(result.applied)
+        self.assertEqual(result.answers, ("C",))
+        self.assertIn("1.8", result.paths[-1]["path"][-1][2])
+
 
 
 class TestQLever(unittest.TestCase):
