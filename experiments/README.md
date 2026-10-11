@@ -101,7 +101,7 @@ wc -l data/output/kgqa/ch3_retrieval/webqsp/transfernet/confirmed_profiles/trans
 
 #### RoG-CWQ 运行记录（`rog_transfernet_v1`，2026-08-07）
 
-上游 ckpt `data/ckpt/RoG_CWQ_20260805_bge_rev_ep50_lr3e4/model-37-0.4803.pt`（bge-base-en-v1.5 + `--rev`），
+上游 ckpt `data/ckpt/RoG_CWQ/model-37-0.4803.pt`（bge-base-en-v1.5 + `--rev`），
 全量 test 3531 条，`topk=500`。配置为 `experiments/configs/ch3/cwq_rog_transfernet_v1.json`，
 已于 2026-08-08 人工确认（`status=confirmed`）并 `--phase publish` 发布。
 
@@ -334,3 +334,57 @@ python -m experiments.ch4.run --dataset cwq \
 2. **必须开 `expandable_segments`。** 默认分配器在第 7 步就把保留显存推到 15.9 GB / 16.38 GB（97%），
    此时才采样了 2.5% 的 micro-batch，后续遇到长序列批次有 OOM 风险；
    开启后同步数只占 9.8 GB，速度不变（约 36 s/step）。
+
+
+## 第五章：CWQ 三分支问答工作流
+
+`kind=ch5_workflow` 使用 `kgqa/agent/workflow/`，先对每题实际生成初答，再按训练路由执行
+数值比较、严格数值标注或显式拒答救援。当前 `cwq_workflow_v1.json` 是已探索 test 上的实现验证，
+不能视为独立盲测。历史 checked-batch 配置仍走兼容入口。
+
+准备运行输入和训练模板（运行输入不含 gold/官方题型/test SPARQL）：
+
+```bash
+python -m kgqa.agent.cli.prepare_workflow \
+  --retrieval data/output/kgqa/ch3_retrieval/cwq/transfernet/confirmed_profiles/rog_transfernet_v1/test.jsonl \
+  --train data/resources/CWQ/origin/ComplexWebQuestions_train.json \
+  --output data/analysis/20261009_0131__cwq_workflow_implementation/prepared
+```
+
+启动一次常驻 LLM 服务，model/adapter 必须与配置一致。服务已经运行时复用 HTTP，不重新加载模型。
+另启动 CPU 图评分服务；固定 checkpoint 的神经推理步数为 2，3—4 跳训练模板不改变模型步数：
+
+```bash
+python -m kgqa.serving.graph_server \
+  --ckpt data/ckpt/RoG_CWQ/model-37-0.4803.pt \
+  --relations data/input/RoG-CWQ/relations.txt \
+  --bert_name BAAI/bge-base-en-v1.5 --device cpu --port 8791
+```
+
+正式入口运行预测后独立评分，`smoke` 显式允许部分样本，`benchmark` 要求全量：
+
+```bash
+python -m experiments.ch5.run --dataset cwq \
+  --config experiments/configs/ch5/cwq_workflow_v1.json \
+  --profile experiments/configs/ch3/cwq_rog_transfernet_v1.json \
+  --phase benchmark --run_tag workflow_run
+```
+
+对应运行目录的 `workflow_full/` 包含无标签预测、冻结 manifest、config、progress、run_summary
+和 metrics。相同目录恢复要求输入、权重、策略、代码哈希与样本范围一致；输出锁防止并发写入，
+写入中断造成的损坏末行先备份再恢复，其他损坏或重复样本直接报错。
+
+将上面命令的 phase 改为 `replay_ablations` 可关闭三个模块分别回放；该结果复用真实生成轨迹，
+不代表改变检索候选池的 RSDPR 因果消融，也不提供新的消融时延实测。
+
+修复版本使用 `cwq_workflow_v2.json`，显式配置 `entity_names_file`、`allow_partial_rescue` 和
+`allow_template_fallback`。名称资源指纹纳入 manifest，缺失的显式资源报错，默认不读取历史分析目录。
+局部成功记录 `partial/stop_reasons`，模板兜底记录 `score_source=template_fallback`；二者默认关闭。
+v2 结果与 v1 分别落盘，使用新 `run_tag`，避免将不同策略的轨迹混入同一运行：
+
+```bash
+python -m experiments.ch5.run --dataset cwq \
+  --config experiments/configs/ch5/cwq_workflow_v2.json \
+  --profile experiments/configs/ch3/cwq_rog_transfernet_v1.json \
+  --phase benchmark --run_tag workflow_revision2
+```

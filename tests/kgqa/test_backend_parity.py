@@ -2,7 +2,7 @@ import unittest
 
 from tests.kgqa.integration import ARTIFACT_TEST_SKIP_REASON, artifact_test_available
 
-CKPT = "data/ckpt/WebQSP_run_20260518_2241/model-49-0.7154.pt"
+CKPT = "data/ckpt/WebQSP/model-49-0.7154.pt"
 CACHE = "data/output/WebQSP/path_retrieve_server/score_cache/webqsp_test_1581.pt"
 INPUT_DIR = "data/input/WebQSP"
 QA = "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt"

@@ -6,9 +6,9 @@ import torch
 
 from tests.kgqa.integration import ARTIFACT_TEST_SKIP_REASON, artifact_test_available
 
-CKPT = "data/ckpt/CWQ/model-29-0.4206.pt"
-INPUT_DIR = "data/input/CWQ"
-QA_FILE = "data/input/CWQ/test_simple.json"
+CKPT = "data/ckpt/RoG_CWQ/model-37-0.4803.pt"
+INPUT_DIR = "data/input/RoG-CWQ"
+QA_FILE = "data/input/RoG-CWQ/test_simple.json"
 
 
 @unittest.skipUnless(artifact_test_available(CKPT, QA_FILE), ARTIFACT_TEST_SKIP_REASON)
@@ -18,7 +18,8 @@ class TestCWQEndToEnd(unittest.TestCase):
         from kgqa.retrieve.cli.dump_scores import main as dump_main
         cls.cache = os.path.join(tempfile.mkdtemp(), "cwq_small.pt")
         dump_main(["--dataset", "cwq", "--ckpt", CKPT, "--input_dir", INPUT_DIR,
-                   "--qa_file", QA_FILE, "--output", cls.cache, "--limit", "20"])
+                   "--qa_file", QA_FILE, "--output", cls.cache, "--limit", "20",
+                   "--bert_name", "BAAI/bge-base-en-v1.5", "--rev"])
 
     def _offline(self):
         from kgqa.retrieve.datasets.registry import get_adapter
@@ -60,7 +61,8 @@ class TestCWQEndToEnd(unittest.TestCase):
         from kgqa.backbone.cwq import CWQScoreProducer
         from kgqa.retrieve.backends.online import OnlineBackend
         adapter = get_adapter("cwq", input_dir=INPUT_DIR)
-        online = OnlineBackend(adapter, CWQScoreProducer(limit=20), ckpt_path=CKPT,
+        producer = CWQScoreProducer(limit=20, bert_name="BAAI/bge-base-en-v1.5", rev=True)
+        online = OnlineBackend(adapter, producer, ckpt_path=CKPT,
                                input_dir=INPUT_DIR, qa_file=QA_FILE)
         off = self._offline()
         for idx in range(3):

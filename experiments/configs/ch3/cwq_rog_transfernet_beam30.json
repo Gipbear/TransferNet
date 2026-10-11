@@ -13,7 +13,7 @@
     500
   ],
   "score_source": {
-    "ckpt": "data/ckpt/RoG_CWQ_20260805_bge_rev_ep50_lr3e4/model-37-0.4803.pt",
+    "ckpt": "data/ckpt/RoG_CWQ/model-37-0.4803.pt",
     "input_dir": "data/input/RoG-CWQ",
     "bert_name": "BAAI/bge-base-en-v1.5",
     "rev": true,
