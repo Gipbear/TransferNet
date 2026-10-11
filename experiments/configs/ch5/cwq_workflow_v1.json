@@ -8,7 +8,7 @@
   "llm_url": "http://127.0.0.1:8788",
   "graph_url": "http://127.0.0.1:8791",
   "qa_file": "data/analysis/20261009_0131__cwq_workflow_implementation/prepared/runtime_inputs_no_gold.jsonl",
-  "templates": "data/analysis/20261009_0131__cwq_workflow_implementation/prepared/templates.joblib",
+  "templates": "data/output/kgqa/models/cwq/templates.joblib",
   "cache_dir": "data/analysis/20261009_0131__cwq_workflow_implementation/cache",
   "labels_source": "data/output/kgqa/ch4_pfit/cwq/rog_transfernet_v1/全量拒答_1ep/seed_17/eval/predictions.jsonl",
   "workflow": {
@@ -24,7 +24,10 @@
     "max_queries": 60,
     "neighbor_k": 32,
     "patterns_per_band": 10,
-    "rescue_scorer": "transfernet"
+    "rescue_scorer": "transfernet",
+    "allow_partial_rescue": true,
+    "allow_template_fallback": true,
+    "allow_cascade_rescue": true
   },
   "runs": {
     "smoke": [{"id": "workflow_smoke", "limit": 20}],
