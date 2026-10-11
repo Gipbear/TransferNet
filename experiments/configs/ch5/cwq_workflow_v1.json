@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "kind": "ch5_workflow",
   "dataset": "cwq",
   "status": "exploratory_implementation_validation",
@@ -16,15 +16,15 @@
     "max_paths": 20,
     "max_input_tokens": 1792,
     "max_new_tokens": 256,
-    "chain_margin": 0.10,
+    "chain_margin": 0.1,
     "operator_confidence": 0.8,
-    "triple_budget": 120,
+    "triple_budget": 160,
     "query_timeout": 5.0,
     "max_query_retries": 2,
-    "max_queries": 60,
-    "neighbor_k": 32,
-    "patterns_per_band": 10,
-    "rescue_scorer": "transfernet",
+    "max_queries": 80,
+    "neighbor_k": 48,
+    "patterns_per_band": 15,
+    "rescue_scorer": "template",
     "allow_partial_rescue": true,
     "allow_template_fallback": true,
     "allow_cascade_rescue": true
@@ -32,5 +32,6 @@
   "runs": {
     "smoke": [{"id": "workflow_smoke", "limit": 20}],
     "benchmark": [{"id": "workflow_full", "limit": 0}]
-  }
+  },
+  "entity_names_file": "data/analysis/20261009_0131__cwq_workflow_implementation/revision2/entity_names_no_gold.json"
 }

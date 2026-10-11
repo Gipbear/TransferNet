@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from kgqa.agent.workflow.config import WorkflowConfig
+from kgqa.agent.workflow.evidence import EvidenceFormatter
 from kgqa.agent.workflow.models import AnswerResult, QueryResult, RuntimeQuestion
 from kgqa.agent.workflow.qlever import QLeverClient, parse_term
 from kgqa.agent.workflow.tools.comparison import NumericReranker
@@ -55,7 +56,7 @@ class TestTools(unittest.TestCase):
     def test_numeric_ties_keep_all_extrema(self):
         kg = FakeKG([{"mid": "m.a", "value": "2"}, {"mid": "m.b", "value": "2.0"}])
         result = NumericReranker(WorkflowConfig(), FakeLibrary(), kg).run(self.question, self.initial)
-        self.assertEqual(result.answers, ("A", "B"))
+        self.assertEqual(result.answers, ("B", "A"))
 
     def test_missing_comparison_values_fall_back(self):
         result = NumericReranker(WorkflowConfig(), FakeLibrary(), FakeKG([])).run(self.question, self.initial)
@@ -159,6 +160,39 @@ class TestTools(unittest.TestCase):
         self.assertTrue(result.applied)
         self.assertEqual(result.answers, ("C",))
         self.assertIn("1.8", result.paths[-1]["path"][-1][2])
+
+    def test_superlative_preserves_initial_when_tied(self):
+        values = [("Winston Churchill", "number", 1900, {}), ("Franklin D. Roosevelt", "number", 1900, {})]
+        plan = {"operator": "argmin"}
+        initial = AnswerResult(("Franklin D. Roosevelt",), False, True)
+        selected = NumericReranker._select(values, plan, initial)
+        self.assertEqual([item[0] for item in selected], ["Franklin D. Roosevelt", "Winston Churchill"])
+
+    def test_date_and_year_mixed_comparison(self):
+        chain = ["organization.organization.date_founded"]
+        v1 = EvidenceFormatter.comparable("1848", chain)
+        v2 = EvidenceFormatter.comparable("1868-03-23", chain)
+        self.assertIsNotNone(v1)
+        self.assertIsNotNone(v2)
+        self.assertEqual(v1[0], "date")
+        self.assertEqual(v2[0], "date")
+        self.assertLess(v1[1], v2[1])
+
+    def test_low_margin_with_candidate_chains_still_applied(self):
+        class LowMarginLibrary(FakeLibrary):
+            def comparison_plan(self, question, kind):
+                return {
+                    "chain": ["location.location.area"],
+                    "candidate_chains": [["location.location.area"], ["location.country.area"]],
+                    "margin": 0.02,
+                    "operator": "argmax",
+                    "confidence": 1.0,
+                }
+        kg = FakeKG([{"mid": "m.a", "value": "100"}])
+        result = NumericReranker(WorkflowConfig(), LowMarginLibrary(), kg).run(self.question, self.initial)
+        self.assertTrue(result.applied)
+        self.assertEqual(result.answers, ("A",))
+
 
 
 
