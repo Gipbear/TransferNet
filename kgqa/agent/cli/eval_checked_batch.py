@@ -19,8 +19,8 @@ from kgqa.agent.common import (
     build_initial_answer_record,
     build_initial_retrieval_record,
     build_reverse_entity_map,
-    compute_answer_metrics,
     cited_indices_for_answers,
+    compute_answer_metrics,
     compute_faithfulness,
     get_all_path_entities,
     label_golden_indices,
@@ -29,16 +29,25 @@ from kgqa.agent.common import (
     record_answer_counts,
     summarize_checked_batch_records,
 )
-from kgqa.core.qa_formats import WebQSPQASample
+from kgqa.agent.comparison_answer import (
+    ComparisonAnswerDecision,
+    CWQComparisonAnswerTool,
+    apply_comparison_decision,
+)
 from kgqa.agent.specs import AgentQASample, get_agent_spec
 from kgqa.agent.tools import (
     AnswerWithPathsTool,
     PathRetrieveTool,
     RejectedAnswerCheckTool,
 )
-from kgqa.serving.llm.client import LLMClient, SILICONFLOW_MODEL, SiliconFlowLLMClient
-from kgqa.runtime import add_runtime_arguments, configure_runtime, emit_event, update_progress
-
+from kgqa.core.qa_formats import WebQSPQASample
+from kgqa.runtime import (
+    add_runtime_arguments,
+    configure_runtime,
+    emit_event,
+    update_progress,
+)
+from kgqa.serving.llm.client import SILICONFLOW_MODEL, LLMClient, SiliconFlowLLMClient
 
 DEFAULT_INPUT_PATHS = {
     "webqsp": "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt",
@@ -57,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="第五章 checked-batch KGQA 智能体评测")
     parser.add_argument(
         "--dataset",
-        choices=["webqsp", "metaqa"],
+        choices=["webqsp", "metaqa", "cwq"],
         default="webqsp",
         help="Dataset spec for QA loading and entity mapping (default keeps WebQSP behavior)",
     )
@@ -222,6 +231,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="ID->name mapping file; defaults to the dataset spec (identity map "
         "for datasets whose entities are natural names)",
     )
+    parser.add_argument(
+        "--cwq_comparison_answers",
+        default="",
+        help="Optional finalized CWQ comparison-answer JSONL produced by the Freebase branch",
+    )
     parser.add_argument("--no_adapter", action="store_true", help="Use the base model for answering")
     parser.add_argument("--skip_server_check", action="store_true", help="Skip service health checks")
     add_runtime_arguments(parser)
@@ -315,9 +329,54 @@ def _record_sample(sample: AgentQASample) -> WebQSPQASample:
     )
 
 
+def _build_comparison_tool(args: argparse.Namespace) -> CWQComparisonAnswerTool | None:
+    if not args.cwq_comparison_answers:
+        return None
+    if args.dataset != "cwq":
+        raise ValueError("--cwq_comparison_answers is only valid with --dataset cwq")
+    return CWQComparisonAnswerTool(args.cwq_comparison_answers)
+
+
+def _validate_comparison_resume(
+    records: dict[int, dict[str, Any]],
+    tool: CWQComparisonAnswerTool | None,
+) -> None:
+    expected_artifact = tool.artifact_path if tool is not None else None
+    for sample_index, record in records.items():
+        trace = record.get("comparison_tool") or {}
+        actual_artifact = trace.get("artifact_path") if trace.get("enabled") else None
+        if actual_artifact != expected_artifact:
+            raise ValueError(
+                f"existing output sample {sample_index} used different comparison answers; "
+                "choose a new --output directory"
+            )
+
+
+def _comparison_trace(
+    tool: CWQComparisonAnswerTool | None,
+    decision: ComparisonAnswerDecision | None,
+    original_answers: list[str],
+) -> dict[str, Any]:
+    if tool is None or decision is None:
+        return {
+            "enabled": False,
+            "artifact_path": None,
+            "applied": False,
+            "reason": "disabled",
+            "original_answers": list(original_answers),
+        }
+    return {
+        "enabled": True,
+        "artifact_path": tool.artifact_path,
+        **decision.to_dict(),
+        "original_answers": list(original_answers),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     spec = get_agent_spec(args.dataset)
+    comparison_tool = _build_comparison_tool(args)
     input_path = args.input or DEFAULT_INPUT_PATHS.get(args.dataset, "")
     if not input_path:
         raise ValueError(f"--input is required for dataset {args.dataset!r}")
@@ -341,9 +400,13 @@ def main(argv: list[str] | None = None) -> int:
         fallback_run_dir=output_paths["dir"],
         manifest={"dataset": args.dataset, "input": input_path, "output": output_paths["dir"],
                   "check_mode": args.check_mode, "beam_size": args.beam_size,
-                  "lambda_val": args.lambda_val, "batch_size": args.batch_size},
+                  "lambda_val": args.lambda_val, "batch_size": args.batch_size,
+                  "cwq_comparison_answers": (
+                      comparison_tool.artifact_path if comparison_tool else None
+                  )},
     )
     existing_records = _load_resumable_records(output_paths["records"], sample_items)
+    _validate_comparison_resume(existing_records, comparison_tool)
 
     path_tool = PathRetrieveTool(
         base_url=args.path_retrieve_url,
@@ -412,7 +475,7 @@ def main(argv: list[str] | None = None) -> int:
             run_sample_index = qa_sample.sample_index
             if run_sample_index is None:
                 run_sample_index = sample_index if selected_sample_indices else None
-            result = agent.run(
+            checked_result = agent.run(
                 sample.question,
                 sample.topic_mid,
                 eta=args.eta,
@@ -435,37 +498,67 @@ def main(argv: list[str] | None = None) -> int:
                 stop_after_no_new_batches=args.stop_after_no_new_batches or None,
                 no_all_wrong_after_answer_stop=args.no_all_wrong_after_answer_stop,
             )
+            faith_metrics = compute_faithfulness(
+                cited_indices=cited_indices_for_answers(
+                    set(checked_result.final_accepted_path_indices)
+                    | set(checked_result.relation_expanded_path_indices),
+                    checked_result.raw_mmr_reason_paths,
+                    checked_result.pred_answer_disambiguated_mids,
+                ),
+                golden_indices=label_golden_indices(
+                    checked_result.raw_mmr_reason_paths,
+                    sample.gold_mids,
+                ),
+                # 忠实度只算 LLM 产出的答案,剔除 large_answer_expansion 补出的 KG 实体
+                pred_answers=llm_produced_answers(
+                    checked_result.pred_answer_names,
+                    checked_result.pred_answer_disambiguated_mids,
+                    checked_result.large_answer_expanded_mids,
+                ),
+                path_entities=get_all_path_entities(checked_result.named_mmr_reason_paths),
+            )
+            comparison_index = qa_sample.sample_index
+            if comparison_index is None:
+                comparison_index = sample_index
+            decision = (
+                comparison_tool(comparison_index, sample.question_raw)
+                if comparison_tool is not None
+                else None
+            )
+            result = (
+                apply_comparison_decision(checked_result, decision)
+                if decision is not None
+                else checked_result
+            )
             answer_metrics = compute_answer_metrics(
                 result.pred_answer_disambiguated_mids,
                 sample.gold_mids,
             )
-            faith_metrics = compute_faithfulness(
-                cited_indices=cited_indices_for_answers(
-                    set(result.final_accepted_path_indices)
-                    | set(result.relation_expanded_path_indices),
-                    result.raw_mmr_reason_paths,
-                    result.pred_answer_disambiguated_mids,
-                ),
-                golden_indices=label_golden_indices(result.raw_mmr_reason_paths, sample.gold_mids),
-                # 忠实度只算 LLM 产出的答案,剔除 large_answer_expansion 补出的 KG 实体
-                pred_answers=llm_produced_answers(
-                    result.pred_answer_names,
-                    result.pred_answer_disambiguated_mids,
-                    result.large_answer_expanded_mids,
-                ),
-                path_entities=get_all_path_entities(result.named_mmr_reason_paths),
-            )
             record = build_eval_record(sample_index, sample, result, answer_metrics, faith_metrics)
+            comparison_trace = _comparison_trace(
+                comparison_tool,
+                decision,
+                checked_result.pred_answer_names,
+            )
+            record["answer_source"] = (
+                "cwq_comparison_tool" if comparison_trace["applied"] else "checked_batch"
+            )
+            record["comparison_tool"] = comparison_trace
+            record["path_faithfulness_scope"] = (
+                "checked_batch_answer_before_override"
+                if comparison_trace["applied"]
+                else "final_checked_batch_answer"
+            )
             records.append(record)
             output_handle.write(json.dumps(record, ensure_ascii=False) + "\n")
             output_handle.flush()
-            retrieval_record = build_initial_retrieval_record(sample, result)
+            retrieval_record = build_initial_retrieval_record(sample, checked_result)
             retrieval_handle.write(json.dumps(retrieval_record, ensure_ascii=False) + "\n")
             retrieval_handle.flush()
             answer_record = build_initial_answer_record(
                 sample_index,
                 sample,
-                result,
+                checked_result,
                 args.batch_size,
                 reverse_entity_map,
             )
@@ -537,6 +630,18 @@ def main(argv: list[str] | None = None) -> int:
             "no_all_wrong_after_answer_stop": args.no_all_wrong_after_answer_stop,
             "sample_index": args.sample_index,
             "sample_indices": selected_sample_indices,
+            "cwq_comparison_answers": (
+                comparison_tool.artifact_path if comparison_tool else None
+            ),
+            "comparison_override_count": sum(
+                bool((record.get("comparison_tool") or {}).get("applied"))
+                for record in records
+            ),
+            "comparison_fallback_count": sum(
+                bool((record.get("comparison_tool") or {}).get("enabled"))
+                and not bool((record.get("comparison_tool") or {}).get("applied"))
+                for record in records
+            ),
         }
     )
     summary_path = output_paths["summary"]
