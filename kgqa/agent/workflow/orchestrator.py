@@ -40,16 +40,21 @@ class MasterQAWorkflow:
                                 prompt_tokens=0, completion_tokens=0, elapsed_ms=0, used_path_count=0)
                 source = branch
             elif tool.applied and tool.paths:
-                if calls >= self.config.max_pfit_calls:
-                    reason = "pfit_budget_exhausted"
+                if branch == "rescue" and self.config.rescue_sliding_enabled:
+                    final, paths, source, reason, calls = self._rescue_sliding(
+                        question, tool.paths, calls, call_results, final, paths, source, reason
+                    )
                 else:
-                    followup = self._followup(question.question, tool.paths)
-                    calls += 1
-                    call_results.append(followup)
-                    if followup.format_ok:
-                        final, paths, source = followup, self._used_paths(tool.paths, followup), branch
+                    if calls >= self.config.max_pfit_calls:
+                        reason = "pfit_budget_exhausted"
                     else:
-                        reason = "followup_transport_error" if followup.generation_error else "followup_format_error"
+                        followup = self._followup(question.question, tool.paths)
+                        calls += 1
+                        call_results.append(followup)
+                        if followup.format_ok:
+                            final, paths, source = followup, self._used_paths(tool.paths, followup), branch
+                        else:
+                            reason = "followup_transport_error" if followup.generation_error else "followup_format_error"
         return WorkflowRecord(
             question, route, initial, final, paths, source, reason, calls,
             (perf_counter() - started) * 1000, tool, initial_paths, tuple(call_results),
@@ -72,6 +77,33 @@ class MasterQAWorkflow:
         except (requests.RequestException, TimeoutError) as exc:
             return AnswerResult((), False, False, elapsed_ms=(perf_counter() - started) * 1000,
                                 generation_error=f"{type(exc).__name__}: {exc}"[:400])
+
+    def _rescue_sliding(self, question: RuntimeQuestion, all_paths: tuple[dict, ...],
+                        calls: int, call_results: list[AnswerResult],
+                        final: AnswerResult, paths: tuple[dict, ...],
+                        source: str, reason: str) -> tuple[AnswerResult, tuple[dict, ...], str, str, int]:
+        win_size, max_wins, n_paths = self.config.rescue_window_size, self.config.rescue_max_windows, len(all_paths)
+        for w_idx in range(max_wins):
+            start = w_idx * win_size
+            if start >= n_paths:
+                break
+            window_paths = all_paths[start:start + win_size]
+            if not window_paths:
+                break
+            if calls >= self.config.max_pfit_calls:
+                reason = "pfit_budget_exhausted"
+                break
+            followup = self._followup(question.question, window_paths)
+            calls += 1
+            call_results.append(followup)
+            if not followup.format_ok:
+                reason = "followup_transport_error" if followup.generation_error else "followup_format_error"
+                break
+            final, paths, source = followup, self._used_paths(window_paths, followup), "rescue"
+            reason = f"rescue_window_{w_idx}"
+            if not followup.is_rejection and followup.answers:
+                break
+        return final, paths, source, reason, calls
 
     def _branch(self, route: RouteDecision, initial: AnswerResult) -> str | None:
         if not initial.format_ok:

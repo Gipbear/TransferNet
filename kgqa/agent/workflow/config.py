@@ -35,16 +35,24 @@ class WorkflowConfig:
     comparison_enabled: bool = True
     conjunction_enabled: bool = True
     rescue_enabled: bool = True
+    rescue_sliding_enabled: bool = False
+    rescue_window_size: int = 20
+    rescue_max_depth: int = 100
+    rescue_max_windows: int = 5
 
     def __post_init__(self) -> None:
-        if self.max_pfit_calls not in (1, 2):
-            raise ValueError("max_pfit_calls 必须为 1 或 2")
+        if self.max_pfit_calls < 1:
+            raise ValueError("max_pfit_calls 必须为正整数")
         if self.max_paths != 20:
             raise ValueError("正式工作流固定使用最多 20 条路径")
         if self.min_chain_score != 0.12:
             raise ValueError("min_chain_score 固定为训练模板索引的 0.12，修改须重建模板并重新验证")
         if self.max_paths_per_relation < 0:
             raise ValueError("max_paths_per_relation 须非负")
+        if self.rescue_window_size <= 0 or self.rescue_max_depth < self.rescue_window_size:
+            raise ValueError("rescue_window_size 须为正数且 rescue_max_depth >= rescue_window_size")
+        if self.rescue_max_windows <= 0:
+            raise ValueError("rescue_max_windows 须为正数")
         for name in ("max_input_tokens", "max_new_tokens", "triple_budget", "max_queries", "step_limit"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} 必须为正数")

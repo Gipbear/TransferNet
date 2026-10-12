@@ -140,7 +140,8 @@ class GraphRescuer(WorkflowTool):
                 relations.append(rel_ids.setdefault(relation, len(rel_ids)))
             candidates.append(PathCandidate(nodes, relations, len(relations),
                                             math.log(max(record["score"], 1e-6)), order=order))
-        selected = select_path_candidates(candidates, 20, eta=0, lambda_val=self.config.lambda_val,
+        depth = self.config.rescue_max_depth if self.config.rescue_sliding_enabled else 20
+        selected = select_path_candidates(candidates, depth, eta=0, lambda_val=self.config.lambda_val,
                                           penalty_mode=self.config.penalty_mode)
         return [{"path": self._edges(records[item.order]["nodes"], records[item.order]["relations"]),
                  "log_score": item.score} for item in selected]

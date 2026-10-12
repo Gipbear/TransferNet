@@ -3,7 +3,7 @@
   "kind": "ch5_workflow",
   "dataset": "cwq",
   "status": "official_production_latest",
-  "description": "第五章 CWQ 官方终局工作流最强配置 (Hit Any 74.40%, Hit@1 71.54%, EM 61.51%, Macro-F1 68.87%)",
+  "description": "第五章 CWQ 官方终局工作流 (集成 QLever 在线 3-4 跳多批滑窗救援，无缝解锁多达 100 条拓扑证据)",
   "model": "/home/jsh_wsl_smi/.cache/huggingface/hub/models--unsloth--meta-llama-3.1-8b-instruct-bnb-4bit/snapshots/f15c379fb32bb402fa06a7ae9aecb1febf4b79ec",
   "adapter": "data/output/kgqa/ch4_pfit/cwq/rog_transfernet_v1/全量拒答_1ep/seed_17/adapter",
   "llm_url": "http://127.0.0.1:8788",
@@ -13,13 +13,13 @@
   "cache_dir": "data/analysis/20261009_0131__cwq_workflow_implementation/cache",
   "labels_source": "data/output/kgqa/ch4_pfit/cwq/rog_transfernet_v1/全量拒答_1ep/seed_17/eval/predictions.jsonl",
   "workflow": {
-    "max_pfit_calls": 2,
+    "max_pfit_calls": 6,
     "max_paths": 20,
     "max_input_tokens": 1792,
     "max_new_tokens": 256,
     "chain_margin": 0.1,
     "operator_confidence": 0.8,
-    "triple_budget": 160,
+    "triple_budget": 320,
     "query_timeout": 5.0,
     "max_query_retries": 2,
     "max_queries": 80,
@@ -28,7 +28,11 @@
     "rescue_scorer": "template",
     "allow_partial_rescue": true,
     "allow_template_fallback": true,
-    "allow_cascade_rescue": true
+    "allow_cascade_rescue": true,
+    "rescue_sliding_enabled": true,
+    "rescue_window_size": 20,
+    "rescue_max_depth": 100,
+    "rescue_max_windows": 5
   },
   "runs": {
     "smoke": [
