@@ -127,6 +127,11 @@ start_server() {
     --host "${PATH_RETRIEVE_SERVER_HOST}"
     --port "${PORT}"
   )
+  # TransferNet 实体置信度阈值(默认 0.9,为 WebQSP 标定)。CWQ 等模型的置信度
+  # 分布不同时按域下调,该阈值同时决定 prediction 与 group_tails 的尾实体过滤。
+  if [[ -n "${PREDICTION_THRESHOLD:-}" ]]; then
+    cmd+=(--prediction_threshold "${PREDICTION_THRESHOLD}")
+  fi
   if command -v setsid >/dev/null 2>&1; then
     setsid nohup "${cmd[@]}" > "${LOG_PATH}" 2>&1 &
   else

@@ -238,9 +238,14 @@ start_server() {
     stop_pids "${port_pids}"
   fi
 
+  local launcher=(nohup)
+  if command -v setsid >/dev/null 2>&1; then
+    launcher=(setsid nohup)
+  fi
+
   cd "${PROJECT_DIR}"
   if [[ "${LLM_BACKEND}" == "siliconflow" ]]; then
-    nohup python -m kgqa.serving.llm.server \
+    "${launcher[@]}" python -m kgqa.serving.llm.server \
       --backend siliconflow \
       --siliconflow-base-url "${SILICONFLOW_BASE_URL}" \
       --siliconflow-model "${SILICONFLOW_MODEL}" \
@@ -252,7 +257,7 @@ start_server() {
     if [[ "${TEXT_ONLY}" == "1" ]]; then
       text_only_flag=(--text-only)
     fi
-    nohup python -m kgqa.serving.llm.server \
+    "${launcher[@]}" python -m kgqa.serving.llm.server \
       --model "${MODEL_SNAPSHOT}" \
       --model-precision "${MODEL_PRECISION}" \
       "${text_only_flag[@]}" \
