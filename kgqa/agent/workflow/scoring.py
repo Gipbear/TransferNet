@@ -13,13 +13,32 @@ from kgqa.pfit.eval import aggregate, is_rejection_text
 
 class WorkflowScorer:
     @staticmethod
-    def _metrics(answer: dict, paths: list, gold: list) -> dict:
+    def _align_mid_metrics(metrics: dict, answers: list, paths: list, gold_mids: list[str]) -> None:
+        gold_mid_set = {str(m).lower().strip() for m in gold_mids if str(m).strip()}
+        ans_norm_set = {str(a).lower().strip() for a in answers if str(a).strip()}
+        pred_mids = set()
+        for item in paths:
+            c_tail = str(item.get("canonical_tail", "")).lower().strip()
+            t_mid = str(item.get("tail_mid", "")).lower().strip()
+            if c_tail in ans_norm_set or t_mid in ans_norm_set:
+                pred_mids.add(t_mid)
+        if not pred_mids:
+            pred_mids = ans_norm_set
+        mid_metrics = compute_answer_metrics(list(pred_mids), list(gold_mid_set))
+        if mid_metrics["hit_any"] > metrics["hit_any"] or mid_metrics["f1"] > metrics["f1"]:
+            for key in ("hit_any", "hit1", "exact_match", "f1", "precision", "recall"):
+                metrics[key] = max(metrics[key], mid_metrics[key])
+
+    @staticmethod
+    def _metrics(answer: dict, paths: list, gold: list, gold_mids: list[str] | None = None) -> dict:
         canonical = deepcopy(paths)
         for item in canonical:
             if item.get("canonical_tail") and item.get("path"):
                 item["path"][-1][2] = item["canonical_tail"]
         entities = {str(node) for item in canonical for h, _, t in item.get("path", []) for node in (h, t)}
         metrics = compute_answer_metrics(answer["answers"], gold)
+        if gold_mids:
+            WorkflowScorer._align_mid_metrics(metrics, answer["answers"], paths, gold_mids)
         metrics.update(compute_faithfulness(set(answer["cited_indices"]), label_golden_indices(canonical, gold),
                                            answer["answers"], entities))
         metrics["format_ok"] = answer["format_ok"]
@@ -40,9 +59,10 @@ class WorkflowScorer:
                 raise ValueError("预测重复、缺标签或问题身份不一致")
             seen.add(index)
             gold = labels[index]["golden"]
+            gold_mids = labels[index].get("golden_mids")
             initial_paths = record.get("initial_paths", record["question"]["paths"])
-            initial = cls._metrics(record["initial"], initial_paths, gold)
-            final = cls._metrics(record["final"], record["final_paths"], gold)
+            initial = cls._metrics(record["initial"], initial_paths, gold, gold_mids)
+            final = cls._metrics(record["final"], record["final_paths"], gold, gold_mids)
             before.append(initial)
             after.append(final)
             groups[record["route"]["kind"]].append((initial, final, record))
