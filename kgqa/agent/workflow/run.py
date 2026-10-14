@@ -43,7 +43,7 @@ class WorkflowRunner:
         scorer = GraphScoringClient(self.graph_url) if self.config.rescue_scorer == "transfernet" else None
         rescue = GraphRescuer(self.config, self.library, kg, scorer, names=dict(self.names))
         workflow = MasterQAWorkflow(self.config, self.answerer, QuestionRouter(self.library),
-                                   comparison, conjunction, rescue)
+                                    comparison, conjunction, rescue)
         self.thread_state.workflow, self.thread_state.kg = workflow, kg
         return workflow, kg
 
