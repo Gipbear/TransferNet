@@ -68,9 +68,13 @@ class RelationExpander(WorkflowTool):
             path_steps = path_item.get("path", [])
             if not path_steps:
                 continue
-            tail = path_item.get("tail_mid") or path_item.get("canonical_tail") or path_steps[-1][2]
-            tail_name = candidate_mid_to_name.get(tail, tail)
-            if norm_entity(tail) in answer_keys or norm_entity(tail_name) in answer_keys:
+            tail_mid = path_item.get("tail_mid") or ""
+            canonical = path_item.get("canonical_tail") or ""
+            step_tail = path_steps[-1][2] if path_steps else ""
+            tail_name = candidate_mid_to_name.get(tail_mid, "")
+
+            cand_keys = {norm_entity(t) for t in (tail_mid, canonical, step_tail, tail_name) if t}
+            if cand_keys & answer_keys:
                 seq = tuple(step[1] for step in path_steps if len(step) >= 2)
                 if seq:
                     seq_counts[seq] += 1

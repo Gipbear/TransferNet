@@ -1,0 +1,59 @@
+{
+  "schema_version": 2,
+  "kind": "ch5_workflow",
+  "dataset": "cwq",
+  "status": "official_production_latest",
+  "description": "第五章 CWQ 官方终局工作流 (挂载纯机器学习门控多答案展开工具 RelationExpander)",
+  "model": "/home/jsh_wsl_smi/.cache/huggingface/hub/models--unsloth--meta-llama-3.1-8b-instruct-bnb-4bit/snapshots/f15c379fb32bb402fa06a7ae9aecb1febf4b79ec",
+  "adapter": "data/output/kgqa/ch4_pfit/cwq/rog_transfernet_v1/全量拒答_1ep/seed_17/adapter",
+  "llm_url": "http://127.0.0.1:8788",
+  "graph_url": "http://127.0.0.1:8791",
+  "qa_file": "data/analysis/20261009_0131__cwq_workflow_implementation/prepared/runtime_inputs_no_gold.jsonl",
+  "templates": "data/output/kgqa/models/cwq/templates.joblib",
+  "cache_dir": "data/analysis/20261009_0131__cwq_workflow_implementation/cache",
+  "labels_source": "data/output/kgqa/ch4_pfit/cwq/rog_transfernet_v1/全量拒答_1ep/seed_17/eval/predictions.jsonl",
+  "workflow": {
+    "max_pfit_calls": 6,
+    "max_paths": 20,
+    "max_input_tokens": 1792,
+    "max_new_tokens": 256,
+    "chain_margin": 0.1,
+    "operator_confidence": 0.8,
+    "triple_budget": 320,
+    "query_timeout": 5.0,
+    "max_query_retries": 2,
+    "max_queries": 80,
+    "neighbor_k": 48,
+    "patterns_per_band": 15,
+    "rescue_scorer": "template",
+    "allow_partial_rescue": true,
+    "allow_template_fallback": true,
+    "allow_cascade_rescue": true,
+    "comparison_enabled": true,
+    "conjunction_enabled": true,
+    "rescue_enabled": true,
+    "rescue_sliding_enabled": true,
+    "rescue_window_size": 20,
+    "rescue_max_depth": 100,
+    "rescue_max_windows": 5,
+    "expansion_enabled": true,
+    "expansion_min_answers": 2,
+    "expansion_top_groups": 1
+  },
+  "runs": {
+    "smoke": [
+      {
+        "id": "workflow_smoke",
+        "limit": 20
+      }
+    ],
+    "benchmark": [
+      {
+        "id": "workflow_full",
+        "limit": 0
+      }
+    ]
+  },
+  "revision": "cwq_workflow_expansion_v1",
+  "entity_names_file": "data/analysis/20261009_0131__cwq_workflow_implementation/revision2/entity_names_no_gold.json"
+}

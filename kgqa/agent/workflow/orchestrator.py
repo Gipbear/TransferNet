@@ -58,14 +58,16 @@ class MasterQAWorkflow:
                             final, paths, source = followup, self._used_paths(tool.paths, followup), branch
                         else:
                             reason = "followup_transport_error" if followup.generation_error else "followup_format_error"
-        elif (self.config.expansion_enabled and "expansion" in self.tools
-              and not initial.is_rejection and initial.format_ok):
-            tool = self._run_tool("expansion", question, initial)
-            reason = tool.reason
-            if tool.applied and tool.answers is not None:
-                final = replace(initial, answers=tool.answers, is_rejection=False, cited_indices=(), raw_output="",
+        if ((not branch or not tool or not tool.applied)
+                and self.config.expansion_enabled and "expansion" in self.tools
+                and not initial.is_rejection and initial.format_ok):
+            exp_tool = self._run_tool("expansion", question, initial)
+            if exp_tool.applied and exp_tool.answers is not None:
+                final = replace(initial, answers=exp_tool.answers, is_rejection=False, cited_indices=(), raw_output="",
                                 prompt_tokens=0, completion_tokens=0, elapsed_ms=0, used_path_count=0)
                 source = "expansion"
+                reason = exp_tool.reason
+                tool = exp_tool
         return WorkflowRecord(
             question, route, initial, final, paths, source, reason, calls,
             (perf_counter() - started) * 1000, tool, initial_paths, tuple(call_results),
