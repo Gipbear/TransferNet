@@ -150,6 +150,7 @@ class LargeAnswerExpansionTests(unittest.TestCase):
             large_answer_expansion=True,
             kg_group_tails=KG_GROUP_TAILS,
             expansion_min_answers=2,
+            expansion_guard=lambda q: "first" in q,
         )
 
         self.assertEqual(result.pred_answer_disambiguated_mids, ["m.a", "m.b"])

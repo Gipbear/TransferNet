@@ -12,11 +12,14 @@ from kgqa.agent.workflow.models import AnswerResult, RouteDecision, RuntimeQuest
 
 class MasterQAWorkflow:
     def __init__(self, config: WorkflowConfig, answerer: Answerer, router: Router,
-                 comparison: WorkflowTool, conjunction: WorkflowTool, rescue: WorkflowTool) -> None:
+                 comparison: WorkflowTool, conjunction: WorkflowTool, rescue: WorkflowTool,
+                 expansion: WorkflowTool | None = None) -> None:
         self.config = config
         self.answerer = answerer
         self.router = router
         self.tools = {"comparison": comparison, "conjunction": conjunction, "rescue": rescue}
+        if expansion is not None:
+            self.tools["expansion"] = expansion
 
     def answer(self, question: RuntimeQuestion) -> WorkflowRecord:
         started = perf_counter()
@@ -55,6 +58,14 @@ class MasterQAWorkflow:
                             final, paths, source = followup, self._used_paths(tool.paths, followup), branch
                         else:
                             reason = "followup_transport_error" if followup.generation_error else "followup_format_error"
+        elif (self.config.expansion_enabled and "expansion" in self.tools
+              and not initial.is_rejection and initial.format_ok):
+            tool = self._run_tool("expansion", question, initial)
+            reason = tool.reason
+            if tool.applied and tool.answers is not None:
+                final = replace(initial, answers=tool.answers, is_rejection=False, cited_indices=(), raw_output="",
+                                prompt_tokens=0, completion_tokens=0, elapsed_ms=0, used_path_count=0)
+                source = "expansion"
         return WorkflowRecord(
             question, route, initial, final, paths, source, reason, calls,
             (perf_counter() - started) * 1000, tool, initial_paths, tuple(call_results),

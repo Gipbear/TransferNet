@@ -173,17 +173,6 @@ def _relation_sequence_from_path(path_dict: dict[str, Any]) -> tuple[str, ...]:
         if isinstance(edge, (list, tuple)) and len(edge) >= 2
     )
 
-
-# 含选择性约束(年份/序数/最高级/角色限定)的问题不做大答案集展开:
-# 这类问题的答案是组内子集,展开整组会引入大量假阳性。
-_EXPANSION_CONSTRAINT_WORDS = (
-    "first", "last", "2008", "2009", "2010", "2011", "2012", "2013", "2014",
-    "now", "current", "president", "capital", "main", "biggest", "largest",
-    "before", "after", "died", "death", "won", "initially",
-    "year", "date", "type", "call", "leader",
-)
-
-
 def _classify_batch(batch_size: int, accepted_count: int) -> str:
     if accepted_count == 0:
         return "all_wrong"
@@ -266,6 +255,7 @@ class CheckedBatchAgent:
         stop_after_no_new_batches: int | None = None,
         no_all_wrong_after_answer_stop: bool = False,
         drop_topic_self: bool = True,
+        expansion_guard: Callable[[str], bool] | None = None,
     ) -> CheckedBatchAgentResult:
         if batch_size <= 0:
             raise ValueError("batch_size must be positive")
@@ -282,6 +272,7 @@ class CheckedBatchAgent:
         self._expansion_min_answers = expansion_min_answers
         self._expansion_top_groups = expansion_top_groups
         self._drop_topic_self = drop_topic_self
+        self._expansion_guard = expansion_guard
 
         retrieval = self.path_tool(
             question,
@@ -664,8 +655,7 @@ class CheckedBatchAgent:
             return
         if len(state.final_mids) < self._expansion_min_answers:
             return
-        question_lower = question.lower()
-        if any(word in question_lower for word in _EXPANSION_CONSTRAINT_WORDS):
+        if self._expansion_guard is not None and self._expansion_guard(question):
             return
 
         final_keys = {norm_entity(mid) for mid in state.final_mids}

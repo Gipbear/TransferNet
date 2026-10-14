@@ -39,8 +39,13 @@ class WorkflowConfig:
     rescue_window_size: int = 20
     rescue_max_depth: int = 100
     rescue_max_windows: int = 5
+    expansion_enabled: bool = False
+    expansion_min_answers: int = 2
+    expansion_top_groups: int = 1
 
     def __post_init__(self) -> None:
+        if self.expansion_min_answers < 1 or self.expansion_top_groups < 1:
+            raise ValueError("expansion_min_answers 与 expansion_top_groups 须为正整数")
         if self.max_pfit_calls < 1:
             raise ValueError("max_pfit_calls 必须为正整数")
         if self.max_paths != 20:

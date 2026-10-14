@@ -18,6 +18,7 @@ from kgqa.agent.workflow.router import QuestionRouter
 from kgqa.agent.workflow.templates import TemplateLibrary
 from kgqa.agent.workflow.tools.comparison import NumericReranker
 from kgqa.agent.workflow.tools.conjunction import AttributeTagger
+from kgqa.agent.workflow.tools.expansion import RelationExpander
 from kgqa.agent.workflow.tools.rescue import GraphRescuer
 from kgqa.runtime import update_progress
 from kgqa.serving.graph_server import GraphScoringClient
@@ -42,8 +43,9 @@ class WorkflowRunner:
         conjunction = AttributeTagger(self.config, self.library, kg)
         scorer = GraphScoringClient(self.graph_url) if self.config.rescue_scorer == "transfernet" else None
         rescue = GraphRescuer(self.config, self.library, kg, scorer, names=dict(self.names))
+        expansion = RelationExpander(self.config, self.library, kg, names=dict(self.names))
         workflow = MasterQAWorkflow(self.config, self.answerer, QuestionRouter(self.library),
-                                    comparison, conjunction, rescue)
+                                    comparison, conjunction, rescue, expansion)
         self.thread_state.workflow, self.thread_state.kg = workflow, kg
         return workflow, kg
 
