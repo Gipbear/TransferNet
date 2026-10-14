@@ -28,6 +28,9 @@ class WorkflowScorer:
         if mid_metrics["hit_any"] > metrics["hit_any"] or mid_metrics["f1"] > metrics["f1"]:
             for key in ("hit_any", "hit1", "exact_match", "f1", "precision", "recall"):
                 metrics[key] = max(metrics[key], mid_metrics[key])
+            metrics["tp"] = max(metrics.get("tp", 0), mid_metrics["tp"])
+            metrics["pred_n"] = mid_metrics["pred_n"]
+            metrics["gold_n"] = mid_metrics["gold_n"]
 
     @staticmethod
     def _metrics(answer: dict, paths: list, gold: list, gold_mids: list[str] | None = None) -> dict:

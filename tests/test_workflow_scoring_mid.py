@@ -41,6 +41,9 @@ class TestWorkflowScorerMIDAlignment(unittest.TestCase):
         self.assertEqual(metrics["hit1"], 1)
         self.assertEqual(metrics["exact_match"], 1)
         self.assertEqual(metrics["f1"], 1.0)
+        self.assertEqual(metrics["tp"], 1)
+        self.assertEqual(metrics["pred_n"], 1)
+        self.assertEqual(metrics["gold_n"], 1)
 
 
 if __name__ == "__main__":
