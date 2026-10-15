@@ -20,7 +20,7 @@ from kgqa.runtime import add_runtime_arguments, configure_runtime, emit_event, u
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="kgqa 统一路径检索")
-    p.add_argument("--dataset", required=True, help="数据集：adint | webqsp | metaqa | pharmkg | cwq")
+    p.add_argument("--dataset", required=True, help="数据集：webqsp | metaqa | cwq")
     p.add_argument("--backbone", default="transfernet", choices=["transfernet", "rearev"],
                    help="基础检索模型；ReaRev 当前仅支持 WebQSP 离线缓存")
     p.add_argument("--backend", choices=["offline", "online"], default="offline")
@@ -40,6 +40,8 @@ def build_parser() -> argparse.ArgumentParser:
                    default="joint", help="逐跳排序分数：联合、仅关系或仅实体；单分数模式必须配合 --eta 0")
     p.add_argument("--relation_normalization", choices=sorted(RELATION_NORMALIZATION_MODES),
                    default="global", help="关系得分分母：整跳激活关系或当前头实体的可达激活关系")
+    p.add_argument("--exact_hop", action="store_true",
+                   help="只生成 hop_attn 指定长度的候选路径；默认同时生成所有可用 hop")
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--output", default=None, help="逐样本 JSONL 输出路径")
     add_runtime_arguments(p)
@@ -95,6 +97,7 @@ def run_retrieval(args):
                   "score_scheme": {"candidate_gate": "intersection",
                                    "step_score_mode": args.step_score_mode,
                                    "relation_normalization": args.relation_normalization,
+                                   "exact_hop": args.exact_hop,
                                    "terminal_entity_eta": args.eta,
                                    "penalty_mode": args.penalty_mode}},
     )
@@ -103,7 +106,8 @@ def run_retrieval(args):
                   threshold=args.threshold, eta=args.eta,
                   step_score_mode=args.step_score_mode,
                   penalty_mode=args.penalty_mode,
-                  relation_normalization=args.relation_normalization)
+                  relation_normalization=args.relation_normalization,
+                  exact_hop=args.exact_hop)
     samples = backend.bundle.samples[:args.limit] if args.limit else backend.bundle.samples
     total = len(samples)
     results = []

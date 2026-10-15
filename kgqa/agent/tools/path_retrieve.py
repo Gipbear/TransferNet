@@ -74,7 +74,7 @@ class PathRetrieveTool:
         response = self.client.retrieve(
             question,
             sample_index=sample_index,
-            topic_entities=[topic_mid] if topic_mid is not None else None,
+            topic_entities=[topic_mid] if topic_mid is not None and sample_index is None else None,
             eta=eta,
             threshold=threshold,
             beam_size=beam_size,

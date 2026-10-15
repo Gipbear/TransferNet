@@ -25,6 +25,7 @@ import sys
 from datetime import datetime
 
 from kgqa.pfit import manifest as manifest_mod
+from kgqa.pfit.blocks import grouped_split_indices
 from kgqa.runtime import add_runtime_arguments, configure_runtime, emit_event, update_progress
 from utils.huggingface import resolve_model_path_local_first
 
@@ -135,8 +136,12 @@ def tokenize_record(rec: dict, tokenizer, max_seq_len: int) -> dict:
     }
 
 
-def load_dataset_from_jsonl(path: str, tokenizer, max_seq_len: int):
-    """JSONL → HuggingFace Dataset(tokenize + masking + 截断计数)。"""
+def load_dataset_from_jsonl(path: str, tokenizer, max_seq_len: int, keep_group: bool = False):
+    """JSONL → HuggingFace Dataset(tokenize + masking + 截断计数)。
+
+    keep_group=True 时保留 `_group` 列（取自 `_meta.group`），供按组切 train/val；
+    切分完成后由调用方删列，避免多出来的字段进 collator。
+    """
     from datasets import Dataset
 
     records = []
@@ -154,10 +159,13 @@ def load_dataset_from_jsonl(path: str, tokenizer, max_seq_len: int):
         counters["label_fallback"] += out.pop("label_fallback")
         return out
 
-    raw = Dataset.from_list([
-        {"messages": r["messages"], "_meta": r.get("_meta", {})}
-        for r in records
-    ])
+    def _row(rec):
+        row = {"messages": rec["messages"], "_meta": rec.get("_meta", {})}
+        if keep_group:
+            row["_group"] = rec.get("_meta", {}).get("group", -1)
+        return row
+
+    raw = Dataset.from_list([_row(r) for r in records])
     tokenized = raw.map(_tokenize, remove_columns=["messages", "_meta"])
 
     n = len(records)
@@ -233,18 +241,23 @@ def make_memory_cleanup_callback():
 
 def build_training_args(*, adapter_dir: str, epochs: int, batch_size: int, grad_accum: int,
                         lr: float, warmup_ratio: float, max_seq_len: int, seed: int,
-                        bf16: bool, has_eval: bool, save_total_limit: int = 1):
+                        bf16: bool, has_eval: bool, save_total_limit: int = 1,
+                        max_steps: int = 0):
     """构造 SFTConfig(纯配置,免 GPU 可测)。
 
     eval batch 固定为 1 而非跟随 train batch:eval 的 logits 张量是
     [bs, seq_len, vocab],8B 模型词表 128k 时单批就是 GB 级峰值。
     checkpoint 按 epoch 落盘,避免长训练中断后颗粒无收。
+
+    max_steps>0 时以固定步数训练(覆盖 epoch 计划),用于「三组训练集样本量不同、
+    但训练步数必须相同」的对照实验;此时 checkpoint 改为按步落盘。
     """
     from trl import SFTConfig
 
     return SFTConfig(
         output_dir=adapter_dir,
         num_train_epochs=epochs,
+        max_steps=max_steps if max_steps > 0 else -1,
         per_device_train_batch_size=batch_size,
         gradient_accumulation_steps=grad_accum,
         learning_rate=lr,
@@ -253,7 +266,8 @@ def build_training_args(*, adapter_dir: str, epochs: int, batch_size: int, grad_
         fp16=not bf16,
         bf16=bf16,
         logging_steps=10,
-        save_strategy="epoch",
+        save_strategy="steps" if max_steps > 0 else "epoch",
+        save_steps=max_steps if max_steps > 0 else 500,
         save_total_limit=save_total_limit,
         eval_strategy="epoch" if has_eval else "no",
         per_device_eval_batch_size=1,
@@ -274,7 +288,8 @@ def run_train(*, exp_dir: str, train_file: str = None,
               lr: float = 2e-4, batch_size: int = 4, grad_accum: int = 8,
               epochs: int = 2, max_seq_len: int = 1024 + 256,
               warmup_ratio: float = 0.05, seed: int = 42,
-              val_ratio: float = 0.05, save_total_limit: int = 1) -> str:
+              val_ratio: float = 0.05, save_total_limit: int = 1,
+              group_split: bool = False, max_steps: int = 0) -> str:
     """训练主入口,adapter 写 exp_dir/adapter/;同配置且 adapter 已在则跳过。"""
     train_file = train_file or os.path.join(exp_dir, "sft_train.jsonl")
     adapter_dir = os.path.join(exp_dir, "adapter")
@@ -286,7 +301,8 @@ def run_train(*, exp_dir: str, train_file: str = None,
         "lora_dropout": lora_dropout, "lr": lr, "batch_size": batch_size,
         "grad_accum": grad_accum, "epochs": epochs, "max_seq_len": max_seq_len,
         "warmup_ratio": warmup_ratio, "seed": seed, "val_ratio": val_ratio,
-        "save_total_limit": save_total_limit,
+        "save_total_limit": save_total_limit, "group_split": group_split,
+        "max_steps": max_steps,
     }
     section = manifest_mod.make_section(config, {"sft_train": train_file})
 
@@ -340,10 +356,21 @@ def run_train(*, exp_dir: str, train_file: str = None,
     )
     log.info("LoRA 注入完成")
 
-    full_dataset = load_dataset_from_jsonl(train_file, tokenizer, max_seq_len)
+    full_dataset = load_dataset_from_jsonl(train_file, tokenizer, max_seq_len,
+                                           keep_group=group_split)
 
     eval_dataset = None
-    if val_ratio > 0:
+    if val_ratio > 0 and group_split:
+        train_idx, val_idx = grouped_split_indices(list(full_dataset["_group"]), val_ratio, seed)
+        if val_idx:
+            train_dataset = full_dataset.select(train_idx).remove_columns(["_group"])
+            eval_dataset = full_dataset.select(val_idx).remove_columns(["_group"])
+            log.info("验证集划分(按组): train=%d  val=%d (val_ratio=%.2f)",
+                     len(train_dataset), len(eval_dataset), val_ratio)
+        else:
+            train_dataset = full_dataset.remove_columns(["_group"])
+            log.info("验证集划分(按组): 组数不足,全部进训练集")
+    elif val_ratio > 0:
         split = full_dataset.train_test_split(test_size=val_ratio, seed=seed)
         train_dataset, eval_dataset = split["train"], split["test"]
         log.info("验证集划分: train=%d  val=%d (val_ratio=%.2f)",
@@ -357,7 +384,7 @@ def run_train(*, exp_dir: str, train_file: str = None,
         adapter_dir=adapter_dir, epochs=epochs, batch_size=batch_size, grad_accum=grad_accum,
         lr=lr, warmup_ratio=warmup_ratio, max_seq_len=max_seq_len, seed=seed,
         bf16=torch.cuda.is_bf16_supported(), has_eval=eval_dataset is not None,
-        save_total_limit=save_total_limit,
+        save_total_limit=save_total_limit, max_steps=max_steps,
     )
     trainer = SFTTrainer(
         model=model_obj,
@@ -400,6 +427,10 @@ def build_parser():
     p.add_argument("--warmup_ratio", type=float, default=0.05)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--val_ratio", type=float, default=0.05)
+    p.add_argument("--group_split", action="store_true",
+                   help="按 _meta.group 切 train/val(同题各块不得跨集)")
+    p.add_argument("--max_steps", type=int, default=0,
+                   help="固定训练步数(覆盖 epoch 计划);0 表示按 epochs 训练")
     p.add_argument("--save_total_limit", type=int, default=1)
     add_runtime_arguments(p)
     return p
@@ -415,7 +446,8 @@ def main(argv=None):
                         lora_dropout=a.lora_dropout, lr=a.lr, batch_size=a.batch_size,
                         grad_accum=a.grad_accum, epochs=a.epochs, max_seq_len=a.max_seq_len,
                         warmup_ratio=a.warmup_ratio, seed=a.seed, val_ratio=a.val_ratio,
-                        save_total_limit=a.save_total_limit)
+                        save_total_limit=a.save_total_limit, group_split=a.group_split,
+                        max_steps=a.max_steps)
     update_progress(run_dir, completed=1, total=1, status="completed", phase="路径监督训练")
     emit_event(run_dir, "phase_end", phase="路径监督训练", adapter=adapter)
 

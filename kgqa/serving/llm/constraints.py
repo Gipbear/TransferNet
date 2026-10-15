@@ -63,7 +63,7 @@ def valid_reject_list_prefix(text: str, max_index: int) -> bool:
     if partial is not None:
         if not _valid_number(partial, max_index):
             return False
-        if int(partial) in seen:
+        if not any(str(value).startswith(partial) for value in range(1, max_index + 1) if value not in seen):
             return False
     elif len(seen) >= max_index:
         # 以逗号结尾但所有编号已用完，没有合法的后续数字
@@ -77,7 +77,10 @@ def reject_list_complete(text: str, max_index: int) -> bool:
         return True
     if not text or text[0] == "N" or text.endswith(","):
         return False
-    return valid_reject_list_prefix(text, max_index)
+    if not valid_reject_list_prefix(text, max_index):
+        return False
+    numbers = [int(segment) for segment in text.split(",")]
+    return len(numbers) == len(set(numbers))
 
 
 def _token_whitelist(tokenizer) -> dict[int, str]:

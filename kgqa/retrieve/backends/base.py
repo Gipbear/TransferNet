@@ -16,6 +16,7 @@ class RetrieveParams:
     lambda_val: float = 0.2
     penalty_mode: str = "adaptive"
     relation_normalization: str = "global"
+    exact_hop: bool = False
     drop_loopback: bool = True
 
     def as_kwargs(self) -> dict:
@@ -27,6 +28,7 @@ class RetrieveParams:
             "lambda_val": self.lambda_val,
             "penalty_mode": self.penalty_mode,
             "relation_normalization": self.relation_normalization,
+            "exact_hop": self.exact_hop,
             "drop_loopback": self.drop_loopback,
         }
 

@@ -9,6 +9,8 @@ QA 源形态:
 - metaqa:``kgqa.retrieve.cli.retrieve`` 输出 JSONL(question 为 vocab 解码的 ``e_s``
   占位形态,topics/golden 天然实体名)。检索定位走 ``sample_index``,
   LLM 提示词用 ``e_s`` 回填 topic 后的展示问题。
+- cwq:同 metaqa 的 retrieve 产物 JSONL(RoG-CWQ 口径)。问题为自然语言、
+  不含 ``e_s`` 占位,故回填为空操作;检索定位同样走 ``sample_index``。
 """
 from __future__ import annotations
 
@@ -55,7 +57,13 @@ def _load_qa_webqsp(path: str, limit: int = 0) -> list[AgentQASample]:
     ]
 
 
-def _load_qa_metaqa(path: str, limit: int = 0) -> list[AgentQASample]:
+def _load_qa_retrieve_jsonl(path: str, limit: int = 0) -> list[AgentQASample]:
+    """读 ``kgqa.retrieve.cli.retrieve`` 产物 JSONL(metaqa / cwq 共用)。
+
+    ``sample_index`` 保留原值用于检索服务定位——它必须与 score cache 的样本
+    顺序一致,故子集文件筛选后不可重新编号。``e_s`` 回填对不含占位符的数据集
+    (cwq)为空操作。
+    """
     samples: list[AgentQASample] = []
     with open(path, encoding="utf-8") as fh:
         for line in fh:
@@ -105,7 +113,14 @@ _SPECS: dict[str, AgentDatasetSpec] = {
     "metaqa": AgentDatasetSpec(
         name="metaqa",
         hops=(1, 2, 3),
-        load_qa=_load_qa_metaqa,
+        load_qa=_load_qa_retrieve_jsonl,
+        group_by_hop=True,
+        entity_map_path=None,
+    ),
+    "cwq": AgentDatasetSpec(
+        name="cwq",
+        hops=(1, 2),
+        load_qa=_load_qa_retrieve_jsonl,
         group_by_hop=True,
         entity_map_path=None,
     ),

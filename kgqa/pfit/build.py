@@ -422,6 +422,28 @@ def _summarize(samples: list, fmt: str, stats_extra: dict) -> dict:
     }
 
 
+def build_block_samples(records: list, group: str, block_size: int, *, fmt: str,
+                        path_format: str, entity_repr: str, entity_map_path: Optional[str],
+                        clean_question, seed: int,
+                        block_blocks: int = 2) -> tuple[list, dict]:
+    """分块建集入口：把长候选池按排名切块构样（P2 分段拒答）。"""
+    # 延迟导入:blocks 复用本模块的路径标注与输出原语,模块级导入会形成循环依赖
+    from kgqa.pfit.blocks import BlockBuilder, BlockSpec, block_stats, build_group_samples
+
+    entity_map = load_entity_map(entity_map_path) if entity_map_path else None
+    builder = BlockBuilder(
+        BlockSpec(block_size=block_size, max_blocks=block_blocks),
+        fmt=fmt, path_format=path_format,
+        use_entity_names=(entity_repr == "name"), entity_map=entity_map,
+        clean_question=clean_question, seed=seed,
+    )
+    samples = build_group_samples(builder, records, group)
+    stats = block_stats(samples)
+    # 丢弃数 = 没产出任何样本的题数（无 golden 或候选池为空）
+    stats["skipped"] = len(records) - len({s["_meta"]["group"] for s in samples})
+    return samples, stats
+
+
 def run_build(*, dataset: str, input_path: str, exp_dir: str, fmt: str,
               path_format: str = "arrow",
               entity_repr: Optional[str] = None,
@@ -433,6 +455,8 @@ def run_build(*, dataset: str, input_path: str, exp_dir: str, fmt: str,
               include_rejection: bool = False,
               rejection_oversample: int = 1,
               synthetic_rejection_ratio: float = 0.0,
+              block_group: Optional[str] = None,
+              block_size: int = 20,
               seed: int = 42,
               output_name: str = "sft_train.jsonl",
               system_prompt_file: str | None = None) -> str:
@@ -469,6 +493,7 @@ def run_build(*, dataset: str, input_path: str, exp_dir: str, fmt: str,
         "include_rejection": include_rejection,
         "rejection_oversample": rejection_oversample,
         "synthetic_rejection_ratio": synthetic_rejection_ratio,
+        "block_group": block_group, "block_size": block_size if block_group else None,
         "seed": seed, "output_name": output_name,
         "system_prompt": system_prompt,
     }
@@ -507,19 +532,25 @@ def run_build(*, dataset: str, input_path: str, exp_dir: str, fmt: str,
             records = rng.sample(records, sample_n)
         log.info("采样后 %d 条(stratify_by_hop=%s)", len(records), stratify_by_hop)
 
-    entity_map = load_entity_map(resolved_map_path) if resolved_map_path else None
-
-    samples, stats_extra = _build_samples(
-        records, fmt, shuffle, distractor_ratio, show_score, rng,
-        clean_question=spec.clean_question,
-        use_entity_names=(entity_repr == "name"),
-        path_format=path_format, entity_map=entity_map,
-        include_rejection=include_rejection,
-        rejection_oversample=rejection_oversample,
-        synthetic_rejection_ratio=synthetic_rejection_ratio,
-        dedupe_tail_paths=dedupe_tail_paths,
-        system_prompt=system_prompt,
-    )
+    if block_group:
+        samples, stats_extra = build_block_samples(
+            records, block_group, block_size, fmt=fmt, path_format=path_format,
+            entity_repr=entity_repr, entity_map_path=resolved_map_path,
+            clean_question=spec.clean_question, seed=seed,
+        )
+    else:
+        entity_map = load_entity_map(resolved_map_path) if resolved_map_path else None
+        samples, stats_extra = _build_samples(
+            records, fmt, shuffle, distractor_ratio, show_score, rng,
+            clean_question=spec.clean_question,
+            use_entity_names=(entity_repr == "name"),
+            path_format=path_format, entity_map=entity_map,
+            include_rejection=include_rejection,
+            rejection_oversample=rejection_oversample,
+            synthetic_rejection_ratio=synthetic_rejection_ratio,
+            dedupe_tail_paths=dedupe_tail_paths,
+            system_prompt=system_prompt,
+        )
 
     os.makedirs(exp_dir, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
@@ -537,7 +568,7 @@ def run_build(*, dataset: str, input_path: str, exp_dir: str, fmt: str,
 
 def build_parser():
     p = argparse.ArgumentParser(description="pfit 建集:retrieve JSONL → SFT JSONL")
-    p.add_argument("--dataset", required=True, help="adint | webqsp | metaqa | pharmkg | cwq")
+    p.add_argument("--dataset", required=True, help="webqsp | metaqa | cwq")
     p.add_argument("--input", required=True, help="kgqa.retrieve.cli.retrieve 输出 JSONL")
     p.add_argument("--exp_dir", required=True, help="实验目录(产物+manifest)")
     p.add_argument("--format", default="v2", dest="fmt",
@@ -557,6 +588,10 @@ def build_parser():
     p.add_argument("--include_rejection", action="store_true")
     p.add_argument("--rejection_oversample", type=int, default=1)
     p.add_argument("--synthetic_rejection_ratio", type=float, default=0.0)
+    p.add_argument("--block_group", default=None, choices=["natural", "blocks", "synthetic"],
+                   help="分块构样组别(P2 分段拒答):natural=只用第一块,blocks=全部块,"
+                        "synthetic=与 blocks 等量同比例的合成拒答对照")
+    p.add_argument("--block_size", type=int, default=20, help="每块的路径数")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--output_name", default="sft_train.jsonl")
     p.add_argument("--system_prompt_file", default=None,
@@ -579,6 +614,7 @@ def main(argv=None):
                        include_rejection=a.include_rejection,
                        rejection_oversample=a.rejection_oversample,
                        synthetic_rejection_ratio=a.synthetic_rejection_ratio,
+                       block_group=a.block_group, block_size=a.block_size,
                        seed=a.seed, output_name=a.output_name,
                        system_prompt_file=a.system_prompt_file)
     update_progress(run_dir, completed=1, total=1, status="completed", phase="构建训练集")

@@ -111,6 +111,7 @@ class ModelEngine:
             prompts,
             return_tensors="pt",
             padding=True,
+            add_special_tokens=False,
         )
         input_ids = encoded["input_ids"].to(self._model.device)
         attention_mask = encoded["attention_mask"].to(self._model.device)

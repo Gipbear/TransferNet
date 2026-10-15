@@ -277,8 +277,12 @@ def path_to_triples(
     ]
 
 
-def candidate_hop_numbers(num_steps: int) -> list[int]:
-    """当前检索器在所有可用 hop 上生成候选路径。"""
+def candidate_hop_numbers(num_steps: int, *, exact_hop: int | None = None) -> list[int]:
+    """返回全部可用 hop，或只返回指定的精确 hop。"""
+    if exact_hop is not None:
+        if not 1 <= exact_hop <= num_steps:
+            raise ValueError(f"精确 hop 必须位于 [1, {num_steps}]，实际为 {exact_hop}")
+        return [exact_hop]
     return list(range(1, num_steps + 1))
 
 
@@ -350,6 +354,7 @@ def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, 
                  step_score_mode: str = "joint",
                  penalty_mode: str = "adaptive",
                  relation_normalization: str = "global",
+                 exact_hop: bool = False,
                  diagnostics: Optional[RetrievalDiagnostics] = None) -> RetrieveResult:
     """单样本检索：稀疏重建 → 逐跳 beam 展开 → MMR 选择 → 序列化。
 
@@ -360,7 +365,9 @@ def retrieve_one(sample, edge_source: KGEdgeSource, id2ent: dict, id2rel: dict, 
     valid_edges_dict = getattr(edge_source, "valid_edges_dict", None)
 
     hop_num = int(sample.hop_attn.argmax().item()) + 1
-    hop_nums = candidate_hop_numbers(len(sample.rel_probs))
+    hop_nums = candidate_hop_numbers(
+        len(sample.rel_probs), exact_hop=hop_num if exact_hop else None,
+    )
 
     rel_dicts, ent_dicts = [], []
     for t in range(max(hop_nums)):

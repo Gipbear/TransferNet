@@ -99,6 +99,7 @@ def _run_job(backend, job: dict, *, no_progress: bool, progress_interval: int) -
         "step_score_mode": job.get("step_score_mode", "joint"),
         "penalty_mode": job.get("penalty_mode", "adaptive"),
         "relation_normalization": job.get("relation_normalization", "global"),
+        "exact_hop": job.get("exact_hop", False),
     }
     validate_score_scheme(params["step_score_mode"], params["eta"])
     total = len(backend.bundle.samples)
@@ -170,6 +171,7 @@ def main(argv=None):
         "step_score_mode": args.step_score_mode,
         "penalty_mode": args.penalty_mode,
         "relation_normalization": args.relation_normalization,
+        "exact_hop": args.exact_hop,
     }
     summary = evaluate_results(backend, results, args.summary, retrieve_params=retrieve_params)
     run_dir = getattr(args, "run_dir", "") or (os.path.dirname(os.path.abspath(args.summary)) if args.summary else "")
