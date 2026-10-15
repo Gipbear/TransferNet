@@ -2,14 +2,13 @@ import sys
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from kgqa.agent.tools import AnswerWithPathsTool, PathRetrieveTool
-from kgqa.serving.llm.client import GenerateResponse
 from kgqa.retrieve.api.client import PathRetrieveResponse
+from kgqa.serving.llm.client import GenerateResponse
 
 
 class FakePathClient:
@@ -33,7 +32,7 @@ class FakeLLMClient:
 
 
 class AgentToolTests(unittest.TestCase):
-    def test_path_retrieve_tool_wraps_cached_retrieve_server(self):
+    def test_path_retrieve_tool_uses_indexed_cache_topics(self):
         response = PathRetrieveResponse(
             question="[CLS] who was vice president after kennedy died [SEP]",
             sample_index=3,
@@ -65,13 +64,34 @@ class AgentToolTests(unittest.TestCase):
         )
 
         self.assertEqual(tool.client.calls[0][1]["sample_index"], 3)
-        self.assertEqual(tool.client.calls[0][1]["topic_entities"], ["m.0d3k14"])
+        self.assertIsNone(tool.client.calls[0][1]["topic_entities"])
         self.assertEqual(result.topic_mid, "m.0d3k14")
         self.assertEqual(result.raw_topics, ["m.0d3k14"])
         self.assertEqual(result.named_topics, ["John F. Kennedy"])
         self.assertEqual(result.raw_mmr_reason_paths[0]["path"][0][2], "m.0f7fy")
         self.assertEqual(result.named_mmr_reason_paths[0]["path"][0][2], "Lyndon B. Johnson")
         self.assertEqual(result.named_prediction, {"Lyndon B. Johnson": 0.99})
+
+    def test_path_retrieve_tool_passes_topic_without_sample_index(self):
+        response = PathRetrieveResponse(
+            question="question",
+            sample_index=0,
+            topics=["m.topic"],
+            hop=1,
+            mmr_reason_paths=[],
+            prediction={},
+            elapsed_ms=1.0,
+            eta=1.0,
+            threshold=0.01,
+            beam_size=50,
+            lambda_val=0.2,
+            cache_path="cache.pt",
+        )
+        tool = PathRetrieveTool(client=FakePathClient(response), entity_map={})
+
+        tool("question", "m.topic")
+
+        self.assertEqual(tool.client.calls[0][1]["topic_entities"], ["m.topic"])
 
     def test_answer_with_paths_tool_builds_prompt_and_parses_v2_output(self):
         tool = AnswerWithPathsTool(

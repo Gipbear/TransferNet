@@ -45,6 +45,11 @@ class ValidPrefixTests(unittest.TestCase):
         self.assertFalse(valid_reject_list_prefix("2,2", 5))
         self.assertFalse(valid_reject_list_prefix("1,2,1", 5))
 
+    def test_used_digit_can_prefix_an_unused_two_digit_index(self):
+        self.assertTrue(valid_reject_list_prefix("1,1", 19))
+        self.assertFalse(reject_list_complete("1,1", 19))
+        self.assertTrue(reject_list_complete("1,10", 19))
+
     def test_malformed_rejected(self):
         self.assertFalse(valid_reject_list_prefix(",1", 5))
         self.assertFalse(valid_reject_list_prefix("1,,2", 5))
@@ -107,6 +112,19 @@ class PrefixFnTests(unittest.TestCase):
     def test_all_numbers_used_only_eos(self):
         allowed = self.fn(2, [1, 10, 2])
         self.assertEqual(sorted(allowed), [99])
+
+    def test_used_single_digits_do_not_force_premature_eos(self):
+        prefix = "4,6,7,8,9,5,3,2,1,"
+        token_ids = [10 if char == "," else int(char) for char in prefix]
+        self.assertEqual(self.fn(19, token_ids), [1])
+
+    def test_all_twenty_indices_can_be_generated_without_duplicates(self):
+        generated = []
+        for char in ",".join(str(index) for index in range(1, 21)):
+            token = 10 if char == "," else int(char)
+            self.assertIn(token, self.fn(20, generated))
+            generated.append(token)
+        self.assertEqual(self.fn(20, generated), [99])
 
 
 if __name__ == "__main__":

@@ -5,16 +5,19 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from kgqa.agent import CheckedBatchAgent
 from kgqa.agent.cli import eval_checked_batch as eval_checked_batch_agent
-from kgqa.serving.llm.client import GenerateResponse, LLMClient, SiliconFlowLLMClient
+from kgqa.agent.tools import (
+    AnswerWithPathsTool,
+    PathRetrieveTool,
+    RejectedAnswerCheckTool,
+)
 from kgqa.retrieve.api.client import PathRetrieveClient, PathRetrieveResponse
-from kgqa.agent.tools import AnswerWithPathsTool, PathRetrieveTool, RejectedAnswerCheckTool
+from kgqa.serving.llm.client import GenerateResponse, LLMClient, SiliconFlowLLMClient
 from tests.agent_fixtures import FakeLLMClient, FakePathClient
 
 
@@ -946,7 +949,7 @@ class CheckedBatchAgentTests(unittest.TestCase):
         self.assertEqual(records[0]["question"], "second question")
         retrieve_kwargs = retrieve_mock.call_args.kwargs
         self.assertEqual(retrieve_kwargs["sample_index"], 1)
-        self.assertEqual(retrieve_kwargs["topic_entities"], ["m.topic2"])
+        self.assertIsNone(retrieve_kwargs["topic_entities"])
         self.assertEqual(summary["n"], 1)
         self.assertEqual(summary["sample_index"], 1)
 

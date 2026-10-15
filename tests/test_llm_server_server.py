@@ -37,7 +37,7 @@ class FakeTokenizer:
             return "RENDERED"
         return {"input_ids": torch.tensor([[11, 12, 13]])}
 
-    def __call__(self, texts, return_tensors="pt", padding=True):
+    def __call__(self, texts, return_tensors="pt", padding=True, add_special_tokens=True):
         if isinstance(texts, str):
             # single-string call: truncation re-tokenisation in _generate_one_batch
             return {"input_ids": torch.arange(100, 100 + 256).unsqueeze(0)}

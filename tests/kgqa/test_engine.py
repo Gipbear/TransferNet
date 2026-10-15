@@ -21,6 +21,18 @@ class _Sample:
     e_score_values = torch.tensor([0.95, 0.4])
 
 
+class _TwoHopSample:
+    question = "two hop question"
+    topic_ids = [0]
+    gold_ids = [2]
+    hop_attn = torch.tensor([0.1, 0.9])
+    rel_probs = [torch.tensor([0.0, 0.9, 0.0]), torch.tensor([0.0, 0.0, 0.9])]
+    ent_indices = [torch.tensor([1]), torch.tensor([2])]
+    ent_scores = [torch.tensor([0.9]), torch.tensor([0.9])]
+    e_score_indices = torch.tensor([2])
+    e_score_values = torch.tensor([0.95])
+
+
 class TestEngine(unittest.TestCase):
     def setUp(self):
         # 边：0 --rel1--> 1, 0 --rel2--> 2
@@ -104,6 +116,22 @@ class TestEngine(unittest.TestCase):
 
     def test_candidate_hops_include_every_available_step(self):
         self.assertEqual(engine.candidate_hop_numbers(3), [1, 2, 3])
+
+    def test_candidate_hops_can_be_limited_to_exact_hop(self):
+        self.assertEqual(engine.candidate_hop_numbers(3, exact_hop=3), [3])
+
+    def test_exact_hop_retrieval_only_returns_predicted_hop_length(self):
+        kg = GlobalKG.from_triples([[0, 1, 1], [1, 2, 2]])
+
+        result = engine.retrieve_one(
+            _TwoHopSample(), kg,
+            {0: "topic", 1: "middle", 2: "gold"},
+            {1: "first", 2: "second"},
+            beam_size=10, exact_hop=True,
+        )
+
+        self.assertTrue(result.paths)
+        self.assertEqual({len(path["path"]) for path in result.paths}, {2})
 
     def test_penalty_modes_follow_declared_formulas(self):
         candidates = [

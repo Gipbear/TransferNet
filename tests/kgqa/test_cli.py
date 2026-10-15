@@ -18,6 +18,7 @@ class TestCLI(unittest.TestCase):
         self.assertNotIn("--method", retrieve_parser.format_help())
         self.assertIn("--backbone", retrieve_parser.format_help())
         self.assertIn("--eta", retrieve_parser.format_help())
+        self.assertIn("--exact_hop", retrieve_parser.format_help())
         self.assertIn("--relation_normalization", retrieve_parser.format_help())
         self.assertNotIn("--alpha_final", retrieve_parser.format_help())
         self.assertIn("--run_dir", retrieve_parser.format_help())
@@ -28,6 +29,11 @@ class TestCLI(unittest.TestCase):
                 "--relation_normalization", "local",
             ]).relation_normalization,
             "local",
+        )
+        self.assertTrue(
+            retrieve_parser.parse_args([
+                "--dataset", "metaqa", "--input_dir", "x", "--exact_hop",
+            ]).exact_hop,
         )
         with self.assertRaises(SystemExit):
             retrieve_parser.parse_args(["--dataset", "webqsp", "--input_dir", "x", "--alpha_final", "0.7"])

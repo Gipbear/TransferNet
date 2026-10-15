@@ -90,6 +90,66 @@ class TestMetaqaSpec(unittest.TestCase):
         self.assertEqual(len(samples), 2)
 
 
+class TestCwqSpec(unittest.TestCase):
+    """RoG-CWQ:与 metaqa 共用 retrieve 产物 JSONL,但问题不含 e_s 占位。"""
+
+    def setUp(self):
+        from kgqa.agent.specs import get_agent_spec
+        self.spec = get_agent_spec("cwq")
+
+    def test_basic_fields(self):
+        self.assertEqual(self.spec.name, "cwq")
+        self.assertEqual(self.spec.hops, (1, 2))
+        self.assertIsNone(self.spec.entity_map_path)
+        self.assertEqual(self.spec.load_entity_map(), {})  # 天然实体名口径
+        self.assertTrue(self.spec.group_by_hop)
+
+    def test_load_qa_keeps_natural_question_and_index(self):
+        rec = {
+            "question": "The national anthem Afghan National Anthem is from the "
+                        "country which practices what religion?",
+            "topics": ["Afghan National Anthem"],
+            "hop": 2,
+            "golden": ["Sunni Islam", "Shia Islam"],
+            "sample_index": 4,
+            "mmr_reason_paths": [],
+            "prediction": {},
+        }
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False,
+                                         encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            path = fh.name
+        try:
+            samples = self.spec.load_qa(path)
+        finally:
+            os.unlink(path)
+        self.assertEqual(len(samples), 1)
+        s = samples[0]
+        # 问题无 e_s 占位,展示问题与原始问题一致
+        self.assertEqual(s.question, rec["question"])
+        self.assertEqual(s.question_raw, rec["question"])
+        self.assertEqual(s.topic_id, "Afghan National Anthem")
+        self.assertEqual(s.gold_ids, ["Sunni Islam", "Shia Islam"])
+        self.assertEqual(s.sample_index, 4)
+
+    def test_load_qa_limit(self):
+        recs = [
+            {"question": f"q{i}", "topics": [f"t{i}"], "golden": [f"g{i}"],
+             "sample_index": i}
+            for i in range(5)
+        ]
+        with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False,
+                                         encoding="utf-8") as fh:
+            for rec in recs:
+                fh.write(json.dumps(rec) + "\n")
+            path = fh.name
+        try:
+            samples = self.spec.load_qa(path, limit=3)
+        finally:
+            os.unlink(path)
+        self.assertEqual(len(samples), 3)
+
+
 class TestRegistry(unittest.TestCase):
     def test_unknown_dataset_raises(self):
         from kgqa.agent.specs import get_agent_spec

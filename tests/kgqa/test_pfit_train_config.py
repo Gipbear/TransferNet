@@ -70,6 +70,28 @@ class TestBuildTrainingArgs(unittest.TestCase):
         self.assertFalse(_args(bf16=False).bf16)
 
 
+class TestStepBudget(unittest.TestCase):
+    """训练步数固定：三组建集样本量不同，步数必须由 A 组决定（P2 分段拒答）。"""
+
+    def test_default_follows_epoch_plan(self):
+        args = _args()
+        self.assertEqual(args.max_steps, -1)
+        self.assertEqual(args.save_strategy.value, "epoch")
+
+    def test_max_steps_overrides_and_saves_by_step(self):
+        args = _args(max_steps=176)
+        self.assertEqual(args.max_steps, 176)
+        self.assertEqual(args.save_strategy.value, "steps")
+        self.assertEqual(args.save_steps, 176)
+
+    def test_parser_default_is_zero(self):
+        from kgqa.pfit.train import build_parser
+
+        args = build_parser().parse_args(["--exp_dir", "/tmp/exp"])
+        self.assertEqual(args.max_steps, 0)
+        self.assertFalse(args.group_split)
+
+
 class TestMemoryCleanupCallback(unittest.TestCase):
     def test_empties_cuda_cache_after_eval(self):
         from kgqa.pfit.train import make_memory_cleanup_callback
