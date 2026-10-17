@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "kind": "ch4_pfit_matrix",
+  "dataset": "webqsp",
+  "config_id": "rejection_blocks_fusion_v1",
+  "note": "WebQSP 三强模型补齐拒答版本（Mistral-7B 与 Qwen3.5-4B）。基于排名分块方案（B2_排名分块_2ep，beam40 切为 [1-20] 与 [21-40]，5739 样本，max_steps 340，group_split）。训练规格严格对齐显存安全设置（batch 1, grad_accum 32；Qwen 16-bit text_only，Mistral 4-bit）。",
+  "experiments": [
+    {
+      "id": "Mistral-7B_排名分块_2ep",
+      "group": "三强融合拒答",
+      "mode": "train",
+      "seeds": [
+        17
+      ],
+      "train_file": "candidates/beam40_lambda02_eta1/train.jsonl",
+      "test_file": "candidates/beam20_lambda02_eta1/test.jsonl",
+      "build_args": [
+        "--format",
+        "v2",
+        "--path_format",
+        "chain",
+        "--entity_repr",
+        "name",
+        "--block_group",
+        "blocks",
+        "--block_size",
+        "20"
+      ],
+      "train_args": [
+        "--model",
+        "unsloth/mistral-7b-instruct-v0.3-bnb-4bit",
+        "--model_precision",
+        "4bit",
+        "--batch_size",
+        "1",
+        "--grad_accum",
+        "32",
+        "--group_split",
+        "--max_steps",
+        "340"
+      ],
+      "eval_args": [
+        "--format",
+        "v2",
+        "--path_format",
+        "chain",
+        "--entity_repr",
+        "name",
+        "--batch_size",
+        "1",
+        "--model",
+        "unsloth/mistral-7b-instruct-v0.3-bnb-4bit",
+        "--model_precision",
+        "4bit"
+      ]
+    },
+    {
+      "id": "Qwen3.5-4B_排名分块_2ep",
+      "group": "三强融合拒答",
+      "mode": "train",
+      "seeds": [
+        17
+      ],
+      "train_file": "candidates/beam40_lambda02_eta1/train.jsonl",
+      "test_file": "candidates/beam20_lambda02_eta1/test.jsonl",
+      "build_args": [
+        "--format",
+        "v2",
+        "--path_format",
+        "chain",
+        "--entity_repr",
+        "name",
+        "--block_group",
+        "blocks",
+        "--block_size",
+        "20"
+      ],
+      "train_args": [
+        "--model",
+        "unsloth/Qwen3.5-4B",
+        "--model_precision",
+        "16bit",
+        "--text_only",
+        "--batch_size",
+        "1",
+        "--grad_accum",
+        "32",
+        "--group_split",
+        "--max_steps",
+        "340"
+      ],
+      "eval_args": [
+        "--format",
+        "v2",
+        "--path_format",
+        "chain",
+        "--entity_repr",
+        "name",
+        "--batch_size",
+        "1",
+        "--model",
+        "unsloth/Qwen3.5-4B",
+        "--model_precision",
+        "16bit",
+        "--text_only"
+      ]
+    }
+  ]
+}

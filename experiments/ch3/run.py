@@ -27,7 +27,7 @@ def _default_config(project_dir: Path, dataset: str, backbone: str) -> Path:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="第三章检索实验：top-k 饱和性与检索参数扫描")
-    parser.add_argument("--dataset", choices=["adint", "webqsp", "metaqa", "pharmkg", "prime", "cwq"], required=True)
+    parser.add_argument("--dataset", choices=["webqsp", "metaqa", "cwq"], required=True)
     parser.add_argument("--backbone", default="transfernet", choices=["transfernet", "rearev"])
     parser.add_argument("--config", default="", help="版本化检索配置 JSON；默认按数据集与基础检索模型选择")
     parser.add_argument(
@@ -63,15 +63,16 @@ def _retrieve_params(config: dict[str, Any], override: dict[str, Any]) -> dict[s
     params.setdefault("step_score_mode", "joint")
     params.setdefault("penalty_mode", "adaptive")
     params.setdefault("relation_normalization", "global")
+    params.setdefault("exact_hop", False)
     unsupported = set(params) - {
         "beam_size", "lambda_val", "threshold", "eta", "step_score_mode", "penalty_mode",
-        "relation_normalization",
+        "relation_normalization", "exact_hop",
     }
     if unsupported:
         raise ValueError(f"检索配置不接受字段: {', '.join(sorted(unsupported))}")
     required = {
         "beam_size", "lambda_val", "threshold", "eta", "step_score_mode", "penalty_mode",
-        "relation_normalization",
+        "relation_normalization", "exact_hop",
     }
     missing = sorted(required - set(params))
     if missing:
@@ -92,6 +93,7 @@ def _retrieve_args(config: dict[str, Any], override: dict[str, Any]) -> list[str
         "--step_score_mode", params["step_score_mode"],
         "--penalty_mode", params["penalty_mode"],
         "--relation_normalization", params["relation_normalization"],
+        *(["--exact_hop"] if params["exact_hop"] else []),
     ]
 
 
