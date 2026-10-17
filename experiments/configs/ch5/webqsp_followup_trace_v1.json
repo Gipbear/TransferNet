@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "kind": "ch5_pv_gac_matrix",
+  "dataset": "webqsp",
+  "qa_file": "data/input/WebQSP/QA_data/WebQuestionsSP/qa_test_webqsp_fixed_1581.txt",
+  "path_retrieve_url": "http://127.0.0.1:8789",
+  "llm_server_url": "http://127.0.0.1:8788",
+  "runs": {
+    "smoke": [{
+      "id": "full_trace_smoke", "limit": 3, "beam_size": 50, "lambda_val": 0.2,
+      "batch_size": 20, "check_mode": "hybrid-reject-list",
+      "flags": ["--check_constrained_decoding", "--large_answer_expansion", "--score_margin", "2.0",
+        "--expansion_top_groups", "3", "--no_early_stop", "--no_all_wrong_after_answer_stop", "--max_batches", "3"]
+    }],
+    "benchmark": [{
+      "id": "full_trace", "limit": 0, "beam_size": 50, "lambda_val": 0.2,
+      "batch_size": 20, "check_mode": "hybrid-reject-list",
+      "flags": ["--check_constrained_decoding", "--large_answer_expansion", "--score_margin", "2.0",
+        "--expansion_top_groups", "3", "--no_early_stop", "--no_all_wrong_after_answer_stop", "--max_batches", "3"]
+    }]
+  }
+}

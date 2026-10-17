@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "kind": "ch5_pv_gac_matrix",
+  "dataset": "cwq",
+  "qa_file": "data/input/RoG-CWQ/cwq_test_multi_single_topic_601.jsonl",
+  "path_retrieve_url": "http://127.0.0.1:8789",
+  "llm_server_url": "http://127.0.0.1:8788",
+  "note": "RoG-CWQ 多答案单-topic 子集（601 条，gold>1 且 topics 唯一），用于验证第五章机制在第二个数据集上的增益。gold 均值 5.04/中位 4/最大 29。**多 topic 样本（208 条）已排除**：checked_batch.py:681 用单一 topic_mid 拼 group_tails 的 key，而服务端 key 取路径起点（CWQ 的 entities 是问题中全部实体链接结果，实测 1314 条样本的路径从 2 个起点出发、144 条从 3 个），多 topic 时查不到会导致大答案补全静默失效——该路径从未在 multi-topic 下验证过，需按路径起点对齐后再纳入。【beam_size=50 而非 20】confirmed_config.json 里 'beam50 超 max_seq_len' 是**第四章单次问答**的约束（全部路径一次入上下文）；第五章分批推理每批只放 batch_size 条，50 条分 3 批即可，不再受该限制。实测池内覆盖率：CWQ 多答案 micro 在 beam20/50/100 下为 53.14%/56.55%/57.36%，beam50 基本到位而 beam100 饱和，且 beam50 与 WebQSP 同口径可比。【其余差异】batch_size=20 与 WebQSP 一致；expansion_min_answers 由 8 降至 1：该门槛的语义是\"判定这是否枚举型问题\"，而本子集已预先限定为 gold>1，模型只吐 1 个答案恰恰是漏答信号（实测 40.4% 的样本仅输出 1 个、gold 中位却是 4），故门槛应消解；沿用 8 时仅 11.5% 的样本触发补全，两组实验将无差异。qa_file 的 sample_index 为原始值，必须与 score cache 顺序一致，不可重新编号。注意 _EXPANSION_CONSTRAINT_WORDS 在 CWQ 上抑制 25.8% 的问题（WebQSP 17.0%），且为子串匹配（won→wonder）。【score_margin 2.0→4.0】由 dev 子集（dev_tune150.jsonl，150 条，seed 17）选参得出，**不是 test 扫描**——test 上的阈值扫描会构成数据泄漏。选参依据：dev 上 6 组回放（margin 1.0/2.0/4.0/关、groups 1/3/5），margin=4.0 得 Macro-F1 48.93/Micro-F1 58.77（基准 2.0 为 47.82/57.94），且 EM 仅降 0.67pt；「关分数剪枝」Hit@any 最高（58.67）但 EM 崩 5.33pt，故不取。根因：score_margin 按支撑路径 log_score 过滤，无路径 tail 支撑的答案得 -inf 被删——CWQ 的枚举答案大量位于路径中间节点，导致误删率 40.8%（WebQSP 仅 7.3%）。同理 prediction_threshold 在 dev 上选出 0.4（test 扫描给的是 0.7，两者不同，dev 口径不泄漏）。",
+  "runs": {
+    "smoke": [
+      {
+        "id": "冒烟验证",
+        "limit": 20,
+        "beam_size": 50,
+        "lambda_val": 0.2,
+        "batch_size": 20,
+        "check_mode": "hybrid-reject-list",
+        "flags": [
+          "--check_constrained_decoding",
+          "--large_answer_expansion",
+          "--expansion_min_answers",
+          "1",
+          "--score_margin",
+          "4.0",
+          "--expansion_top_groups",
+          "3",
+          "--mixed_stop_ratio",
+          "0.5",
+          "--max_batches",
+          "2"
+        ]
+      }
+    ],
+    "benchmark": [
+      {
+        "id": "无补全基线",
+        "limit": 0,
+        "beam_size": 50,
+        "lambda_val": 0.2,
+        "batch_size": 20,
+        "check_mode": "hybrid-reject-list",
+        "flags": [
+          "--check_constrained_decoding",
+          "--score_margin",
+          "4.0",
+          "--expansion_top_groups",
+          "3",
+          "--mixed_stop_ratio",
+          "0.5",
+          "--max_batches",
+          "2"
+        ]
+      },
+      {
+        "id": "补全放宽",
+        "limit": 0,
+        "beam_size": 50,
+        "lambda_val": 0.2,
+        "batch_size": 20,
+        "check_mode": "hybrid-reject-list",
+        "flags": [
+          "--check_constrained_decoding",
+          "--large_answer_expansion",
+          "--expansion_min_answers",
+          "1",
+          "--score_margin",
+          "4.0",
+          "--expansion_top_groups",
+          "3",
+          "--mixed_stop_ratio",
+          "0.5",
+          "--max_batches",
+          "2"
+        ]
+      }
+    ]
+  }
+}
